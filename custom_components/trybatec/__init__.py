@@ -1,5 +1,4 @@
 """Unofficial Trybatec integration for Home Assistant."""
-
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
@@ -18,13 +17,13 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register opt-in actions without writing any statistics on startup."""
+    """Register opt-in historical actions; no recorder writes at startup."""
     register_history_actions(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the account through the UI configuration entry."""
+    """Set up the account through Home Assistant's UI."""
     client = TrybatecClient(
         async_get_clientsession(hass),
         entry.data[CONF_USERNAME],
@@ -39,12 +38,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload after a configuration option changes."""
+    """Reload when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Remove runtime state without erasing meter history from HA."""
+    """Unload runtime state but preserve history."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)

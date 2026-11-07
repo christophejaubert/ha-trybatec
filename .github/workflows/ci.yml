@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: "21 7 * * *" # Daily detection of latest published HA compatibility
+    - cron: "21 7 * * *" # Daily compatibility check with latest published HA
   workflow_dispatch:
 
 permissions:
@@ -22,8 +22,18 @@ jobs:
         run: python -m pip install pytest aiohttp
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
-      - name: Test parsing and API client
+      - name: Test parsing, history and API client
         run: python -m pytest -q
+      - name: Check brand asset dimensions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from struct import unpack
+          for name, n in [('icon.png',256),('icon@2x.png',512)]:
+              data=(Path('custom_components/trybatec/brand')/name).read_bytes()
+              assert data[:8]==b'\x89PNG\r\n\x1a\n'
+              assert unpack('>II',data[16:24])==(n,n)
+          PY
 
   latest-homeassistant-import:
     runs-on: ubuntu-latest
@@ -40,7 +50,6 @@ jobs:
           python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor; import custom_components.trybatec.history_services"
 
   publish-experimental-beta:
-    # Publish only after all tests pass, and only for a direct push to main.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [pure-tests, latest-homeassistant-import]
     runs-on: ubuntu-latest
@@ -50,17 +59,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify beta version before publishing
         run: |
-          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b1"'
+          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b2"'
       - name: Create experimental GitHub pre-release if missing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view '0.2.0b1' > /dev/null 2>&1; then
-            echo 'The 0.2.0b1 release already exists; leaving it unchanged.'
+          if gh release view '0.2.0b2' > /dev/null 2>&1; then
+            echo 'The 0.2.0b2 release exists; leaving it unchanged.'
           else
-            gh release create '0.2.0b1' \
+            gh release create '0.2.0b2' \
               --target "$GITHUB_SHA" \
               --prerelease \
-              --title 'Trybatec 0.2.0b1 — Experimental Beta' \
+              --title 'Trybatec 0.2.0b2 — Historical diagnostics and branding' \
               --notes-file RELEASE_NOTES_BETA.md
           fi

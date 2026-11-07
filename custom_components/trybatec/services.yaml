@@ -1,39 +1,59 @@
 preview_history:
+  name: Preview historical readings
+  description: Read historical index readings, anomalies, dates and yearly estimates without changing recorder.
   fields:
     entry_id:
-      example: ""
+      description: Optional when only one account is installed.
       selector:
         text: {}
     start_date:
-      example: "2021-01-01"
+      description: Beginning of requested period (YYYY-MM-DD).
+      example: "2021-12-22"
       selector:
         text: {}
     end_date:
-      example: "2026-11-07"
+      description: End of requested period (YYYY-MM-DD); defaults to today.
       selector:
         text: {}
 import_history:
+  name: Import historical statistics (experimental)
+  description: Requires backup and explicit consent; each fluid can be imported independently.
   fields:
     entry_id:
       selector:
         text: {}
     start_date:
-      example: "2021-01-01"
+      example: "2021-12-22"
       selector:
         text: {}
     end_date:
       selector:
         text: {}
+    include_cold_water:
+      description: Import cold water independently (uncheck if its indexes are anomalous).
+      default: true
+      selector:
+        boolean: {}
+    include_hot_water:
+      description: Import hot water independently.
+      default: true
+      selector:
+        boolean: {}
     include_heating:
+      description: Heating is excluded by default until its kWh unit has been verified.
+      default: false
       selector:
         boolean: {}
     confirm_heating_kwh:
       selector:
         boolean: {}
     allow_gaps:
+      description: Accept gaps longer than three days without interpolation.
+      default: false
       selector:
         boolean: {}
     confirm:
+      description: Explicit confirmation of backup, preview review and recorder write.
       required: true
       selector:
         boolean: {}

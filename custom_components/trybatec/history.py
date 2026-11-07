@@ -1,43 +1,47 @@
-"""Pure, conservative construction of history from observed Trybatec meter indexes.
+"""Conservative history reconstruction for the unofficial Trybatec integration.
 
-No value is interpolated. The interval delta is attributed to the last
-completed local hour before its ending timestamp. Large gaps remain flagged.
+Index samples are never interpolated. An observed interval's delta belongs to
+its final reading date; crossing a year boundary is explicitly reported.
 """
-
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
 from .parsing import numeric, parse_timestamp
 
 MAX_REQUEST_DAYS = 92
 MAX_HISTORY_DAYS = 3660
+MAX_DETAILS = 100
 
 
 def history_windows(start: date, end: date) -> list[tuple[date, date]]:
-    """Request bounded, overlapping intervals; the server's end semantics are unknown."""
+    """Query overlapping windows to tolerate inclusive/exclusive API bounds."""
     if end < start or (end - start).days > MAX_HISTORY_DAYS:
         raise ValueError("Historical date range is invalid or exceeds 10 years")
-    windows: list[tuple[date, date]] = []
+    result: list[tuple[date, date]] = []
     cursor = start
     while cursor < end:
-        window_end = min(cursor + timedelta(days=MAX_REQUEST_DAYS), end)
-        windows.append((cursor, window_end))
-        cursor = window_end - timedelta(days=1) if window_end < end else end
-    return windows
+        finish = min(cursor + timedelta(days=MAX_REQUEST_DAYS), end)
+        result.append((cursor, finish))
+        cursor = finish - timedelta(days=1) if finish < end else end
+    return result
 
 
-def combine_payloads(payloads: list[dict[str, Any]], allowed_lots: set[str] | None = None) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Deduplicate observations by (serial, timestamp), never across meters.
+def combine_payloads(
+    payloads: list[dict[str, Any]], allowed_lots: set[str] | None = None
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Merge observations by physical serial and UTC timestamp.
 
-    Fail closed when the API supplies conflicting indexes for the same date.
+    Restrict to the user's known lot identifiers and flag conflicting samples
+    rather than guessing which index is correct.
     """
     meters: dict[str, dict[str, Any]] = {}
-    conflicts: list[str] = []
+    conflicts: list[dict[str, Any]] = []
     for payload in payloads:
         if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list):
             raise ValueError("Invalid Trybatec history payload")
@@ -47,125 +51,161 @@ def combine_payloads(payloads: list[dict[str, Any]], allowed_lots: set[str] | No
             serial, fluid = line.get("compteur"), line.get("fluide")
             if not isinstance(serial, str) or not serial.strip() or fluid not in FLUIDS:
                 continue
-            # Do not mix different dwellings if a privileged account exposes
-            # multiple lots in a common building response.
             if allowed_lots is not None and str(line.get("lot") or "").strip() not in allowed_lots:
                 continue
-            key = serial.strip()
-            item = meters.setdefault(key, {"fluid": fluid, "indexes": {}, "retired": False})
+            serial = serial.strip()
+            item = meters.setdefault(serial, {"fluid": fluid, "indexes": {}, "retired": False})
             if item["fluid"] != fluid:
-                conflicts.append("Meter fluid changed across API responses")
+                conflicts.append({
+                    "fluid": fluid, "meter_serial": serial, "reason": "fluid_changed",
+                    "previous_fluid": item["fluid"],
+                })
+                # A single serial associated with multiple fluids is unsafe for both.
+                conflicts.append({
+                    "fluid": item["fluid"], "meter_serial": serial, "reason": "fluid_changed",
+                    "previous_fluid": fluid,
+                })
                 continue
             item["retired"] = item["retired"] or line.get("depose") is True
-            for p in line.get("indexes") if isinstance(line.get("indexes"), list) else []:
-                if not isinstance(p, dict):
+            for point in line.get("indexes") if isinstance(line.get("indexes"), list) else []:
+                if not isinstance(point, dict):
                     continue
-                timestamp = parse_timestamp(p.get("date"))
-                value = numeric(p.get("value"))
-                if timestamp is None or value is None:
+                at = parse_timestamp(point.get("date"))
+                val = numeric(point.get("value"))
+                if at is None or val is None:
                     continue
-                at = timestamp.astimezone(timezone.utc)
-                existing = item["indexes"].get(at)
-                if existing is not None and existing != value:
-                    conflicts.append("Conflicting readings for one meter at the same timestamp")
+                at = at.astimezone(timezone.utc)
+                old = item["indexes"].get(at)
+                if old is not None and old != val:
+                    conflicts.append({
+                        "fluid": fluid, "meter_serial": serial, "reason": "conflicting_indexes",
+                        "date": at.astimezone(ZoneInfo(TIMEZONE)).isoformat(),
+                        "previous_index": old, "current_index": val,
+                    })
                 else:
-                    item["indexes"][at] = value
+                    item["indexes"][at] = val
     return meters, conflicts
 
 
 def build_history(
-    payloads: list[dict[str, Any]],
-    start: date,
-    end: date,
+    payloads: list[dict[str, Any]], start: date, end: date,
     allowed_lots: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Create cumulative consumption statistics, with explicit confidence warnings.
-
-    start/end are API query bounds, not a promise of continuous coverage.
-    """
-    from zoneinfo import ZoneInfo
-
+    """Construct one isolated cumulative series per fluid with diagnostics."""
     meters, conflicts = combine_payloads(payloads, allowed_lots=allowed_lots)
-    results = {
+    output = {
         fluid: {
             "rows": [], "meters": 0, "observations": 0, "gaps": 0,
-            "decreases": 0, "conflicts": len(conflicts), "total": 0.0,
-            "first": None, "last": None, "unit": "kWh" if fluid == "CET" else "m³",
+            "decreases": 0, "conflicts": 0, "total": 0.0,
+            "first": None, "last": None,
+            "unit": "kWh" if fluid == "CET" else "m³",
             "start_coverage_gap_days": None, "end_coverage_gap_days": None,
+            "gap_details": [], "decrease_details": [], "conflict_details": [],
+            "annual_consumption": {}, "cross_year_intervals": 0,
         }
         for fluid in FLUIDS
     }
+    for conflict in conflicts:
+        info = output[conflict["fluid"]]
+        info["conflicts"] += 1
+        if len(info["conflict_details"]) < MAX_DETAILS:
+            info["conflict_details"].append(conflict)
+
     increments: dict[str, dict[datetime, float]] = {
-        f: defaultdict(float) for f in FLUIDS
+        fluid: defaultdict(float) for fluid in FLUIDS
     }
-    first_bucket: dict[str, datetime] = {}
-    timezone_local = ZoneInfo(TIMEZONE)
-    for meter in meters.values():
+    local_zone = ZoneInfo(TIMEZONE)
+
+    for serial, meter in meters.items():
         fluid = meter["fluid"]
-        observations = sorted(meter["indexes"].items())
-        if not observations:
+        readings = sorted(meter["indexes"].items())
+        if not readings:
             continue
-        info = results[fluid]
+        info = output[fluid]
         info["meters"] += 1
-        info["observations"] += len(observations)
-        for idx, (at, value) in enumerate(observations):
-            # Measurements from the portal are midnight local. Their preceding
-            # completed hour belongs to the day whose consumption just ended.
+        info["observations"] += len(readings)
+        for idx, (at, value) in enumerate(readings):
+            # Readings occur around local midnight; consumption is recorded in
+            # the final completed hour before the reading.
             bucket = (at - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-            if fluid not in first_bucket or bucket < first_bucket[fluid]:
-                first_bucket[fluid] = bucket
             if idx == 0:
-                increments[fluid][bucket] += 0.0
+                increments[fluid][bucket] += 0.0  # new physical meter baseline
                 continue
-            previous_at, previous_value = observations[idx - 1]
+            previous_at, previous_value = readings[idx - 1]
+            duration_days = round((at - previous_at).total_seconds() / 86400, 3)
+            detail = {
+                "meter_serial": serial,
+                "from": previous_at.astimezone(local_zone).isoformat(),
+                "to": at.astimezone(local_zone).isoformat(),
+                "previous_index": previous_value,
+                "current_index": value,
+            }
             if value < previous_value:
                 info["decreases"] += 1
+                if len(info["decrease_details"]) < MAX_DETAILS:
+                    info["decrease_details"].append({**detail, "difference": round(value - previous_value, 6)})
+                # No synthetic reset: import of this fluid must be refused.
                 continue
-            if (at - previous_at).total_seconds() > 3 * 86400:
+            if duration_days > 3:
                 info["gaps"] += 1
-            delta = value - previous_value
-            increments[fluid][bucket] += delta
-    for fluid, info in results.items():
-        acc = 0.0
-        for at, increment in sorted(increments[fluid].items()):
-            # Hourly boundary UTC; timestamp refers to a *completed* local day.
-            acc += increment
-            info["rows"].append({"start": at, "state": round(acc, 6), "sum": round(acc, 6)})
-        info["total"] = round(acc, 6)
+                if len(info["gap_details"]) < MAX_DETAILS:
+                    info["gap_details"].append({**detail, "duration_days": duration_days})
+            if previous_at.astimezone(local_zone).year != at.astimezone(local_zone).year:
+                info["cross_year_intervals"] += 1
+            increments[fluid][bucket] += value - previous_value
+
+    for fluid, info in output.items():
+        cumulative = 0.0
+        annual: dict[str, float] = defaultdict(float)
+        for at, value in sorted(increments[fluid].items()):
+            cumulative += value
+            year = str(at.astimezone(local_zone).year)
+            annual[year] += value
+            info["rows"].append({
+                "start": at, "state": round(cumulative, 6), "sum": round(cumulative, 6)
+            })
+        info["total"] = round(cumulative, 6)
+        info["annual_consumption"] = {year: round(val, 6) for year, val in sorted(annual.items())}
         if info["rows"]:
-            first_local = info["rows"][0]["start"].astimezone(timezone_local)
-            last_local = info["rows"][-1]["start"].astimezone(timezone_local)
-            info["first"] = first_local.isoformat()
-            info["last"] = last_local.isoformat()
-            info["start_coverage_gap_days"] = max(0, (first_local.date() - start).days)
-            info["end_coverage_gap_days"] = max(0, (end - last_local.date()).days - 1)
-    return results
+            first = info["rows"][0]["start"].astimezone(local_zone)
+            last = info["rows"][-1]["start"].astimezone(local_zone)
+            info["first"] = first.isoformat()
+            info["last"] = last.isoformat()
+            info["start_coverage_gap_days"] = max(0, (first.date() - start).days)
+            info["end_coverage_gap_days"] = max(0, (end - last.date()).days - 1)
+    return output
 
 
 def external_statistic_id(account_key: str, fluid: str, start: date) -> str:
-    """Isolated series: never overwrite native entity statistics or another start."""
+    """External series are isolated from live sensor statistic IDs."""
     digest = sha256(account_key.encode("utf-8")).hexdigest()[:16]
     return f"trybatec:history_{digest}_{fluid.lower()}_{start:%Y%m%d}"
 
 
 def summarize_preview(history: dict[str, dict[str, Any]], include_heating: bool = True) -> dict[str, Any]:
-    """Return small serial-free information suitable for the service UI/logs."""
-    output: dict[str, Any] = {}
+    """Show details only in the authenticated action response, not logs."""
+    summary: dict[str, Any] = {}
     for fluid, info in history.items():
         if fluid == "CET" and not include_heating:
             continue
-        output[fluid] = {
+        summary[fluid] = {
             "meters": info["meters"],
             "observations": info["observations"],
             "statistic_hours": len(info["rows"]),
             "observed_consumption": info["total"],
             "unit": "unverified (heat meter)" if fluid == "CET" else "m³",
             "gaps_over_3_days": info["gaps"],
+            "gap_details": info["gap_details"],
             "index_decreases": info["decreases"],
+            "index_decrease_details": info["decrease_details"],
             "conflicts": info["conflicts"],
+            "conflict_details": info["conflict_details"],
             "days_missing_at_start": info["start_coverage_gap_days"],
             "days_missing_at_end": info["end_coverage_gap_days"],
             "first_statistic": info["first"],
             "last_statistic": info["last"],
+            "yearly_consumption_by_end_reading": info["annual_consumption"],
+            "intervals_crossing_year_boundary": info["cross_year_intervals"],
+            "details_truncated_at": MAX_DETAILS,
         }
-    return output
+    return summary

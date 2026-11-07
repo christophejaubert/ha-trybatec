@@ -1,13 +1,11 @@
-# 0.2.0b1 — Experimental historical-data beta (2026-11-07)
+# 0.2.0b2 — Historical diagnostics and brand icon (2026-11-07)
 
-**Experimental. Backup Home Assistant including the recorder database before using historical import. No guaranteed maintenance or support.**
+**Unofficial experimental beta. No guaranteed maintenance or support.** Back up Home Assistant including recorder before any historical import.
 
-- Adds `trybatec.preview_history` (read-only review of available past indexes and anomalies).
-- Adds `trybatec.import_history`, which requires explicit `confirm: true` to queue **isolated external** Home Assistant long-term statistics; no automatic import or database changes on startup.
-- Supports meter replacements, duplicate observations, missing intervals and index-decrease validation. No interpolation, no fabricated consumption; external history does not overwrite live sensor statistics.
-- Includes cold/hot water by default. Heating historical import is blocked without explicit confirmation that the underlying unit is kWh.
-- Uses separate anonymized series IDs and filters by current configured dwelling lot(s).
-- **Limitations:** API history availability and compatibility remain unverified in live accounts; CSV/XLSX fallback and automatic ongoing historical synchronization are not implemented. Preview and verify first.
-- 31 local tests before publication. Functional live Home Assistant recorder import requires post-installation validation.
+- Preview now reports **dates, physical meter serial numbers, old/new index values and differences** for decreases; precise intervals and durations for gaps exceeding three days; and conflicts for the affected fluid.
+- Adds **year-by-year observed consumption estimates**, assigning each interval to its ending reading (no interpolation, not reliable for year-spanning gaps).
+- Adds `include_cold_water` and `include_hot_water` to `trybatec.import_history` (both enabled by default) to import one fluid independently. Heating remains excluded by default and still requires explicit kWh confirmation.
+- Ships the **user-selected original icon** inside `custom_components/trybatec/brand/icon.png` (256 px) and `icon@2x.png` (512 px), for Home Assistant 2026.3+. The README displays the same icon. This artwork does not use the Trybatec corporate logo; the project is not endorsed by Trybatec.
+- Preserves the separate external-statistic IDs and requires explicit import confirmation; existing live sensor statistics are not overwritten by historical imports.
 
-Independent, unofficial Trybatec project developed with the assistance of ChatGPT (OpenAI). Not affiliated with Trybatec, Home Assistant or OpenAI. Maintenance, support, security fixes and future releases are not guaranteed.
+**Limits:** The importer still uses actions in Developer Tools, not an integrated graphical wizard. CSV/XLSX import and historical synchronization are not included. Trybatec API history availability and actual home installation behavior are not guaranteed. Preview responses include physical meter serials; do not post unredacted previews in public GitHub issues. Never import unreviewed decreases or unverified heating units.

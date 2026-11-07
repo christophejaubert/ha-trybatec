@@ -1,6 +1,8 @@
 # Trybatec for Home Assistant — UNOFFICIAL / EXPERIMENTAL BETA
 
-**Current beta: 0.2.0b1** (historical data preview/import, explicitly opt-in).
+![Unofficial Trybatec Home Assistant integration icon](custom_components/trybatec/brand/icon@2x.png)
+
+**Current beta: 0.2.0b2** (dated historical diagnostics, per-fluid opt-in import and user-selected icon).
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Prototype sans maintenance garantie.
 
@@ -30,7 +32,7 @@
 - Default poll interval: 12 hours; minimum: 1 hour.
 - Supports UI translations for French and English.
 
-## Historical readings and Home Assistant recorder (0.2.0b1)
+## Historical readings and Home Assistant recorder (0.2.0b1+, diagnostics improved in 0.2.0b2)
 
 **IMPORTANT: EXPERIMENTAL / NEVER AUTOMATIC. Back up Home Assistant (including the
 recorder database) before importing.** The integration does not write historical
@@ -43,7 +45,7 @@ Tools → Actions** (Outils de développement → Actions):
    first available date) and optionally `end_date: "YYYY-MM-DD"`. The action
    fetches history from the portal but does not change the database. Note the
    total, first/last dates, number of meter serials, gaps and anomalous indexes
-   for `EF` (cold water), `ECS` (hot water) and `CET` (heating).
+   for `EF` (cold water), `ECS` (hot water) and `CET` (heating). As of **0.2.0b2**, the response lists the exact dates, meter serials and indexes involved in each decline or gap, plus year-by-year consumption estimates. These annual figures attribute long intervals to the last observation; they are not audited yearly totals.
 2. Confirm that the data belong to your unit and that all three physical units
    are correct. If the API returns only a short partial history, **do not
    assume that older years have been imported**. Read the preview coverage.
@@ -72,7 +74,7 @@ Tools → Actions** (Outils de développement → Actions):
 - The Trybatec `/api/v1/indexes` endpoint is **undocumented**. Historical
   paging by date is based on the observed API interface, not an official
   contract. The portal may not return data as far back as requested.
-- Only authenticated portal data are imported in 0.2.0b1. **CSV/XLSX fallback,
+- Only authenticated portal data are imported in 0.2.0b2. **CSV/XLSX fallback,
   automated ongoing historical synchronization and merging with the existing
   live sensor statistic IDs are NOT implemented.** They are future work.
 - Data are requested in overlapping 92-day windows, serial/date duplicates
@@ -85,12 +87,18 @@ Tools → Actions** (Outils de développement → Actions):
   import, and source corrections can alter earlier totals. Never use this
   import as an audited billing record.
 
+## Logo / identity
+
+The user-selected symbol (water, hot water and heating) is distributed locally as `custom_components/trybatec/brand/icon.png` (256×256) and `icon@2x.png` (512×512), following Home Assistant 2026.3+ custom integration branding rules. It is an independently designed, unofficial integration icon, **not** the Trybatec corporate logo and not an endorsement.
+
+Preview action results may contain physical meter serials and index values. Redact this information before posting logs or screenshots publicly.
+
 ## Limitations / safety
 
 - **Not production-validated:** no live account, Home Assistant runtime or
   service contract was available for automated end-to-end tests. The format is
   based on a redacted, verified capture of the portal API response.
-- **Historical 2021–2025 sensor backfill is not implemented.** Historic rates
+- **Historical 2021–2025 live-sensor backfill is not implemented:** the historical import creates distinct external recorder statistics. Historic rates
   can be stored, but current cost sensors use the **current civil year** only.
 - Year-to-date consumption is **not an audited accounting statement**. Missing
   telemetry, corrections and replaced meters can affect the portal-reported
