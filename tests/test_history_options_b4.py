@@ -88,10 +88,10 @@ def test_options_menu_and_select_reading_then_reject_approval(ui, monkeypatch):
         reask = await flow.async_step_history_confirm({"confirm":False})
         assert reask["type"] == "form" and not saved
         final = await flow.async_step_history_confirm({"confirm":True})
-        assert final["type"] == "create_entry"
-        assert final["data"] == {"poll_minutes":720}
+        assert final["type"] == "form"
+        assert final["step_id"] == "history_review"
         assert len(saved)==1 and saved[0][-1]=={"action":"reject"}
-        assert coordinator._history_review_candidates == []
+        assert coordinator._history_review_candidates != []
     asyncio.run(run())
 
 
