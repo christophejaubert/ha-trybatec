@@ -6,6 +6,7 @@ a meter model or fluid type NEVER establishes the raw scale.
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from typing import Any
 
 _ALLOWED = {
@@ -46,7 +47,8 @@ def portal_index_unit(line: dict[str, Any]) -> str | None:
 
 def meter_key(lot: str, fluid: str, serial: str) -> str:
     """Opaque option identifier; never join a serial reused across lots/fluids."""
-    return sha256(f"{lot}\\0{fluid}\\0{serial}".encode()).hexdigest()[:24]
+    identity = json.dumps([lot, fluid, serial], ensure_ascii=True, separators=(",", ":"))
+    return sha256(identity.encode("utf-8")).hexdigest()[:24]
 
 
 def validate_meter_units(options: Any) -> dict[str, str]:
