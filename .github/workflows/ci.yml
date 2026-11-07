@@ -30,7 +30,7 @@ jobs:
           from pathlib import Path
           import json
           manifest = json.loads(Path('custom_components/trybatec/manifest.json').read_text())
-          assert manifest['version'] == '0.2.0b4' and manifest['domain'] == 'trybatec'
+          assert manifest['version'] == '0.2.0b5' and manifest['domain'] == 'trybatec'
           published = [Path('README.md'), Path('RELEASE_NOTES_BETA.md')]
           published += list(Path('custom_components/trybatec').rglob('*.py'))
           published += list(Path('tests').glob('test_*.py'))
@@ -81,17 +81,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify beta version before publishing
         run: |
-          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b4"'
+          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b5"'
       - name: Create experimental GitHub pre-release if missing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view '0.2.0b4' > /dev/null 2>&1; then
-            echo 'The 0.2.0b4 release exists; leaving it unchanged.'
+          if gh release view '0.2.0b5' > /dev/null 2>&1; then
+            echo 'The 0.2.0b5 release exists; leaving it unchanged.'
           else
-            gh release create '0.2.0b4' \
+            gh release create '0.2.0b5' \
               --target "$GITHUB_SHA" \
               --prerelease \
-              --title 'Trybatec 0.2.0b4 — Historical review and safe import' \
+              --title 'Trybatec 0.2.0b5 — Historical review and safe import' \
               --notes-file RELEASE_NOTES_BETA.md
           fi

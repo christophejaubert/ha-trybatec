@@ -260,11 +260,11 @@ def build_history(
                 series["annual_within_year"][str(at.astimezone(LOCAL_ZONE).year)] += delta
             chosen_accounting = meter.get("accounting_choices", {}).get(at)
             if chosen_accounting:
-                target_at, source_key = chosen_accounting
+                target_at, source_key, out_of_period_confirmed = chosen_accounting
                 # An accounting-only attribution must not masquerade as a
                 # measured daily delta. The chosen time must fall inside the
                 # observed interval, and be later than its starting reading.
-                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and prev_at < target_at <= at):
+                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and (prev_at < target_at <= at or out_of_period_confirmed)):
                     series["conflicts"] += 1
                     series["fatal_conflicts"] = True
                     parent["conflicts"] += 1

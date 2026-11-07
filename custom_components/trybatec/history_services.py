@@ -25,7 +25,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DEAL_ID, DOMAIN, FLUIDS, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_HEATING_UNIT, DOMAIN, FLUIDS, TIMEZONE
 from .history_store import load_decisions
 from .history_v4 import compose_plan, reconcile_plan
 from .history import (
@@ -266,8 +266,9 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
             _LOGGER.warning("Trybatec history import fetch failed: %s", type(exc).__name__)
             raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
         # Accounts without heating must not fail just because CET is absent.
-        if "CET" in chosen and data["CET"]["meters"] and not call.data.get("confirm_heating_kwh"):
-            raise ServiceValidationError("Heating import requires verified kWh, not allocation units")
+        heat_unit = getattr(coordinator.entry, "options", {}).get(CONF_HEATING_UNIT, "unverified")
+        if "CET" in chosen and data["CET"]["meters"] and (heat_unit == "unverified" or not call.data.get("confirm_heating_kwh")):
+            raise ServiceValidationError("Heating import requires verified energy units and explicit confirmation")
         account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
         if call.data.get("include_accounting") and not call.data.get("confirm_accounting"):
             raise ServiceValidationError("Manual accounting allocations need confirm_accounting=true")
@@ -305,6 +306,10 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         queued: list[dict[str, Any]] = []
         for item in approved:
             stat_id, fluid = item["statistic_id"], item["fluid"]
+            rows = item["rows"]
+            if fluid == "CET":
+                factor = {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[heat_unit]
+                rows = [{**row, "state": round(row["state"] * factor, 6), "sum": round(row["sum"] * factor, 6)} for row in rows]
             metadata = {
                 "statistic_id": stat_id,
                 "source": DOMAIN,
@@ -314,7 +319,7 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
                 "mean_type": StatisticMeanType.NONE,
                 "has_sum": True,
             }
-            async_add_external_statistics(hass, metadata, item["rows"])
+            async_add_external_statistics(hass, metadata, rows)
             queued.append({
                 "statistic_id": stat_id, "kind": item["kind"], "fluid": fluid,
                 "lot": item["lot"], "meter_serial": item["serial"],

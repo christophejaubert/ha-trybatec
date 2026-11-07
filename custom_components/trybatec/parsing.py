@@ -6,6 +6,8 @@ meter is a different entity so statistics cannot silently span a meter reset.
 
 from __future__ import annotations
 
+from collections import Counter
+from hashlib import sha256
 from datetime import date, datetime
 from math import isfinite
 from typing import Any
@@ -60,7 +62,10 @@ def known_lots(payload: dict[str, Any]) -> set[str]:
 def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Normalize server lines, keyed by stable meter serial number."""
     parsed: dict[str, dict[str, Any]] = {}
-    for line in payload.get("lines", []):
+    # Never collapse identical serial strings across lots or different fluids.
+    candidates = [row for row in payload.get("lines", []) if isinstance(row, dict)]
+    serial_counts = Counter(str(row.get("compteur", "")).strip() for row in candidates)
+    for line in candidates:
         if not isinstance(line, dict):
             continue
         serial = line.get("compteur")
@@ -88,8 +93,20 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
         # latest index until it recovers. It must not become a false reset.
         if indexes and indexes[-1][1] < max(value for _, value in indexes):
             last = None
-        parsed[serial] = {
+        lot = str(line.get("lot") or "").strip()
+        # Preserve legacy single-meter keys while making duplicated serials
+        # unambiguous. A collision can be reported without cross-lot leakage.
+        if serial_counts[serial] > 1:
+            digest = sha256(f"{lot}\0{fluid}\0{serial}".encode()).hexdigest()[:16]
+            meter_key = f"{serial}::{digest}"
+            if meter_key in parsed:
+                raise ValueError("Ambiguous repeated physical meter identity")
+        else:
+            meter_key = serial
+        parsed[meter_key] = {
             "serial": serial,
+            "meter_key": meter_key,
+            "identity_collision": serial_counts[serial] > 1,
             "fluid": fluid,
             "lot": str(line.get("lot") or ""),
             "location": str(line.get("localisation") or ""),

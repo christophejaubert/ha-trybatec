@@ -52,3 +52,9 @@ external-statistics write. Re-running an unchanged import is designed to be
 idempotent, but the user must check actual Recorder persistence before trusting
 any totals. Backfilled revisions create distinct external series and never
 silently delete the old one. Switching the Energy dashboard remains manual.
+
+## 0.2.0b5 thermal-unit safety and out-of-period decisions
+
+The Diehl SHARKY 774 supports kWh, MWh and GJ; the configured display unit and the Trybatec portal scale must be independently verified. Source CET indexes remain explicitly unverified by default rather than being declared kWh.
+
+User-approved accounting attribution outside original reading intervals requires a separate affirmative checkbox; original source data are immutable. Choices persist in local Home Assistant storage and are not discarded on reboot. Recorder imports are queued asynchronously and must be verified in the statistics UI before they are considered complete.

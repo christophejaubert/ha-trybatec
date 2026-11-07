@@ -126,3 +126,18 @@ def test_rate_fallback_prefers_latest_approved():
     assert rate["fallback"] is True
     assert resolve_tariff(t, 2025, "EF")["rate"] == 9
     assert resolve_tariff(t, 2024, "CET") is None
+
+
+def test_b5_same_meter_serial_in_multiple_lots_remains_isolated():
+    payload = {"lines":[
+        {"compteur":"SHARED-TEST", "lot":"LOT-A", "fluide":"EF",
+         "conso":1.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":1.0}]},
+        {"compteur":"SHARED-TEST", "lot":"LOT-B", "fluide":"EF",
+         "conso":2.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":99.0}]},
+    ]}
+    meters = parse_lines(payload)
+    assert len(meters) == 2
+    assert len({x["meter_key"] for x in meters.values()}) == 2
+    assert {x["lot"] for x in meters.values()} == {"LOT-A","LOT-B"}
+    assert summarize_annual(payload)["EF"]["value"] == 3.0
+

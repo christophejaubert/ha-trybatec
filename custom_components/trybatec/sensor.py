@@ -172,6 +172,8 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             return None
         if self._metric == "price":
             return tariff["rate"]
+        if self._fluid == "CET" and annual is not None:
+            annual *= {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[self._heat_unit]
         return round(annual * tariff["rate"], 4) if annual is not None else None
 
     @property

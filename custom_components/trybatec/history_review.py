@@ -46,7 +46,7 @@ def validate_decision(data: dict[str, Any]) -> dict[str, Any]:
     """Enforce strict schema and explicit reason for user date/accounting choices."""
     if not isinstance(data, dict) or data.get("action") not in ACTIONS:
         raise ValueError("Unknown history review action")
-    if set(data) - {"action", "mode", "timestamp", "reason", "updated_at"}:
+    if set(data) - {"action", "mode", "timestamp", "reason", "updated_at", "out_of_period_confirmed"}:
         raise ValueError("Unknown history review fields")
     action = data["action"]
     reason = data.get("reason", "")
@@ -69,7 +69,13 @@ def validate_decision(data: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("A correction requires mode and written justification")
         when = parse_local_time(data.get("timestamp"))
         clean.update({"mode": data["mode"], "timestamp": when.astimezone(ZONE).isoformat()})
-    elif "mode" in data or "timestamp" in data:
+        if data.get("out_of_period_confirmed") is True:
+            if data["mode"] != "accounting":
+                raise ValueError("Only accounting may confirm out-of-period attribution")
+            clean["out_of_period_confirmed"] = True
+        elif "out_of_period_confirmed" in data:
+            raise ValueError("Invalid accounting period confirmation")
+    elif "mode" in data or "timestamp" in data or "out_of_period_confirmed" in data:
         raise ValueError("Only corrections can set a date")
     return clean
 
@@ -116,7 +122,7 @@ def apply_review_to_meter(meter: dict[str, Any], decisions: dict[str, dict[str, 
             continue
         effective[new_time] = value
         if choice["action"] == "correct" and choice["mode"] == "accounting":
-            accounting[new_time] = (parse_local_time(choice["timestamp"]), ident)
+            accounting[new_time] = (parse_local_time(choice["timestamp"]), ident, choice.get("out_of_period_confirmed", False))
     return effective, accounting, clashes
 
 

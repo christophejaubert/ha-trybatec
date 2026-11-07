@@ -221,3 +221,21 @@ def test_accounting_is_separate_and_never_imports_twice_on_same_source_replay():
     assert a[0]["statistic_id"] == b[0]["statistic_id"]
     assert a[0]["quantity"] == b[0]["quantity"] == 20
     assert first == second
+
+
+def test_b5_out_of_period_accounting_requires_user_approval():
+    sample = input_line("DEMO", "EF", [
+        ("2024-01-01T00:00:00+01:00", 100),
+        ("2024-12-31T00:00:00+01:00", 112),
+    ])
+    key = candidates(build(sample))[0]["key"]
+    choice = {"action":"correct","mode":"accounting",
+        "timestamp":"2024-12-31T23:59:00+01:00",
+        "reason":"Authorized year-end attribution outside source interval"}
+    pending = build(sample,decisions={key:choice})
+    assert series(pending, serial="DEMO")["fatal_conflicts"]
+    confirmed = build(sample,decisions={key:{**choice,"out_of_period_confirmed":True}})
+    actual = series(confirmed,serial="DEMO")
+    assert not actual["fatal_conflicts"]
+    assert actual["accounting_allocations"][0]["quantity"] == 12
+    assert actual["accounting_allocations"][0]["at"].astimezone(__import__("zoneinfo").ZoneInfo("Europe/Paris")).year == 2024

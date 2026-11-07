@@ -24,10 +24,11 @@
     "step": {
       "settings": {
         "title": "Trybatec options",
-        "description": "Tariff JSON example: {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Supported fluids: EF, ECS, CET. Costs are estimates, not a billing statement.",
+        "description": "Tariff JSON example: {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Supported fluids: EF, ECS, CET. Costs are estimates, not a billing statement. Select unverified until the actual unit is confirmed.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)"
+          "annual_tariffs": "Annual tariffs (JSON, optional)",
+          "heating_unit": "Heating meter source index unit (verify on meter or with provider)"
         }
       },
       "init": {

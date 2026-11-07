@@ -62,7 +62,7 @@ def new_ui(ui):
     flow = ui.TrybatecOptionsFlow()
     flow.config_entry = SimpleNamespace(entry_id="MOCK-ENTRY", options={"poll_minutes": 720})
     record = {"key":"a"*32,"lot":"FAKE-HOME","fluid":"EF","meter_serial":"FAKE-METER",
-              "source_date":"2025-01-01T00:00:00+01:00","index":409,
+              "source_date":"2025-01-01T00:00:00+01:00","previous_date":"2024-12-31T00:00:00+01:00","index":409,
               "reasons":["sparse_interval"],"decision":"postpone"}
     coordinator = SimpleNamespace(_history_review_candidates=[record])
     flow.hass = SimpleNamespace(data={"trybatec": {"MOCK-ENTRY": coordinator}})

@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Current experimental beta: 0.2.0b4** — per-reading review in Home Assistant options, separate approved accounting allocations, and controlled recorder revision handling. Available as a GitHub pre-release; back up Home Assistant before any import.
+**Current experimental beta: 0.2.0b5** — local review refresh, explicit out-of-period accounting, verified thermal units, and live meter isolation. Back up Home Assistant before historical imports.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -36,7 +36,7 @@
 - Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present.
 - Historical readings handle one meter, successive physical meters, parallel meters, multiple dwellings, and sparse/backdated-looking observations without client-specific assumptions.
 
-## Historical readings and Home Assistant recorder (proposed `0.2.0b4`)
+## Historical readings and Home Assistant recorder (`0.2.0b5`)
 
 **EXPERIMENTAL. NO AUTOMATIC RECORDER WRITES.** Back up Home Assistant
 **including Recorder and `.storage`** before importing. No history is imported
@@ -67,14 +67,10 @@ on install, restart, update or daily polling. History actions require an
    exact source reading (account store + lot + fluid + serial + timestamp +
    value). When Trybatec changes the source timestamp or value, the old choice
    does **not** apply blindly. The source portal is never modified.
-4. **Run `preview_history` again** after a decision to inspect the effect.
-   The preview action never writes to Recorder or persistent storage itself.
-   The review interface stores choices in `.storage`; back it up with Recorder.
+4. Each confirmed decision is persisted under Home Assistant storage, and candidates are recalculated in the same review session using the cached source payloads. No repeated vendor requests are needed until the cache is lost (for instance on restart). The source portal is not modified.
 
 **Limit:** This is a native Home Assistant *options flow*, not yet a custom
-full-page dashboard. A review requires a preceding preview to populate
-candidates; a new preview is required after each saved choice. Only flagged
-readings are selectable. The source API has no documented provenance flags,
+full-page dashboard. The review fetches a preview if needed when opened, and allows continuing choices without repeated API calls. Only flagged readings are selectable. The source API has no documented provenance flags,
 so neither a backdated-looking entry nor a correction is called "manual" without
 independent evidence. Text justification is requested but not verified by code;
 no file upload or automatic proof verification is included.
@@ -98,14 +94,10 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - **User-approved accounting allocations** of sparse consumption are stored
   in **separate** per-meter `history_v4_..._accounting_...` series, never made to
   look like measured daily usage. Opt in with `include_accounting: true` and
-  `confirm_accounting: true`. The allocation timestamp must lie inside the
-  observed source interval, and the amount is calculated as a verified
-  nonnegative difference between two source indexes. For instance, a
+  `confirm_accounting: true`. Allocation outside the observed source interval requires an **extra explicit checkbox confirmation** and a justification; source dates are preserved. The allocated amount is a nonnegative difference between two source indexes, not the meter index itself. For instance, a
   deliberate **31 Dec 23:59** selection is recorded into the **31 Dec 23:00**
   local hourly statistics bucket, not the following civil year.
-- **Heating is OFF by default**. It can be imported only after independent
-  confirmation of genuine kWh (not heating allocation units) using
-  `include_heating: true` and `confirm_heating_kwh: true`.
+- **Heating is OFF by default**. The thermal source unit is **unverified** until configured under integration options: kWh, MWh, or GJ (all converted to kWh for energy statistics). Both `include_heating: true` and `confirm_heating_kwh: true` remain required for historical heating imports. SHARKY 774 DN 15 is a thermal energy meter, but its configured unit and Trybatec portal scaling require confirmation. Manufacturer: https://www.diehl.com/metering/fr/produits-et-solutions/produits/comptage-de-lenergie-thermique/sharky-774-compact-fr/.
 - **Multiple serial numbers** stay separate even if they may be successive
   physical generations of a single lot's consumption point. Overlapping
   meters are never assumed to be successive.
@@ -131,9 +123,9 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - The Trybatec `/api/v1/indexes` API is undocumented. Historical access is
   limited to 10 years per request with API and payload-size limits. Some
   vendor accounts may expose only partial or inconsistent history.
-- The live/current sensor representation still uses serial-only identity;
-  duplicate serials across different lots are isolated in historical
-  statistics but not yet fully handled in live sensors.
+- Live meter parsing now uses collision-safe internal identities when a serial occurs in more than one lot or fluid. Legacy IDs are retained for non-colliding serials. Inspect previous HA entity registrations if collisions have already occurred.
+- Recorder imports are asynchronous and not atomic or verified on queueing. Confirm actual persistence in Developer Tools → Statistics before relying on totals; no automatic migration or Energy dashboard series switch is implemented.
+- Review session payloads are cached in memory, but each confirmed decision persists under Home Assistant storage across restarts.
 - No complete CSV/XLSX ingestion, automatic conversion of sparse intervals
   to daily readings, provenance audit of source documents, full graphical
   bulk review, or automatic switching of revised Recorder statistics in the
@@ -199,6 +191,10 @@ Preview action results may contain physical meter serials and index values. Reda
 GitHub.** La sauvegarde de `<CONFIG>` doit protéger le contenu des entrées de
 configuration, y compris les mots de passe.
 
+### Unité des compteurs thermiques
+
+L'option `heating_unit` est `unverified` par défaut. Tant que l'unité de l'index CET transmis par Trybatec n'est pas vérifiée, le capteur brut n'annonce pas de kWh et n'est pas une source d'énergie valide. Choisir `kWh`, `MWh` ou `GJ` uniquement après vérification de l'afficheur réel et de la mise à l'échelle Trybatec. **Après mise à jour, vérifier les anciennes entités CET et anciennes statistiques avant de configurer le tableau Énergie.**
+
 ### Tarifs historiques
 
 Configuration optionnelle dans les **Options** de l'intégration :
@@ -262,7 +258,7 @@ avec examen éventuel selon les disponibilités.
 
 ## Developer notes / GitHub publication
 
-`manifest.json` currently targets the intended repository `christophejaubert/ha-trybatec`. **Before publishing this repository to GitHub**:
+`manifest.json` currently targets the intended repository `christophejaubert/ha-trybatec`. **For new maintainers and future releases**:
 
 1. Create that exact public repository (or update `manifest.json` to match the final owner/repository name).
 2. Confirm that `documentation`, `issue_tracker` and `codeowners` in `manifest.json` point to the real repository and owner.

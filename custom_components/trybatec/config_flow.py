@@ -27,6 +27,7 @@ from .api import TrybatecAuthError, TrybatecClient, TrybatecConnectionError, Try
 from .const import (
     CONF_DEAL_ID,
     CONF_POLL_MINUTES,
+    CONF_HEATING_UNIT, HEATING_UNITS,
     CONF_TARIFFS,
     DEFAULT_POLL_MINUTES,
     DOMAIN,
@@ -130,6 +131,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                         CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_POLL_MINUTES, max=10080)),
+                vol.Required(
+                    CONF_HEATING_UNIT,
+                    default=self.config_entry.options.get(CONF_HEATING_UNIT, "unverified"),
+                ): vol.In(HEATING_UNITS),
                 vol.Required(
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),

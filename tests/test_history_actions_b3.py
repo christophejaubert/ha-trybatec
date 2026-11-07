@@ -227,7 +227,7 @@ def test_import_service_never_imports_unverified_heating(services, monkeypatch):
         "include_heating": True,
     })
     async def run():
-        with pytest.raises(services.ServiceValidationError, match="verified kWh"):
+        with pytest.raises(services.ServiceValidationError, match="verified energy units"):
             await services.async_import_history(hass, call)
         assert calls == []
     asyncio.run(run())
