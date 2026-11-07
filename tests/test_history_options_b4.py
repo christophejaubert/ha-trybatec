@@ -117,10 +117,14 @@ def test_correction_with_accounting_date_and_dst_refusal(ui, monkeypatch):
     asyncio.run(run())
 
 
-def test_history_review_empty_requires_preview(ui):
+def test_history_review_empty_offers_navigation_and_actions(ui):
     flow, coordinator = new_ui(ui)
     coordinator._history_review_candidates = []
-    assert asyncio.run(flow.async_step_history_review())["reason"] == "history_preview_required"
+    result = asyncio.run(flow.async_step_history_review())
+    assert result["type"] == "menu"
+    assert result["step_id"] == "history_empty"
+    assert result["menu_options"] == ["init"]
+    assert result["description_placeholders"]["actions_url"] == "/config/developer-tools/action"
 
 
 def test_options_settings_renders_settings_step(ui):
@@ -128,3 +132,67 @@ def test_options_settings_renders_settings_step(ui):
     result = asyncio.run(flow.async_step_settings())
     assert result["type"] == "form"
     assert result["step_id"] == "settings"
+
+
+def test_history_review_displays_clickable_action_link_placeholder(ui):
+    flow, _ = new_ui(ui)
+    result = asyncio.run(flow.async_step_history_review())
+    assert result["type"] == "form"
+    assert result["description_placeholders"] == {
+        "actions_url": "/config/developer-tools/action"
+    }
+
+
+def test_back_to_main_menu_does_not_save_settings_or_history(ui):
+    flow, _ = new_ui(ui)
+    async def exercise():
+        result = await flow.async_step_settings({"return_to_menu": True})
+        assert result["type"] == "menu" and result["step_id"] == "init"
+        assert flow._selected_meter_unit_key is None
+        flow._selected_reading = {"key": "A"}
+        flow._pending_review = {"action": "accept"}
+        result = await flow.async_step_history_confirm({"return_to_menu": True})
+        assert result["type"] == "menu" and result["step_id"] == "init"
+        assert flow._selected_reading is None
+        assert flow._pending_review is None
+        selected = await flow.async_step_history_review({"reading": "a" * 32})
+        assert selected["step_id"] == "history_decision"
+        result = await flow.async_step_history_decision({"choice": ui.RETURN_TO_READINGS})
+        assert result["step_id"] == "history_review"
+        assert flow._selected_reading is None
+        result = await flow.async_step_history_review({"reading": ui.RETURN_TO_MENU})
+        assert result["type"] == "menu" and result["step_id"] == "init"
+    asyncio.run(exercise())
+
+
+def test_meter_unit_navigation_is_available_without_saving(ui):
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {
+        "FAKE-1": {
+            "lot": "TEST", "fluid": "EF", "serial": "FAKE-1",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+        },
+    }}
+    async def exercise():
+        first = await flow.async_step_meter_units()
+        assert first["step_id"] == "meter_units"
+        key = ui.meter_key("TEST", "EF", "FAKE-1")
+        form = await flow.async_step_meter_units({"meter": key})
+        assert form["step_id"] == "meter_unit"
+        listed = await flow.async_step_meter_unit({"unit": ui.RETURN_TO_METERS})
+        assert listed["step_id"] == "meter_units"
+        main = await flow.async_step_meter_units({"meter": ui.RETURN_TO_MENU})
+        assert main["type"] == "menu" and main["step_id"] == "init"
+        assert flow.config_entry.options == {"poll_minutes": 720}
+    asyncio.run(exercise())
+
+
+def test_action_link_is_defined_in_all_locales():
+    import json
+    from pathlib import Path
+    base = Path("custom_components/trybatec")
+    for path in (base / "strings.json", base / "translations/fr.json", base / "translations/en.json"):
+        steps = json.loads(path.read_text())["options"]["step"]
+        for step in ("history_review", "history_overview", "history_empty"):
+            assert "]({actions_url})" in steps[step]["description"]
+        assert steps["history_empty"]["menu_options"]["init"]

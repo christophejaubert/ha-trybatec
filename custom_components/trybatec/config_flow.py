@@ -39,6 +39,10 @@ from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
 
+RETURN_TO_MENU = "__return_to_main_menu__"
+RETURN_TO_METERS = "__return_to_meter_list__"
+RETURN_TO_READINGS = "__return_to_reading_list__"
+
 UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
 
 
@@ -114,10 +118,29 @@ class TrybatecOptionsFlow(OptionsFlow):
     _pending_review: dict | None = None
     _selected_meter_unit_key: str | None = None
 
+    @staticmethod
+    def _actions_url() -> str:
+        """Instance-relative Home Assistant route; never embed a user's URL."""
+        return "/config/developer-tools/action"
+
+    def _nav_text(self, french: str, english: str) -> str:
+        """Use Home Assistant's UI language for navigation choices."""
+        language = getattr(getattr(self.hass, "config", None), "language", "en")
+        return french if str(language).lower().startswith("fr") else english
+
+    async def _go_to_main_menu(self) -> ConfigFlowResult:
+        """Discard in-progress choices only; do not write options or history."""
+        self._selected_meter_unit_key = None
+        self._selected_reading = None
+        self._pending_review = None
+        return await self.async_step_init()
+
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
         return self.async_show_menu(step_id="init", menu_options=["settings", "meter_units", "history_overview", "history_review"])
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is not None and user_input.get("return_to_menu") is True:
+            return await self._go_to_main_menu()
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
@@ -125,7 +148,12 @@ class TrybatecOptionsFlow(OptionsFlow):
             except (ValueError, TypeError, json.JSONDecodeError):
                 errors[CONF_TARIFFS] = "invalid_tariffs"
             else:
-                return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
+                return self.async_create_entry(
+                    title="",
+                    data={**self.config_entry.options,
+                          **{key: value for key, value in user_input.items()
+                             if key != "return_to_menu"}},
+                )
         schema = vol.Schema(
             {
                 vol.Required(
@@ -138,6 +166,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
+                vol.Optional("return_to_menu", default=False): BooleanSelector(),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
@@ -167,6 +196,8 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Select one physical meter; never silently reuse a unit from another."""
+        if user_input is not None and user_input.get("meter") == RETURN_TO_MENU:
+            return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="history_preview_required")
@@ -179,13 +210,18 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return self.async_abort(reason="history_preview_required")
             self._selected_meter_unit_key = chosen
             return await self.async_step_meter_unit()
+        portal_label = self._nav_text("portail", "portal")
+        verified_label = self._nav_text("unité vérifiée", "verified unit")
         choices = {
             key: (
                 f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
-                f'portail: {m.get("portal_unit") or "not provided"} · '
-                f'verified: {m.get("verified_unit") or "unknown"}'
+                f'{portal_label}: {m.get("portal_unit") or "—"} · '
+                f'{verified_label}: {m.get("verified_unit") or "—"}'
             )[:240] for key, m in mapping.items()
         }
+        choices[RETURN_TO_MENU] = self._nav_text(
+            "← Retour au menu principal", "← Back to main menu"
+        )
         return self.async_show_form(
             step_id="meter_units",
             data_schema=vol.Schema({vol.Required("meter"): vol.In(choices)}),
@@ -193,6 +229,11 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     async def async_step_meter_unit(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Persist only a single verified unit override, with conflict prevention."""
+        if user_input is not None and user_input.get("unit") == RETURN_TO_MENU:
+            return await self._go_to_main_menu()
+        if user_input is not None and user_input.get("unit") == RETURN_TO_METERS:
+            self._selected_meter_unit_key = None
+            return await self.async_step_meter_units()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="history_preview_required")
@@ -202,6 +243,12 @@ class TrybatecOptionsFlow(OptionsFlow):
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         current_unit = current.get(self._selected_meter_unit_key, "unverified")
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
+        allowed[RETURN_TO_METERS] = self._nav_text(
+            "← Retour à la liste des compteurs", "← Back to meter list"
+        )
+        allowed[RETURN_TO_MENU] = self._nav_text(
+            "← Retour au menu principal", "← Back to main menu"
+        )
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
             if candidate not in allowed:
@@ -228,12 +275,17 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     async def async_step_history_overview(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Graphical, read-only preflight. Detailed decisions still use the wizard."""
+        if user_input is not None and user_input.get("return_to_menu") is True:
+            return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="history_preview_required")
         cache = getattr(coordinator, "_history_review_cache", None)
         if cache is None:
-            return self.async_abort(reason="history_preview_required")
+            return self.async_show_menu(
+                step_id="history_empty", menu_options=["init"],
+                    description_placeholders={"actions_url": self._actions_url()},
+            )
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
@@ -250,12 +302,16 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self.async_step_history_review()
         return self.async_show_form(
             step_id="history_overview",
-            data_schema=vol.Schema({vol.Required("review", default=False): BooleanSelector()}),
+            data_schema=vol.Schema({
+                vol.Required("review", default=False): BooleanSelector(),
+                vol.Optional("return_to_menu", default=False): BooleanSelector(),
+            }),
             description_placeholders={
                 "period": f"{start.isoformat()} → {end.isoformat()}",
                 "meters": str(len(meters)),
                 "flagged": str(len(flagged)),
                 "details": " | ".join(lines[:15])[:1400] or "No source observations",
+                "actions_url": self._actions_url(),
             },
         )
 
@@ -267,6 +323,8 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     async def async_step_history_review(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Pick from the most recent administrator history preview, not arbitrary text."""
+        if user_input is not None and user_input.get("reading") == RETURN_TO_MENU:
+            return await self._go_to_main_menu()
         candidates = self._review_list()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if not candidates and coordinator is not None and not hasattr(coordinator, "_history_review_cache"):
@@ -276,10 +334,16 @@ class TrybatecOptionsFlow(OptionsFlow):
             try:
                 await _load(self.hass, SimpleNamespace(data={"entry_id": self.config_entry.entry_id}))
             except Exception:
-                return self.async_abort(reason="history_preview_required")
+                return self.async_show_menu(
+                    step_id="history_empty", menu_options=["init"],
+                    description_placeholders={"actions_url": self._actions_url()},
+                )
             candidates = self._review_list()
         if not candidates:
-            return self.async_abort(reason="no_readings_to_review")
+            return self.async_show_menu(
+                step_id="history_empty", menu_options=["init"],
+                    description_placeholders={"actions_url": self._actions_url()},
+            )
         by_id = {item["key"]: item for item in candidates}
         if user_input is not None:
             chosen = by_id.get(user_input.get("reading"))
@@ -295,9 +359,13 @@ class TrybatecOptionsFlow(OptionsFlow):
             )[:240]
             for item in candidates
         }
+        selections[RETURN_TO_MENU] = self._nav_text(
+            "← Retour au menu principal", "← Back to main menu"
+        )
         return self.async_show_form(
             step_id="history_review",
             data_schema=vol.Schema({vol.Required("reading"): vol.In(selections)}),
+            description_placeholders={"actions_url": self._actions_url()},
         )
 
     async def _save_review(self, decision: dict) -> ConfigFlowResult:
@@ -332,6 +400,12 @@ class TrybatecOptionsFlow(OptionsFlow):
             return self.async_abort(reason="history_preview_required")
         if user_input is not None:
             choice = user_input["choice"]
+            if choice == RETURN_TO_MENU:
+                return await self._go_to_main_menu()
+            if choice == RETURN_TO_READINGS:
+                self._selected_reading = None
+                self._pending_review = None
+                return await self.async_step_history_review()
             if choice == "correct":
                 return await self.async_step_history_correction()
             self._pending_review = {"action": choice}
@@ -343,11 +417,22 @@ class TrybatecOptionsFlow(OptionsFlow):
                 "correct": "Correct and accept / Corriger",
                 "reject": "Exclude / Exclure",
                 "postpone": "Postpone / Reporter",
+                RETURN_TO_READINGS: self._nav_text(
+                    "← Retour à la liste des relevés", "← Back to reading list"
+                ),
+                RETURN_TO_MENU: self._nav_text(
+                    "← Retour au menu principal", "← Back to main menu"
+                ),
             })}),
         )
 
     async def async_step_history_correction(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Date/time picker, clear type, written explanation; no silent rewriting."""
+        if user_input is not None and user_input.get("return_to_menu") is True:
+            return await self._go_to_main_menu()
+        if user_input is not None and user_input.get("back_to_decision") is True:
+            self._pending_review = None
+            return await self.async_step_history_decision()
         if self._selected_reading is None:
             return self.async_abort(reason="history_preview_required")
         errors = {}
@@ -361,9 +446,12 @@ class TrybatecOptionsFlow(OptionsFlow):
                 b = local.replace(tzinfo=ZONE, fold=1)
                 if a.utcoffset() != b.utcoffset() or a.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None) != local:
                     raise ValueError("DST ambiguous or nonexistent local time")
+                reason = user_input.get("reason", "")
+                if not isinstance(reason, str) or not 8 <= len(reason.strip()) <= 500:
+                    raise ValueError("A correction requires a reason of 8–500 characters")
                 decision = {
                     "action": "correct", "mode": user_input["mode"],
-                    "timestamp": a.isoformat(), "reason": user_input["reason"],
+                    "timestamp": a.isoformat(), "reason": reason,
                 }
                 if decision["mode"] == "accounting":
                     previous = self._selected_reading.get("previous_date")
@@ -384,13 +472,20 @@ class TrybatecOptionsFlow(OptionsFlow):
                 }),
                 vol.Required("date", default=original.date().isoformat()): DateSelector(),
                 vol.Required("time", default=original.strftime("%H:%M:%S")): TimeSelector(),
-                vol.Required("reason"): vol.All(str, vol.Length(min=8, max=500)),
+                vol.Optional("reason"): str,
+                vol.Optional("back_to_decision", default=False): BooleanSelector(),
+                vol.Optional("return_to_menu", default=False): BooleanSelector(),
             }),
         )
 
 
     async def async_step_history_confirm(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Require final user approval of the particular source reading action."""
+        if user_input is not None and user_input.get("return_to_menu") is True:
+            return await self._go_to_main_menu()
+        if user_input is not None and user_input.get("back_to_decision") is True:
+            self._pending_review = None
+            return await self.async_step_history_decision()
         if self._selected_reading is None or self._pending_review is None:
             return self.async_abort(reason="history_preview_required")
         if user_input is not None and user_input.get("confirm") is True:
@@ -412,7 +507,11 @@ class TrybatecOptionsFlow(OptionsFlow):
             else None
         )
         override = bool(decision.get("requires_out_of_period_confirmation"))
-        fields = {vol.Required("confirm", default=False): BooleanSelector()}
+        fields = {
+            vol.Required("confirm", default=False): BooleanSelector(),
+            vol.Optional("back_to_decision", default=False): BooleanSelector(),
+            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+        }
         if override:
             fields[vol.Required("confirm_outside_period", default=False)] = BooleanSelector()
         return self.async_show_form(

@@ -27,7 +27,8 @@
         "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
-          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "init": {
@@ -41,7 +42,7 @@
       },
       "history_review": {
         "title": "Choisir un relevé à examiner",
-        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.",
+        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
           "reading": "Relevé"
         }
@@ -60,7 +61,9 @@
           "mode": "Type de correction",
           "date": "Date",
           "time": "Heure",
-          "reason": "Justification obligatoire"
+          "reason": "Justification obligatoire",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "history_confirm": {
@@ -68,7 +71,9 @@
         "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}",
         "data": {
           "confirm": "Je confirme cette décision",
-          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
+          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "meter_units": {
@@ -87,9 +92,17 @@
       },
       "history_overview": {
         "title": "Aperçu de l’historique",
-        "description": "Période : {period}. Compteurs : {meters}. Relevés à examiner : {flagged}.\\n{details}\\nLes compteurs distincts ne sont jamais fusionnés automatiquement. Pour importer, utiliser l’action administrateur trybatec.import_history.",
+        "description": "Période : {period}. Compteurs : {meters}. Relevés à examiner : {flagged}.\\n{details}\\nLes compteurs distincts ne sont jamais fusionnés automatiquement. Pour importer, utiliser l’action administrateur trybatec.import_history.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
-          "review": "Poursuivre vers les relevés à valider"
+          "review": "Poursuivre vers les relevés à valider",
+          "return_to_menu": "Revenir au menu principal"
+        }
+      },
+      "history_empty": {
+        "title": "Aucun relevé à examiner",
+        "description": "Aucun relevé ne nécessite actuellement une décision, ou la prévisualisation n'est pas disponible.\n\nExécutez `trybatec.preview_history` dans les outils, puis revenez ici.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "menu_options": {
+          "init": "← Retour au menu principal"
         }
       }
     },

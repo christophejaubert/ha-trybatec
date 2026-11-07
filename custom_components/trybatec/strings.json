@@ -27,7 +27,8 @@
         "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)"
+          "annual_tariffs": "Annual tariffs (JSON, optional)",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "init": {
@@ -41,7 +42,7 @@
       },
       "history_review": {
         "title": "Choose a reading for review",
-        "description": "Run trybatec.preview_history first. Only readings from the latest preview appear.",
+        "description": "Run trybatec.preview_history first. Only readings from the latest preview appear.\n\n[Open Settings → Tools → Actions]({actions_url})",
         "data": {
           "reading": "Reading"
         }
@@ -60,7 +61,9 @@
           "mode": "Correction type",
           "date": "Date",
           "time": "Time",
-          "reason": "Required justification"
+          "reason": "Required justification",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "history_confirm": {
@@ -68,7 +71,9 @@
         "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}",
         "data": {
           "confirm": "I confirm this decision",
-          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval"
+          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "meter_units": {
@@ -87,9 +92,17 @@
       },
       "history_overview": {
         "title": "Historical preflight",
-        "description": "Period: {period}. Meters: {meters}. Readings flagged: {flagged}.\\n{details}\\nDistinct physical meters are never automatically merged. Import through the admin action trybatec.import_history.",
+        "description": "Period: {period}. Meters: {meters}. Readings flagged: {flagged}.\\n{details}\\nDistinct physical meters are never automatically merged. Import through the admin action trybatec.import_history.\n\n[Open Settings → Tools → Actions]({actions_url})",
         "data": {
-          "review": "Continue to flagged readings"
+          "review": "Continue to flagged readings",
+          "return_to_menu": "Revenir au menu principal"
+        }
+      },
+      "history_empty": {
+        "title": "No readings to review",
+        "description": "No reading currently needs a decision, or the preview is unavailable.\n\nRun `trybatec.preview_history` in Tools, then return here.\n\n[Open Settings → Tools → Actions]({actions_url})",
+        "menu_options": {
+          "init": "← Back to main menu"
         }
       }
     },
