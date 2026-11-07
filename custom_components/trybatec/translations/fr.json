@@ -24,18 +24,19 @@
     "step": {
       "settings": {
         "title": "Options Trybatec",
-        "description": "Exemple : {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Types : EF, ECS, CET. Les coûts sont des estimations et non des décomptes approuvés. Choisir « unverified » tant que l'unité exacte n'est pas confirmée.",
+        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
-          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
-          "heating_unit": "Unité réelle de l'index chauffage (vérifier sur le compteur ou auprès du gestionnaire)"
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
         }
       },
       "init": {
         "title": "Options Trybatec",
         "menu_options": {
           "settings": "Réglages",
-          "history_review": "Réviser les relevés historiques"
+          "history_review": "Réviser les relevés historiques",
+          "meter_units": "Vérifier les unités des compteurs",
+          "history_overview": "Synthèse graphique de l’historique"
         }
       },
       "history_review": {
@@ -69,11 +70,34 @@
           "confirm": "Je confirme cette décision",
           "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
         }
+      },
+      "meter_units": {
+        "title": "Choisir le compteur",
+        "description": "Unités relevées dans le portail ou déclarées par compteur. Les compteurs remplacés sont inclus lorsqu’un historique a été prévisualisé.",
+        "data": {
+          "meter": "Compteur physique"
+        }
+      },
+      "meter_unit": {
+        "title": "Unité du compteur",
+        "description": "Compteur : {meter}. Unité fournie par le portail : {portal_unit}. Vérifiez l’unité de l’INDEX, et non simplement la fiche constructeur. Une unité incompatible bloque les statistiques.",
+        "data": {
+          "unit": "Unité source confirmée"
+        }
+      },
+      "history_overview": {
+        "title": "Aperçu de l’historique",
+        "description": "Période : {period}. Compteurs : {meters}. Relevés à examiner : {flagged}.\\n{details}\\nLes compteurs distincts ne sont jamais fusionnés automatiquement. Pour importer, utiliser l’action administrateur trybatec.import_history.",
+        "data": {
+          "review": "Poursuivre vers les relevés à valider"
+        }
       }
     },
     "error": {
       "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple.",
-      "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure)."
+      "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure).",
+      "invalid_meter_unit": "Unité non prise en charge pour ce fluide.",
+      "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",
