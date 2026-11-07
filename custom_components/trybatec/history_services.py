@@ -399,6 +399,70 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         }
 
 
+async def async_verify_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Read Recorder buckets and acknowledge only fully matched imported series."""
+    await _require_admin(hass, call)
+    if "recorder" not in hass.config.components:
+        raise ServiceValidationError("Home Assistant recorder integration is not loaded")
+    coordinator = _coordinator(hass, call.data)
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        digest = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
+        store: Store = Store(hass, 1, f"{DOMAIN}.history_v5_{digest}")
+        ledger = await store.async_load()
+        if not isinstance(ledger, dict) or not isinstance(ledger.get("series"), dict):
+            return {"status": "no_v5_history", "verified": [], "pending": []}
+        pending = ledger.get("pending") or {}
+        if not isinstance(pending, dict):
+            raise ServiceValidationError("Invalid pending history ledger")
+        registry = dict(ledger["series"])
+        remaining = dict(pending)
+        verified, outstanding = [], []
+        for logical, stat_id in pending.items():
+            state = registry.get(logical)
+            if not isinstance(state, dict) or state.get("statistic_id") != stat_id:
+                raise ServiceValidationError("Pending ledger does not match registered series")
+            snapshot = state.get("snapshot")
+            if not isinstance(snapshot, list) or len(snapshot) < 2:
+                raise ServiceValidationError("Invalid pending statistics snapshot")
+            observed = []
+            for window_start, window_end in expected_windows(snapshot):
+                # Admin-only built-in HA action: query persisted long-term rows.
+                response = await hass.services.async_call(
+                    "recorder", "get_statistics",
+                    {
+                        "statistic_ids": [stat_id],
+                        "start_time": window_start.isoformat(),
+                        "end_time": window_end.isoformat(),
+                        "period": "hour", "types": ["sum"],
+                    },
+                    blocking=True, return_response=True,
+                )
+                if not isinstance(response, dict) or not isinstance(response.get("statistics"), dict):
+                    raise ServiceValidationError("Recorder verification service returned invalid data")
+                observed.extend(response["statistics"].get(stat_id, []))
+            matched, missing = verified_snapshot(snapshot, observed)
+            if matched:
+                remaining.pop(logical, None)
+                registry[logical] = {
+                    **state,
+                    "last_verified_at": dt_util.utcnow().isoformat(),
+                }
+                verified.append({"statistic_id": stat_id, "rows": len(snapshot)})
+            else:
+                outstanding.append({
+                    "statistic_id": stat_id, "missing_or_mismatched_rows": missing,
+                })
+        if remaining != pending:
+            await store.async_save({**ledger, "series": registry, "pending": remaining})
+        return {
+            "status": "verified" if not remaining else "pending_recorder_verification",
+            "verified": verified, "pending": outstanding,
+            "note": "All expected hourly sums are compared; no old series are deleted.",
+        }
+
+
 def register_history_actions(hass: HomeAssistant) -> None:
     """Register only manual history actions; no automatic recorder changes."""
     async def preview(call: ServiceCall) -> dict[str, Any]:
@@ -408,6 +472,9 @@ def register_history_actions(hass: HomeAssistant) -> None:
         result = await async_import_history(hass, call)
         return result if call.return_response else None
 
+    async def verify(call: ServiceCall) -> dict[str, Any]:
+        return await async_verify_history(hass, call)
+
     hass.services.async_register(
         DOMAIN, PREVIEW_SERVICE, preview, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
@@ -415,4 +482,8 @@ def register_history_actions(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, IMPORT_SERVICE, run_import, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, VERIFY_SERVICE, verify, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
