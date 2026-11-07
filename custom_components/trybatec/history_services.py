@@ -7,7 +7,7 @@ Imports cannot change an established cumulative origin or delete a series.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 import logging
 from typing import Any
@@ -25,8 +25,10 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DEAL_ID, CONF_HEATING_UNIT, DOMAIN, FLUIDS, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_METER_UNITS, DOMAIN, FLUIDS, TIMEZONE
 from .history_store import load_decisions
+from .units import resolve_meter_unit, unit_factor, normalized_unit, validate_meter_units
+from .recorder_guard import stage_pending, verified_snapshot, expected_windows
 from .history_v4 import compose_plan, reconcile_plan
 from .history import (
     MAX_HISTORY_DAYS, build_history, history_windows, physical_statistic_id,
@@ -36,6 +38,7 @@ from .history import (
 _LOGGER = logging.getLogger(__name__)
 PREVIEW_SERVICE = "preview_history"
 IMPORT_SERVICE = "import_history"
+VERIFY_SERVICE = "verify_history"
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -51,6 +54,7 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional("include_accounting", default=False): bool,
         vol.Optional("confirm_accounting", default=False): bool,
         vol.Optional("confirm_revision", default=False): bool,
+        vol.Optional("retry_pending", default=False): bool,
         vol.Optional("confirm", default=False): bool,
     },
     extra=vol.PREVENT_EXTRA,
@@ -237,12 +241,22 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "api_requests": requests,
         "statistics": summarize_preview(history),
         "review_candidates": history["__review_candidates__"],
+        "replacement_groups": {
+            fluid: history[fluid]["points"] for fluid in FLUIDS
+        },
+        "meter_units": [
+            {
+                "lot": lot, "fluid": fluid, "meter_serial": serial,
+                "portal_unit": meter.get("portal_unit"), "retired": meter["retired"],
+            }
+            for (lot, fluid, serial), meter in history["__physical_meters__"].items()
+        ],
         "review_interface": "Settings → Devices & services → Trybatec → Configure (history review)",
         "warning": (
             "Sparse or retrospectively recorded index dates are not verified "
             "measurement dates. Only near-daily intervals are importable. "
             "Different physical meters are never automatically joined; "
-            "heating units remain unverified."
+            "all meter units must be verified before historical import."
         ),
     }
 
