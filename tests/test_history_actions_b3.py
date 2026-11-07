@@ -198,7 +198,7 @@ def test_import_service_writes_only_pseudonymous_selected_meter_series(services,
     })
     async def run():
         result = await services.async_import_history(hass, call)
-        assert result["status"].startswith("queued")
+        assert result["status"] == "pending_recorder_verification"
         assert len(queue) == 1
         metadata, rows = queue[0]
         assert metadata["statistic_id"].startswith("trybatec:history_v5_ecs_daily_")
