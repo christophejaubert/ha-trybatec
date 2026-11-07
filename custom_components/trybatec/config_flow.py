@@ -136,7 +136,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ): str,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
 
     def _review_list(self) -> list[dict]:

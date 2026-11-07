@@ -1,8 +1,6 @@
-# 0.2.0b4 — Controlled historical review and safe statistics revisions (proposed)
+# 0.2.0b4 — Controlled historical review and safe statistics revisions
 
-**Experimental, unofficial and unsupported.** This feature branch is not an
-available release until the automated checks succeed and a pre-release is
-explicitly published. Back up Recorder **and** `.storage` before any import.
+**Experimental, unofficial and unsupported.** Published as an experimental GitHub pre-release after automated checks. Back up Recorder **and** `.storage` before any import.
 
 - Adds an account-scoped **Home Assistant options UI** to review flagged
   historical readings: accept unchanged, correct actual measurement date,

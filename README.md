@@ -4,11 +4,11 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Proposed beta: 0.2.0b4** — per-reading review in Home Assistant options, separate approved accounting allocations, and safe recorder revision handling. This feature branch is NOT a released version until CI and publication are completed.
+**Current experimental beta: 0.2.0b4** — per-reading review in Home Assistant options, separate approved accounting allocations, and controlled recorder revision handling. Available as a GitHub pre-release; back up Home Assistant before any import.
 
-**FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Prototype sans maintenance garantie.
+**FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
-**EN:** Unofficial Home Assistant integration for meters available via the Trybatec portal (cold water, hot water, heating). Prototype; maintenance not guaranteed.
+**EN:** Unofficial Home Assistant integration for meters available via the Trybatec portal (cold water, hot water, heating). Experimental beta; maintenance not guaranteed.
 
 [Français](#installation-fr) · [English](#installation-en)
 

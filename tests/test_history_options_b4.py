@@ -117,3 +117,10 @@ def test_history_review_empty_requires_preview(ui):
     flow, coordinator = new_ui(ui)
     coordinator._history_review_candidates = []
     assert asyncio.run(flow.async_step_history_review())["reason"] == "history_preview_required"
+
+
+def test_options_settings_renders_settings_step(ui):
+    flow, _coordinator = new_ui(ui)
+    result = asyncio.run(flow.async_step_settings())
+    assert result["type"] == "form"
+    assert result["step_id"] == "settings"
