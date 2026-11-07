@@ -117,6 +117,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     _selected_reading: dict | None = None
     _pending_review: dict | None = None
     _selected_meter_unit_key: str | None = None
+    _selected_history_meter_key: str | None = None
 
     @staticmethod
     def _actions_url() -> str:
@@ -131,6 +132,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     async def _go_to_main_menu(self) -> ConfigFlowResult:
         """Discard in-progress choices only; do not write options or history."""
         self._selected_meter_unit_key = None
+        self._selected_history_meter_key = None
         self._selected_reading = None
         self._pending_review = None
         return await self.async_step_init()
@@ -279,7 +281,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
 
     async def async_step_history_overview(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Graphical, read-only preflight. Detailed decisions still use the wizard."""
+        """Compact per-fluid overview; details on demand, never a wall of raw UTC timestamps."""
         if user_input is not None and user_input.get("return_to_menu") is True:
             return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
@@ -289,7 +291,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         if cache is None:
             return self.async_show_menu(
                 step_id="history_empty", menu_options=["init"],
-                    description_placeholders={"actions_url": self._actions_url()},
+                description_placeholders={"actions_url": self._actions_url()},
             )
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
@@ -297,25 +299,109 @@ class TrybatecOptionsFlow(OptionsFlow):
         history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
         meters = history["__physical_meters__"]
         flagged = history["__review_candidates__"]
-        lines = [
-            f'{fluid} / {lot} / {serial}: {data["first"]} → {data["last"]}; '
-            f'gaps={data["gaps"]}, conflicts={data["conflicts"]}'
-            for (lot, fluid, serial), data in sorted(meters.items())
-        ]
-        if user_input is not None and user_input.get("review"):
-            coordinator._history_review_candidates = flagged
-            return await self.async_step_history_review()
+        # The selection contains only opaque, computed IDs; never accept
+        # arbitrary lot numbers or user-supplied meter paths as lookups.
+        meter_choices = {"summary": self._nav_text(
+            "— Sélectionner un compteur —", "— Select a meter —"
+        )}
+        detail_keys = {}
+        fluid_names = {
+            "EF": self._nav_text("Eau froide", "Cold water"),
+            "ECS": self._nav_text("Eau chaude", "Hot water"),
+            "CET": self._nav_text("Chauffage", "Heating"),
+        }
+        for (lot, fluid, serial), meter in sorted(meters.items()):
+            key = meter_key(lot, fluid, serial)
+            detail_keys[key] = (lot, fluid, serial)
+            status = self._nav_text("ancien", "retired") if meter["retired"] else self._nav_text("actif", "active")
+            meter_choices[key] = f"{fluid_names[fluid]} · {serial} · {lot} ({status})"[:160]
+        if user_input is not None:
+            selected = user_input.get("meter_detail", "summary")
+            if selected != "summary":
+                if selected not in detail_keys:
+                    return self.async_abort(reason="history_preview_required")
+                self._selected_history_meter_key = selected
+                return await self.async_step_history_meter_detail()
+            if user_input.get("review"):
+                coordinator._history_review_candidates = flagged
+                return await self.async_step_history_review()
+        summary = {}
+        for fluid in ("EF", "ECS", "CET"):
+            values = history[fluid]
+            summary[fluid.lower() + "_meters"] = str(values["meters"])
+            summary[fluid.lower() + "_gaps"] = str(values["gaps"])
+            summary[fluid.lower() + "_conflicts"] = str(values["conflicts"])
         return self.async_show_form(
             step_id="history_overview",
             data_schema=vol.Schema({
+                vol.Optional("meter_detail", default="summary"): vol.In(meter_choices),
                 vol.Required("review", default=False): BooleanSelector(),
                 vol.Optional("return_to_menu", default=False): BooleanSelector(),
             }),
             description_placeholders={
-                "period": f"{start.isoformat()} → {end.isoformat()}",
+                "period": f"{start:%d/%m/%Y} – {end:%d/%m/%Y}",
                 "meters": str(len(meters)),
                 "flagged": str(len(flagged)),
-                "details": " | ".join(lines[:15])[:1400] or "No source observations",
+                "actions_url": self._actions_url(),
+                **summary,
+            },
+        )
+
+    async def async_step_history_meter_detail(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """One meter at a time, in local calendar dates with explicit navigation."""
+        if user_input is not None:
+            selected_action = user_input.get("navigation", "overview")
+            if selected_action == "main":
+                return await self._go_to_main_menu()
+            if selected_action == "review":
+                return await self.async_step_history_overview({"review": True})
+            if selected_action == "overview":
+                self._selected_history_meter_key = None
+                return await self.async_step_history_overview()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        cache = getattr(coordinator, "_history_review_cache", None) if coordinator else None
+        if cache is None or self._selected_history_meter_key is None:
+            return await self.async_step_history_overview()
+        from .history_store import load_decisions
+        payloads, start, end, allowed_lots = cache
+        decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        matches = [
+            (lot, fluid, serial, meter)
+            for (lot, fluid, serial), meter in history["__physical_meters__"].items()
+            if meter_key(lot, fluid, serial) == self._selected_history_meter_key
+        ]
+        if len(matches) != 1:
+            self._selected_history_meter_key = None
+            return await self.async_step_history_overview()
+        lot, fluid, serial, meter = matches[0]
+        first = meter["first"].astimezone(ZONE).strftime("%d/%m/%Y")
+        last = meter["last"].astimezone(ZONE).strftime("%d/%m/%Y")
+        choices = {
+            "overview": self._nav_text("← Retour à l’aperçu", "← Back to overview"),
+            "review": self._nav_text("Examiner les relevés", "Review readings"),
+            "main": self._nav_text("← Menu principal", "← Main menu"),
+        }
+        source_unit = meter.get("portal_unit")
+        if source_unit in (None, "conflict", "unverified"):
+            source_unit = self._nav_text("non confirmée", "not verified")
+        return self.async_show_form(
+            step_id="history_meter_detail",
+            data_schema=vol.Schema({
+                vol.Required("navigation", default="overview"): vol.In(choices),
+            }),
+            description_placeholders={
+                "meter": f"{fluid} · {serial}",
+                "lot": lot,
+                "status": self._nav_text("ancien", "retired") if meter["retired"] else self._nav_text("actif", "active"),
+                "first": first,
+                "last": last,
+                "gaps": str(meter["gaps"]),
+                "decreases": str(meter["decreases"]),
+                "conflicts": str(meter["conflicts"]),
+                "unit": str(source_unit),
                 "actions_url": self._actions_url(),
             },
         )

@@ -196,3 +196,89 @@ def test_action_link_is_defined_in_all_locales():
         for step in ("history_review", "history_overview", "history_empty"):
             assert "]({actions_url})" in steps[step]["description"]
         assert steps["history_empty"]["menu_options"]["init"]
+
+
+def test_history_overview_is_compact_and_meter_details_use_local_dates(ui, monkeypatch):
+    """Large chronological summaries must not be crammed into one paragraph."""
+    flow, coordinator = new_ui(ui)
+    from custom_components.trybatec import history_store
+
+    async def no_decisions(*args):
+        return {}
+
+    monkeypatch.setattr(history_store, "load_decisions", no_decisions)
+    coordinator._history_review_cache = (
+        [{"lines": [
+            {
+                "compteur": "FAKE-WATER", "lot": "TEST-LOT", "fluide": "EF",
+                "depose": False,
+                "indexes": [
+                    {"date": "2025-01-01T00:00:00+01:00", "value": 1.0},
+                    {"date": "2025-01-02T00:00:00+01:00", "value": 3.0},
+                ],
+            },
+            {
+                "compteur": "FAKE-HEAT", "lot": "TEST-LOT", "fluide": "CET",
+                "depose": True,
+                "indexes": [
+                    {"date": "2024-12-31T00:00:00+01:00", "value": 100.0},
+                    {"date": "2025-01-01T00:00:00+01:00", "value": 120.0},
+                ],
+            },
+        ]}],
+        date(2024, 12, 30), date(2025, 1, 5), None,
+    )
+
+    async def run():
+        summary = await flow.async_step_history_overview()
+        assert summary["type"] == "form"
+        assert summary["step_id"] == "history_overview"
+        placeholders = summary["description_placeholders"]
+        assert placeholders["meters"] == "2"
+        assert placeholders["ef_meters"] == "1"
+        assert placeholders["cet_meters"] == "1"
+        assert placeholders["period"] == "30/12/2024 – 05/01/2025"
+        assert "details" not in placeholders
+        assert all("T00:00" not in x for x in placeholders.values())
+        # A retired meter can be selected independently, never merged.
+        selected = ui.meter_key("TEST-LOT", "CET", "FAKE-HEAT")
+        detail = await flow.async_step_history_overview({"meter_detail": selected})
+        assert detail["type"] == "form"
+        assert detail["step_id"] == "history_meter_detail"
+        data = detail["description_placeholders"]
+        assert data["meter"] == "CET · FAKE-HEAT"
+        assert data["first"] == "31/12/2024"
+        assert data["last"] == "01/01/2025"
+        assert data["gaps"] == "0"
+        assert data["status"] == "retired"
+        # Navigation is explicit and has no side effects on options.
+        back = await flow.async_step_history_meter_detail({"navigation": "overview"})
+        assert back["step_id"] == "history_overview"
+        await flow.async_step_history_overview({"meter_detail": selected})
+        main = await flow.async_step_history_meter_detail({"navigation": "main"})
+        assert main["type"] == "menu"
+        assert main["step_id"] == "init"
+        assert flow._selected_history_meter_key is None
+        assert flow.config_entry.options == {"poll_minutes": 720}
+
+    asyncio.run(run())
+
+
+def test_history_overview_localized_translations_have_real_line_breaks():
+    import json
+    from pathlib import Path
+
+    base = Path("custom_components/trybatec")
+    for filename in ("strings.json", "translations/en.json", "translations/fr.json"):
+        steps = json.loads((base / filename).read_text())["options"]["step"]
+        compact = steps["history_overview"]
+        assert "\\n" not in compact["description"]  # No literal backslash-n in UI.
+        assert compact["description"].count("\n") >= 4
+        assert "{details}" not in compact["description"]
+        assert "{ef_meters}" in compact["description"]
+        assert "{ecs_meters}" in compact["description"]
+        assert "{cet_meters}" in compact["description"]
+        assert "meter_detail" in compact["data"]
+        assert "{first}" in steps["history_meter_detail"]["description"]
+        assert "{last}" in steps["history_meter_detail"]["description"]
+        assert "navigation" in steps["history_meter_detail"]["data"]

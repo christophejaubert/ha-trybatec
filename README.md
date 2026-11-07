@@ -37,6 +37,12 @@ Le portail Trybatec affiche des unités de **consommation graphique** (notamment
 - Cette modification ne déduit pas automatiquement l'échelle de l'index CET à partir du modèle SHARKY ou de l'intitulé `kWh` d'un graphique. Sans propriété API explicite ni vérification manuelle de l'échelle, les statistiques d'énergie demeurent indisponibles. Aucun import n'est réalisé automatiquement.
 - **Limite :** les noms exacts des champs de la réponse Trybatec restent non documentés. La présence d'une unité dans l'interface web ne garantit pas qu'elle existe dans les lignes retournées par l'endpoint d'index.
 
+### b7 — Aperçu historique simplifié (interface)
+
+Dans **Configurer → Aperçu de l’historique**, la vue principale présente la période et les compteurs, avec des indicateurs agrégés par fluide (nombre de compteurs, lacunes et conflits), sans afficher les dates UTC de chaque compteur dans un paragraphe unique. Un sélecteur ouvre une fiche par compteur, avec ses dates converties dans le fuseau local de Home Assistant (Europe/Paris), son statut et ses anomalies. La fiche permet de revenir à l’aperçu, d’ouvrir la revue des relevés ou de retourner au menu. La navigation en lecture seule ne modifie aucune décision ni aucun index.
+
+Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, sans caractères littéraux `\\n`. Les relevés historiques restent accessibles uniquement après une prévisualisation et les imports Recorder nécessitent toujours une action administrateur distincte.
+
 ## b7 development branch — not published
 
 The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.

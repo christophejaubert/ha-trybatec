@@ -92,10 +92,11 @@
       },
       "history_overview": {
         "title": "Historical preflight",
-        "description": "Period: {period}. Meters: {meters}. Readings flagged: {flagged}.\\n{details}\\nDistinct physical meters are never automatically merged. Import through the admin action trybatec.import_history.\n\n[Open Settings → Tools → Actions]({actions_url})",
+        "description": "**Period:** {period}\n\n**{meters} meters · {flagged} readings flagged for review**\n\n- **Cold water (EF)**: {ef_meters} meter(s), {ef_gaps} gap(s), {ef_conflicts} conflict(s)\n- **Hot water (ECS)**: {ecs_meters} meter(s), {ecs_gaps} gap(s), {ecs_conflicts} conflict(s)\n- **Heating (CET)**: {cet_meters} meter(s), {cet_gaps} gap(s), {cet_conflicts} conflict(s)\n\nSelect a meter below to inspect its dates and anomalies. Physical meters are never automatically merged.\n\n[Open Developer Tools → Actions]({actions_url})",
         "data": {
           "review": "Continue to flagged readings",
-          "return_to_menu": "Revenir au menu principal"
+          "return_to_menu": "Revenir au menu principal",
+          "meter_detail": "Meter details"
         }
       },
       "history_empty": {
@@ -103,6 +104,13 @@
         "description": "No reading currently needs a decision, or the preview is unavailable.\n\nRun `trybatec.preview_history` in Tools, then return here.\n\n[Open Settings → Tools → Actions]({actions_url})",
         "menu_options": {
           "init": "← Back to main menu"
+        }
+      },
+      "history_meter_detail": {
+        "title": "Meter details",
+        "description": "**{meter}** · Lot {lot} · {status}\n\n- **First reading:** {first}\n- **Last reading:** {last}\n- **Gaps:** {gaps}\n- **Index decreases:** {decreases}\n- **Conflicts:** {conflicts}\n- **API index unit:** {unit}\n\nRaw readings are not modified. Replaced physical meters remain separate.\n\n[Open Developer Tools → Actions]({actions_url})",
+        "data": {
+          "navigation": "Navigation"
         }
       }
     },
