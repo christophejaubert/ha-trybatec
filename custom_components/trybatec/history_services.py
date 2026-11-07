@@ -339,6 +339,16 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
             updated, approved = reconcile_plan(
                 stored, plan, confirm_revision=bool(call.data.get("confirm_revision", False)),
             )
+            if stored and stored.get("pending") and call.data.get("retry_pending"):
+                existing_pending = stored["pending"]
+                by_logical = {item["logical_id"]: item for item in approved}
+                if any(
+                    key not in by_logical or by_logical[key]["statistic_id"] != stat_id
+                    for key, stat_id in existing_pending.items()
+                ):
+                    raise ValueError("Pending import no longer matches source data; refuse changed retry")
+                # Previously verified siblings are not requeued.
+                approved = [by_logical[key] for key in existing_pending]
             updated = stage_pending(
                 updated if not stored else {**updated, "pending": stored.get("pending", {})},
                 approved, allow_identical_retry=bool(call.data.get("retry_pending", False)),
