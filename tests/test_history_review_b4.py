@@ -243,3 +243,24 @@ def test_backdated_allocation_does_not_duplicate_when_vendor_resends_source():
     assert first[0]["rows"] == second[0]["rows"]
     assert ledger == next_ledger
     assert first[0]["rows"][-1]["start"].year == 2023
+
+
+def test_b5_heating_requires_per_meter_unit_and_converts_kwh_independently():
+    h = build(
+        input_line("HEAT_A","CET",[("2026-01-01T00:00:00+01:00", 2),
+                                   ("2026-01-02T00:00:00+01:00", 3)]),
+        input_line("HEAT_B","CET",[("2026-01-01T00:00:00+01:00", 3.6),
+                                   ("2026-01-02T00:00:00+01:00", 7.2)]),
+    )
+    with pytest.raises(ValueError, match="verified"):
+        compose_plan(h, "TEST", ["CET"], allow_gaps=True,
+                     skip_conflicts=False, include_accounting=False)
+    plan, skipped = compose_plan(h, "TEST", ["CET"], allow_gaps=True,
+                                skip_conflicts=False, include_accounting=False,
+                                heating_units={("SAMPLE-HOME","HEAT_A"):"MWh",
+                                               ("SAMPLE-HOME","HEAT_B"):"GJ"})
+    assert len(plan)==2 and not skipped
+    assert {x["quantity"] for x in plan}=={1000}
+    assert all(x["rows"][-1]["sum"]==1000 for x in plan)
+    assert all("_verified_" in x["logical_id"] for x in plan)
+    assert len({x["logical_id"] for x in plan})==2

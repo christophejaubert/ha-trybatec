@@ -122,6 +122,10 @@ only after backing up and reviewing the preview. Use `confirm: true`.
   statistic series** is created and the old one remains untouched.
   **The user must manually replace the old series in the Energy dashboard**
   before using the new revision. Do NOT select old and new simultaneously.
+- Before importing, `trybatec.plan_history` returns an **exact read-only dry-run**:
+  planned source series, initial/end hourly timestamps, quantities, old series
+  that would be replaced, and missing fluid skips. No Recorder or .storage
+  writes are performed by this planning action.
 - The import returns queued series, skipped meters and old revision IDs.
   Queueing Recorder data is asynchronous. The new read-only
   `trybatec.audit_history` action compares every planned hourly row to

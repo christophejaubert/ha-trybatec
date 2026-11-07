@@ -86,3 +86,36 @@ audit_history:
       description: Trybatec configuration entry ID (required for multiple accounts).
       selector:
         text:
+
+plan_history:
+  name: Preview planned historical Recorder writes
+  description: Administrator-only. Exact dry-run of selected daily and approved accounting statistics; never changes database or storage.
+  fields:
+    entry_id:
+      description: Trybatec config entry ID if more than one account exists.
+      selector:
+        text:
+    start_date:
+      description: Starting date (YYYY-MM-DD).
+      selector:
+        date:
+    end_date:
+      description: Ending date (YYYY-MM-DD).
+      selector:
+        date:
+    include_heating:
+      description: Include CET only when each physical meter source unit has been independently confirmed.
+      selector:
+        boolean:
+    include_accounting:
+      description: Include the previously approved accounting allocations in this read-only plan.
+      selector:
+        boolean:
+    allow_gaps:
+      description: Show partial daily usage when sparse intervals exist.
+      selector:
+        boolean:
+    confirm_revision:
+      description: Preview a new versioned series for any changed existing statistics.
+      selector:
+        boolean:

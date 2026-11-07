@@ -159,3 +159,22 @@ def test_outside_original_interval_needs_second_consent(ui, monkeypatch):
         assert approved["step_id"] == "history_review"
         assert len(saved) == 1
     asyncio.run(run())
+
+
+def test_b5_review_keeps_progress_and_selects_next_unreviewed(ui, monkeypatch):
+    flow, coordinator = new_ui(ui)
+    record = coordinator._history_review_candidates[0]
+    second = {**record,"key":"b"*32,"decision":"unreviewed","source_date":"2025-02-01T00:00:00+01:00"}
+    coordinator._history_review_candidates.append(second)
+    saved=[]
+    async def save(*args): saved.append(args)
+    monkeypatch.setattr(ui,"save_decision",save)
+    async def run():
+        await flow.async_step_history_review({"reading":record["key"]})
+        await flow.async_step_history_decision({"choice":"reject"})
+        next_step = await flow.async_step_history_confirm({"confirm":True})
+        assert next_step["step_id"]=="history_decision"
+        assert flow._selected_reading["key"]==second["key"]
+        assert record["decision"]=="reject"
+        assert len(saved)==1
+    asyncio.run(run())

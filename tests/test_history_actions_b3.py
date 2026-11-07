@@ -231,3 +231,87 @@ def test_import_service_never_imports_unverified_heating(services, monkeypatch):
             await services.async_import_history(hass, call)
         assert calls == []
     asyncio.run(run())
+
+
+def test_b5_history_plan_is_read_only_and_reports_quantities(services, monkeypatch):
+    h = scenario(("L", "WATER", "EF", False, [("2026-01-01", 10), ("2026-01-02", 13)]))
+    coordinator = SimpleNamespace(entry=SimpleNamespace(
+        entry_id="fake-entry", unique_id="fake", options={}))
+    async def fake_load(*args, **kwargs):
+        return coordinator, date(2026, 1, 1), date(2026, 11, 7), h, 1
+    monkeypatch.setattr(services, "_load", fake_load)
+    writes = []
+    monkeypatch.setattr(services, "async_add_external_statistics", lambda *args: writes.append(args))
+    class Store:
+        def __init__(self, *args): pass
+        async def async_load(self): return None
+        async def async_save(self, obj): raise AssertionError("Dry-run must not write")
+    monkeypatch.setattr(services, "Store", Store)
+    auth = SimpleNamespace(async_get_user=lambda user: asyncio.sleep(0, result=SimpleNamespace(is_admin=True)))
+    hass = SimpleNamespace(auth=auth)
+    call = SimpleNamespace(context=SimpleNamespace(user_id="admin"),data={})
+    async def run():
+        result = await services.async_plan_history(hass, call)
+        assert result["mode"].startswith("read_only")
+        assert result["series"][0]["quantity_kwh_or_m3"] == 3
+        assert result["series"][0]["rows"] == 2
+        assert writes == []
+    asyncio.run(run())
+
+
+def test_b5_recorder_audit_checks_persisted_rows_without_writes(services, monkeypatch):
+    logical = "trybatec:history_v4_ef_mock"
+    ledger = {"version":1,"series":{"logical":{
+        "statistic_id":logical,
+        "snapshot":[["2026-01-01T00:00:00+00:00",0],["2026-01-02T00:00:00+00:00",3]],
+    }}}
+    class Store:
+        def __init__(self, *args): pass
+        async def async_load(self): return ledger
+    monkeypatch.setattr(services,"Store",Store)
+    coordinator=SimpleNamespace(entry=SimpleNamespace(entry_id="fake"))
+    monkeypatch.setattr(services,"_coordinator",lambda *args:coordinator)
+    from datetime import datetime
+    from homeassistant.components.recorder import statistics
+    monkeypatch.setattr(statistics,"get_last_statistics",lambda *args:{
+        logical:[{"start":datetime.fromisoformat(t),"sum":v}
+                 for t,v in ledger["series"]["logical"]["snapshot"]]
+    },raising=False)
+    auth = SimpleNamespace(async_get_user=lambda user: asyncio.sleep(0,result=SimpleNamespace(is_admin=True)))
+    hass = SimpleNamespace(auth=auth,config=SimpleNamespace(components={"recorder"}),
+        async_add_executor_job=lambda fn,*args: asyncio.sleep(0,result=fn(*args)))
+    call=SimpleNamespace(context=SimpleNamespace(user_id="admin"),data={})
+    async def run():
+        result=await services.async_audit_history(hass,call)
+        assert result["summary"]=={"total":1,"verified":1}
+        assert result["series"][0]["status"]=="verified"
+        # Recorder missing its final row must NEVER be reported verified.
+        monkeypatch.setattr(statistics,"get_last_statistics",
+            lambda *args:{logical:[{"start":datetime.fromisoformat("2026-01-01T00:00:00+00:00"),"sum":0}]})
+        stale=await services.async_audit_history(hass,call)
+        assert stale["series"][0]["status"]=="missing_or_mismatched"
+    asyncio.run(run())
+
+
+def test_b5_preview_cache_reuses_ram_payloads_but_never_persists_raw(services, monkeypatch):
+    payload={"lines":[{"lot":"L","fluide":"EF","compteur":"WATER",
+                       "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":10},
+                                  {"date":"2026-01-02T00:00:00+01:00","value":11}]}]}
+    requests=[]
+    class Client:
+        async def indexes(self,*args):
+            requests.append(args)
+            return payload
+    entry=SimpleNamespace(entry_id="fake",data={"deal_id":"fake-deal"})
+    coordinator=SimpleNamespace(entry=entry,client=Client(),data={"lots":{"L"},"meters":{}})
+    hass=SimpleNamespace(data={"trybatec":{"fake":coordinator}})
+    monkeypatch.setattr(services,"load_decisions",lambda *args:asyncio.sleep(0,result={}))
+    call=SimpleNamespace(data={"entry_id":"fake","start_date":"2026-01-01","end_date":"2026-01-03"})
+    async def run():
+        a=await services._load(hass,call)
+        assert a[-1]==1 and len(requests)==1
+        b=await services._load(hass,call,use_cache=True)
+        assert b[-1]==0 and len(requests)==1
+        assert a[3]["EF"]["total"]==b[3]["EF"]["total"]==1
+        assert "fake" in hass.data["trybatec_history_review_cache"]
+    asyncio.run(run())

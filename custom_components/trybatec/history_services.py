@@ -37,6 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 PREVIEW_SERVICE = "preview_history"
 IMPORT_SERVICE = "import_history"
 AUDIT_SERVICE = "audit_history"
+PLAN_SERVICE = "plan_history"
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -338,6 +339,56 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         }
 
 
+async def async_plan_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Read-only exact preflight: never queues statistics or writes the ledger."""
+    await _require_admin(hass, call)
+    coordinator, start, end, history, requests = await _load(hass, call)
+    chosen = _chosen_fluids(call.data)
+    account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
+    heating_units = {}
+    if "CET" in chosen:
+        for lot, fluid, serial in history["__physical_meters__"]:
+            if fluid != "CET":
+                continue
+            unit = selected_heat_unit(coordinator.entry.options, lot, serial)
+            if unit is None:
+                raise ServiceValidationError("Unverified heating unit: configure each physical CET meter first")
+            heating_units[(lot, serial)] = unit
+    try:
+        plan, skipped = compose_plan(
+            history, account_key, chosen,
+            allow_gaps=bool(call.data.get("allow_gaps", False)),
+            skip_conflicts=bool(call.data.get("skip_anomalous_meters", False)),
+            include_accounting=bool(call.data.get("include_accounting", False)),
+            heating_units=heating_units,
+        )
+        storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
+        store = Store(hass, 1, f"{DOMAIN}.history_v4_{storage_key}")
+        stored = await store.async_load()
+        _, reviewed = reconcile_plan(
+            stored, plan, confirm_revision=bool(call.data.get("confirm_revision", False)),
+        )
+    except ValueError as exc:
+        raise ServiceValidationError(str(exc)) from exc
+    return {
+        "mode": "read_only_no_recorder_or_storage_writes",
+        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "api_requests": requests, "skipped": skipped,
+        "series": [{
+            "statistic_id": item["statistic_id"], "fluid": item["fluid"],
+            "lot": item["lot"], "meter_serial": item["serial"], "kind": item["kind"],
+            "rows": len(item["rows"]), "quantity_kwh_or_m3": item["quantity"],
+            "replaces": item["replaces"],
+            "first_hour": item["rows"][0]["start"].isoformat(),
+            "last_hour": item["rows"][-1]["start"].isoformat(),
+        } for item in reviewed],
+        "warning": (
+            "No import occurred. Accounting attributions are user-defined conventions, "
+            "not physically measured daily consumption. Check old Energy series before importing."
+        ),
+    }
+
+
 async def async_audit_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
     """Read-only, bounded Recorder verification against stored planned rows.
 
@@ -410,6 +461,9 @@ def register_history_actions(hass: HomeAssistant) -> None:
     async def audit(call: ServiceCall) -> dict[str, Any]:
         return await async_audit_history(hass, call)
 
+    async def plan(call: ServiceCall) -> dict[str, Any]:
+        return await async_plan_history(hass, call)
+
     hass.services.async_register(
         DOMAIN, PREVIEW_SERVICE, preview, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
@@ -420,5 +474,9 @@ def register_history_actions(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, AUDIT_SERVICE, audit, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, PLAN_SERVICE, plan, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )

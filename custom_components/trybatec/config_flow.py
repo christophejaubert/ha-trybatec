@@ -146,13 +146,29 @@ class TrybatecOptionsFlow(OptionsFlow):
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="heating_meter_unavailable")
-        choices = {
-            meter_token(m["lot"], m["serial"]): (
-                f'{m["lot"]} / {m["serial"]} — '
-                f'{selected_heat_unit(self.config_entry.options, m["lot"], m["serial"]) or "unverified"}'
-            )
+        available = {
+            (m["lot"], m["serial"])
             for m in coordinator.data["meters"].values()
             if m["fluid"] == "CET" and m["lot"] and m["serial"]
+        }
+        cache = self.hass.data.get("trybatec_history_review_cache", {}).get(
+            self.config_entry.entry_id
+        )
+        if cache:
+            for payload in cache["payloads"]:
+                for row in payload.get("lines", []):
+                    if not isinstance(row, dict) or row.get("fluide") != "CET":
+                        continue
+                    lot, serial = row.get("lot"), row.get("compteur")
+                    if (isinstance(lot, str) and isinstance(serial, str)
+                            and lot in cache["allowed_lots"] and serial):
+                        available.add((lot, serial))
+        choices = {
+            meter_token(lot, serial): (
+                f'{lot} / {serial} — '
+                f'{selected_heat_unit(self.config_entry.options, lot, serial) or "unverified"}'
+            )
+            for lot, serial in sorted(available)
         }
         if not choices:
             return self.async_abort(reason="heating_meter_unavailable")
@@ -202,7 +218,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                 await _load(self.hass, SimpleNamespace(data={
                     "entry_id": self.config_entry.entry_id,
                     "start_date": start, "end_date": min(end, today),
-                }))
+                }), use_cache=True)
                 candidates = self._review_list()
             except Exception:
                 return self.async_abort(reason="history_preview_required")
@@ -255,9 +271,13 @@ class TrybatecOptionsFlow(OptionsFlow):
                 for candidate in self._review_list():
                     if candidate["key"] == self._selected_reading["key"]:
                         candidate["decision"] = decision["action"]
-        self._selected_reading = None
+        self._selected_reading = next(
+            (candidate for candidate in self._review_list()
+             if candidate["decision"] == "unreviewed"), None
+        )
         self._pending_review = None
-        # Continue review without re-fetching 24 historical API windows.
+        if self._selected_reading is not None:
+            return await self.async_step_history_decision()
         return await self.async_step_history_review()
 
 
