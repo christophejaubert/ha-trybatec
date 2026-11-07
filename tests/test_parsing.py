@@ -23,6 +23,7 @@ def sample():
                 "lot": "TEST",
                 "depose": False,
                 "conso": 0.14,
+                "unit": "m3",
                 "indexes": [
                     {"date": "2026-10-30T23:00:00.000+00:00", "value": 10.0},
                     {"date": "2026-10-31T23:00:00.000+00:00", "value": 10.14},
@@ -131,9 +132,9 @@ def test_rate_fallback_prefers_latest_approved():
 def test_b5_same_meter_serial_in_multiple_lots_remains_isolated():
     payload = {"lines":[
         {"compteur":"SHARED-TEST", "lot":"LOT-A", "fluide":"EF",
-         "conso":1.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":1.0}]},
+         "unit":"m3", "conso":1.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":1.0}]},
         {"compteur":"SHARED-TEST", "lot":"LOT-B", "fluide":"EF",
-         "conso":2.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":99.0}]},
+         "unit":"m3", "conso":2.0, "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":99.0}]},
     ]}
     meters = parse_lines(payload)
     assert len(meters) == 2
