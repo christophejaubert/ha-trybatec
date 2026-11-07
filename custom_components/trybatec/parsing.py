@@ -14,6 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
+from .units import portal_index_unit, resolve_meter_unit, unit_factor, validate_meter_units
 
 
 def numeric(value: Any) -> float | None:
@@ -116,12 +117,14 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "has_decreasing_indexes": bool(anomalies),
             "decrease_dates": anomalies[:10],
             "period_consumption": numeric(line.get("conso")),
+            "portal_unit": portal_index_unit(line),
         }
     return parsed
 
 
 def summarize_annual(
-    payload: dict[str, Any], period_start: date | None = None, period_end: date | None = None
+    payload: dict[str, Any], period_start: date | None = None, period_end: date | None = None,
+    *, meter_units: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Sum portal-provided period consumption, per physical meter and fluid.
 
@@ -130,15 +133,21 @@ def summarize_annual(
     Thus these annual numbers are *estimates*, not billing totals.
     """
     meters = parse_lines(payload)
-    data = {fluid: {"value": 0.0, "meters": 0, "coverage_warning": False} for fluid in FLUIDS}
+    overrides = validate_meter_units(meter_units or {})
+    data = {fluid: {"value": 0.0, "meters": 0, "coverage_warning": False, "unit_verified": True} for fluid in FLUIDS}
     for meter in meters.values():
         fluid = meter["fluid"]
         value = meter["period_consumption"]
         if value is None or not meter["indexes"]:
             continue
         entry = data[fluid]
-        entry["value"] += value
         entry["meters"] += 1
+        unit = resolve_meter_unit(meter["lot"], fluid, meter["serial"], meter["portal_unit"], overrides)
+        if unit is None:
+            entry["unit_verified"] = False
+            entry["coverage_warning"] = True
+        else:
+            entry["value"] += value * unit_factor(fluid, unit)
         indexes = meter["indexes"]
         # Annual estimate may be incomplete if readings start late, have gaps,
         # or decrease during the range (the API might still report a delta).
@@ -152,6 +161,8 @@ def summarize_annual(
     for fluid in FLUIDS:
         if not data[fluid]["meters"]:
             data[fluid]["value"] = None
+        elif not data[fluid]["unit_verified"]:
+            data[fluid]["value"] = None  # Never sum unverified or different scales.
         else:
             data[fluid]["value"] = round(data[fluid]["value"], 6)
     return data
