@@ -34,7 +34,8 @@
         "title": "Trybatec options",
         "menu_options": {
           "settings": "Settings",
-          "history_review": "Review historical readings"
+          "history_review": "Review historical readings",
+          "heating_units": "Verify heating meter source units"
         }
       },
       "history_review": {
@@ -63,18 +64,30 @@
       },
       "history_confirm": {
         "title": "Confirm reading decision",
-        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.",
+        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Continue reviewing without re-fetching Trybatec data.  \\n{outside_warning}",
         "data": {
-          "confirm": "I confirm this decision"
+          "confirm": "I confirm this decision",
+          "confirm_outside": "I explicitly confirm the date outside the original reading interval."
+        }
+      },
+      "heating_units": {
+        "title": "Physical heating meter units",
+        "description": "Confirm the source unit shown by the meter or verified with Trybatec. SHARKY 774 may use kWh, MWh or GJ.",
+        "data": {
+          "meter": "Meter",
+          "unit": "Verified source unit",
+          "confirm": "I confirm that I verified this meter's source unit"
         }
       }
     },
     "error": {
       "invalid_tariffs": "Invalid tariff JSON. See the example.",
-      "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change)."
+      "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change).",
+      "confirm_heat_unit": "Choose a meter and unit and explicitly confirm verification."
     },
     "abort": {
-      "history_preview_required": "First run a new history preview from Developer Tools → Actions."
+      "history_preview_required": "Cannot load historical data; verify Trybatec access and retry.",
+      "heating_meter_unavailable": "No CET meter is available."
     }
   }
 }

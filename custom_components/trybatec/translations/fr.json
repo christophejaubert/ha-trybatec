@@ -34,7 +34,8 @@
         "title": "Options Trybatec",
         "menu_options": {
           "settings": "Réglages",
-          "history_review": "Réviser les relevés historiques"
+          "history_review": "Réviser les relevés historiques",
+          "heating_units": "Vérifier les unités des compteurs de chauffage"
         }
       },
       "history_review": {
@@ -63,18 +64,30 @@
       },
       "history_confirm": {
         "title": "Confirmer le traitement du relevé",
-        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.",
+        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n{outside_warning}",
         "data": {
-          "confirm": "Je confirme cette décision"
+          "confirm": "Je confirme cette décision",
+          "confirm_outside": "Je confirme expressément l'imputation hors de l'intervalle de mesure."
+        }
+      },
+      "heating_units": {
+        "title": "Unité d'origine d'un compteur CET",
+        "description": "L'unité de ce compteur doit être vérifiée à l'afficheur ou auprès de Trybatec. Le SHARKY 774 peut utiliser kWh, MWh ou GJ.",
+        "data": {
+          "meter": "Compteur",
+          "unit": "Unité source vérifiée",
+          "confirm": "Je confirme avoir vérifié l'unité de ce compteur"
         }
       }
     },
     "error": {
       "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple.",
-      "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure)."
+      "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure).",
+      "confirm_heat_unit": "Vérifiez le compteur et l'unité puis confirmez."
     },
     "abort": {
-      "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions."
+      "history_preview_required": "Impossible de récupérer l'historique : vérifiez l'accès Trybatec et réessayez.",
+      "heating_meter_unavailable": "Aucun compteur CET disponible."
     }
   }
 }

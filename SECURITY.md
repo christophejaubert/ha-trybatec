@@ -52,3 +52,14 @@ external-statistics write. Re-running an unchanged import is designed to be
 idempotent, but the user must check actual Recorder persistence before trusting
 any totals. Backfilled revisions create distinct external series and never
 silently delete the old one. Switching the Energy dashboard remains manual.
+
+## 0.2.0b5 safeguards
+
+SHARKY 774 energy unit must be confirmed per physical meter; no automatic
+assumption of source kWh, MWh or GJ. Raw unverified CET live readings are not
+published as eligible energy statistics. Live identities include account, lot,
+fluid and serial; previous legacy entities are not silently reassigned.
+Review decisions are durable and raw historical API payloads are cached only
+in RAM. Recorder audit is read-only and requires an authenticated administrator.
+A queued import is not considered verified before an audit confirms persisted
+statistics. Audits do not make Recorder transactions atomic.

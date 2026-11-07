@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Current experimental beta: 0.2.0b4** — per-reading review in Home Assistant options, separate approved accounting allocations, and controlled recorder revision handling. Available as a GitHub pre-release; back up Home Assistant before any import.
+**Current experimental beta: 0.2.0b5** — per-reading review in Home Assistant options, separate approved accounting allocations, and controlled recorder revision handling. Available as a GitHub pre-release; back up Home Assistant before any import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -36,7 +36,7 @@
 - Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present.
 - Historical readings handle one meter, successive physical meters, parallel meters, multiple dwellings, and sparse/backdated-looking observations without client-specific assumptions.
 
-## Historical readings and Home Assistant recorder (proposed `0.2.0b4`)
+## Historical readings and Home Assistant recorder (`0.2.0b5`)
 
 **EXPERIMENTAL. NO AUTOMATIC RECORDER WRITES.** Back up Home Assistant
 **including Recorder and `.storage`** before importing. No history is imported
@@ -67,13 +67,15 @@ on install, restart, update or daily polling. History actions require an
    exact source reading (account store + lot + fluid + serial + timestamp +
    value). When Trybatec changes the source timestamp or value, the old choice
    does **not** apply blindly. The source portal is never modified.
-4. **Run `preview_history` again** after a decision to inspect the effect.
-   The preview action never writes to Recorder or persistent storage itself.
-   The review interface stores choices in `.storage`; back it up with Recorder.
+4. Continue to the next reading automatically. The current source snapshot is
+   kept only in memory, while confirmed decisions and the review date range
+   are saved in Home Assistant's `.storage`. After a restart the interface
+   can refetch Trybatec history and apply the saved choices without asking the
+   user to validate them again. `preview_history` stays read-only.
 
 **Limit:** This is a native Home Assistant *options flow*, not yet a custom
-full-page dashboard. A review requires a preceding preview to populate
-candidates; a new preview is required after each saved choice. Only flagged
+full-page dashboard. The options flow can retrieve a fresh source snapshot when needed, including
+after a restart. No new API request is needed after each saved decision. Only flagged
 readings are selectable. The source API has no documented provenance flags,
 so neither a backdated-looking entry nor a correction is called "manual" without
 independent evidence. Text justification is requested but not verified by code;
@@ -98,14 +100,18 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - **User-approved accounting allocations** of sparse consumption are stored
   in **separate** per-meter `history_v4_..._accounting_...` series, never made to
   look like measured daily usage. Opt in with `include_accounting: true` and
-  `confirm_accounting: true`. The allocation timestamp must lie inside the
-  observed source interval, and the amount is calculated as a verified
-  nonnegative difference between two source indexes. For instance, a
+  `confirm_accounting: true`. The allocation timestamp may lie before or after the observed source
+  interval, but requires additional explicit user confirmation and a written
+  justification. The amount must still be a nonnegative difference between
+  source indexes; it is not a claim of real consumption at that time. For instance, a
   deliberate **31 Dec 23:59** selection is recorded into the **31 Dec 23:00**
   local hourly statistics bucket, not the following civil year.
-- **Heating is OFF by default**. It can be imported only after independent
-  confirmation of genuine kWh (not heating allocation units) using
-  `include_heating: true` and `confirm_heating_kwh: true`.
+- **Heating is OFF by default.** Diehl Metering confirms that SHARKY 774
+  models can display kWh, MWh or GJ. Neither DN15 nor the Trybatec CET field
+  establishes which unit the portal transmits. In **Configure → Verify
+  heating meter source units**, confirm the source unit for each physical CET
+  meter; the integration converts independently to kWh. Import CET only with
+  `include_heating: true` and `confirm_heating_kwh: true`. Never guess.
 - **Multiple serial numbers** stay separate even if they may be successive
   physical generations of a single lot's consumption point. Overlapping
   meters are never assumed to be successive.
@@ -116,9 +122,11 @@ only after backing up and reviewing the preview. Use `confirm: true`.
   statistic series** is created and the old one remains untouched.
   **The user must manually replace the old series in the Energy dashboard**
   before using the new revision. Do NOT select old and new simultaneously.
-- The import returns the queued series, skipped meters and any replaced old
-  IDs. Queueing external statistics is asynchronous; verify persistence in
-  **Developer Tools → Statistics** after the recorder has processed the data.
+- The import returns queued series, skipped meters and old revision IDs.
+  Queueing Recorder data is asynchronous. The new read-only
+  `trybatec.audit_history` action compares every planned hourly row to
+  the rows actually persisted in Recorder; a queued import must never be
+  represented as verified before a successful audit.
 
 ### Restrictions and known limits
 
@@ -131,9 +139,13 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - The Trybatec `/api/v1/indexes` API is undocumented. Historical access is
   limited to 10 years per request with API and payload-size limits. Some
   vendor accounts may expose only partial or inconsistent history.
-- The live/current sensor representation still uses serial-only identity;
-  duplicate serials across different lots are isolated in historical
-  statistics but not yet fully handled in live sensors.
+- Live index sensors now use composite account/lot/fluid/serial identities.
+  This intentionally introduces new HA entity IDs instead of silently reusing
+  potentially ambiguous old serial-only entities. Review your dashboards;
+  legacy entities/statistics are never automatically deleted or migrated.
+  Unverified CET sensors expose a raw unitless index without an energy
+  device class or cumulative energy statistics. After explicit confirmation,
+  the derived CET index is expressed in kWh.
 - No complete CSV/XLSX ingestion, automatic conversion of sparse intervals
   to daily readings, provenance audit of source documents, full graphical
   bulk review, or automatic switching of revised Recorder statistics in the
@@ -216,7 +228,7 @@ Configuration optionnelle dans les **Options** de l'intégration :
 **Montants ci-dessus fictifs**, uniquement pour montrer la syntaxe. Pour une
 année, chaque taux utilise les unités `EUR/m³` pour EF et ECS et `EUR/kWh` pour
 CET. `status` vaut `provisional` ou `approved`. Les tarifs d'une année civile
-sont réutilisables à titre de référence, mais ce premier prototype ne recalcule
+sont réutilisables à titre de référence, mais cette version ne recalcule
 pas rétroactivement l'historique du recorder Home Assistant.
 
 ### Capteurs
@@ -262,7 +274,7 @@ avec examen éventuel selon les disponibilités.
 
 ## Developer notes / GitHub publication
 
-`manifest.json` currently targets the intended repository `christophejaubert/ha-trybatec`. **Before publishing this repository to GitHub**:
+`manifest.json` currently targets the intended repository `christophejaubert/ha-trybatec`. **Before publishing a major update**:
 
 1. Create that exact public repository (or update `manifest.json` to match the final owner/repository name).
 2. Confirm that `documentation`, `issue_tracker` and `codeowners` in `manifest.json` point to the real repository and owner.

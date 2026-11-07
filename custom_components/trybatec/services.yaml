@@ -77,3 +77,12 @@ import_history:
       required: true
       selector:
         boolean: {}
+
+audit_history:
+  name: Audit historical Recorder statistics
+  description: Administrator-only. Compare the planned long-term hourly rows to persisted Recorder rows without writing any data.
+  fields:
+    entry_id:
+      description: Trybatec configuration entry ID (required for multiple accounts).
+      selector:
+        text:

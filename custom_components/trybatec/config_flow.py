@@ -35,6 +35,7 @@ from .const import (
 from .parsing import validate_tariffs
 from .history_store import save_decision, load_decisions, save_review_window, load_review_window
 from .history_review import ZONE
+from .units import CONF_HEATING_UNITS, HEAT_UNITS, meter_token, selected_heat_unit
 from .history import build_history
 
 UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
@@ -112,7 +113,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     _pending_review: dict | None = None
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["settings", "history_review"])
+        return self.async_show_menu(step_id="init", menu_options=["settings", "heating_units", "history_review"])
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -138,6 +139,46 @@ class TrybatecOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
+
+
+    async def async_step_heating_units(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Verify a physical heat meter's source unit without guessing."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self.async_abort(reason="heating_meter_unavailable")
+        choices = {
+            meter_token(m["lot"], m["serial"]): (
+                f'{m["lot"]} / {m["serial"]} — '
+                f'{selected_heat_unit(self.config_entry.options, m["lot"], m["serial"]) or "unverified"}'
+            )
+            for m in coordinator.data["meters"].values()
+            if m["fluid"] == "CET" and m["lot"] and m["serial"]
+        }
+        if not choices:
+            return self.async_abort(reason="heating_meter_unavailable")
+        schema = vol.Schema({
+            vol.Required("meter"): vol.In(choices),
+            vol.Required("unit", default="unverified"): vol.In({
+                "unverified": "Not verified", **{unit: unit for unit in HEAT_UNITS}
+            }),
+            vol.Required("confirm", default=False): BooleanSelector(),
+        })
+        if user_input is not None:
+            token, unit = user_input.get("meter"), user_input.get("unit")
+            if token not in choices or unit not in (*HEAT_UNITS, "unverified") or user_input.get("confirm") is not True:
+                return self.async_show_form(
+                    step_id="heating_units", data_schema=schema,
+                    errors={"base": "confirm_heat_unit"},
+                )
+            options = dict(self.config_entry.options)
+            values = dict(options.get(CONF_HEATING_UNITS, {}))
+            if unit == "unverified":
+                values.pop(token, None)
+            else:
+                values[token] = unit
+            options[CONF_HEATING_UNITS] = values
+            return self.async_create_entry(title="", data=options)
+        return self.async_show_form(step_id="heating_units", data_schema=schema)
 
 
     def _review_list(self) -> list[dict]:
