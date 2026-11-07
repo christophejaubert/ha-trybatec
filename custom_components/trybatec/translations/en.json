@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Trybatec account",
+        "description": "Enter the credentials for the Trybatec portal and the UUID from your portal's /indexes/ page URL. This is an unofficial integration.",
+        "data": {
+          "username": "Username (email)",
+          "password": "Password",
+          "deal_id": "Deal ID (UUID from the Indexes page URL)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login was rejected by Trybatec.",
+      "cannot_connect": "Unable to retrieve data from Trybatec.",
+      "invalid_deal_id": "The deal ID must be a UUID."
+    },
+    "abort": {
+      "already_configured": "This Trybatec account and deal are already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Trybatec options",
+        "description": "Tariff JSON example: {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Supported fluids: EF, ECS, CET. Costs are estimates, not a billing statement.",
+        "data": {
+          "poll_minutes": "Polling interval (minutes, minimum 60)",
+          "annual_tariffs": "Annual tariffs (JSON, optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_tariffs": "Invalid tariff JSON. See the example."
+    }
+  }
+}

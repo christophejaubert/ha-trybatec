@@ -1,0 +1,15 @@
+{
+  "domain": "trybatec",
+  "name": "Trybatec (Unofficial Beta)",
+  "version": "0.1.0b1",
+  "config_flow": true,
+  "documentation": "https://github.com/christophejaubert/ha-trybatec#readme",
+  "codeowners": [
+    "@christophejaubert"
+  ],
+  "dependencies": [],
+  "requirements": [],
+  "iot_class": "cloud_polling",
+  "integration_type": "hub",
+  "issue_tracker": "https://github.com/christophejaubert/ha-trybatec/issues"
+}

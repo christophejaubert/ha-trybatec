@@ -1,0 +1,40 @@
+name: Compatibility and tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "21 7 * * *" # Daily detection of latest published HA compatibility
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install pure Python test dependencies
+        run: python -m pip install pytest aiohttp
+      - name: Compile sources
+        run: python -m compileall -q custom_components/trybatec
+      - name: Test parsing and API client
+        run: python -m pytest -q
+
+  latest-homeassistant-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install latest Home Assistant (not cached/pinned)
+        run: python -m pip install --upgrade homeassistant
+      - name: Display installed version and import custom component
+        run: |
+          python -m pip show homeassistant | grep Version
+          python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor"

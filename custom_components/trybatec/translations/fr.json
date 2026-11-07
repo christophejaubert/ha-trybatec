@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Compte Trybatec",
+        "description": "Saisissez les identifiants du portail Trybatec et l'UUID qui figure dans l'adresse de la page /indexes/. Intégration non officielle.",
+        "data": {
+          "username": "Identifiant (adresse électronique)",
+          "password": "Mot de passe",
+          "deal_id": "Identifiant de copropriété (UUID de la page Index)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Connexion refusée par Trybatec.",
+      "cannot_connect": "Impossible de récupérer les relevés Trybatec.",
+      "invalid_deal_id": "L'identifiant doit être au format UUID."
+    },
+    "abort": {
+      "already_configured": "Ce compte et cette copropriété sont déjà configurés."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Trybatec",
+        "description": "Exemple : {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Types : EF, ECS, CET. Les coûts sont des estimations et non des décomptes approuvés.",
+        "data": {
+          "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
+        }
+      }
+    },
+    "error": {
+      "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple."
+    }
+  }
+}
