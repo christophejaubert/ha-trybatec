@@ -19,7 +19,8 @@ from .api import (
     TrybatecConnectionError,
     TrybatecDataError,
 )
-from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, CONF_METER_UNITS, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
+from .units import resolve_meter_unit, validate_meter_units
 from .parsing import known_lots, parse_lines, summarize_annual
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,7 +52,12 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             meters = parse_lines(payload)
             if not meters:
                 raise TrybatecDataError("No recognized meter rows in response")
-            annual = summarize_annual(payload, period_start=start, period_end=end)
+            overrides = validate_meter_units(self.entry.options.get(CONF_METER_UNITS, {}))
+            for meter in meters.values():
+                meter["verified_unit"] = resolve_meter_unit(
+                    meter["lot"], meter["fluid"], meter["serial"], meter["portal_unit"], overrides
+                )
+            annual = summarize_annual(payload, period_start=start, period_end=end, meter_units=overrides)
             return {
                 "meters": meters, "lots": known_lots(payload),
                 "annual": annual, "year": today.year, "date": today.isoformat(),
