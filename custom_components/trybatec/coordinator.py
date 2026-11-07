@@ -64,5 +64,5 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         except TrybatecAuthError as exc:
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
-        except (TrybatecConnectionError, TrybatecDataError) as exc:
+        except (TrybatecConnectionError, TrybatecDataError, ValueError, TypeError, OverflowError) as exc:
             raise UpdateFailed("Unable to update Trybatec meter indexes") from exc

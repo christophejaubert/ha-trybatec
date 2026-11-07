@@ -285,3 +285,44 @@ def test_b6_verify_history_requires_all_recorder_rows_before_clearing_pending(se
         assert done["verified"][0]["rows"] == 2
         assert database["value"]["pending"] == {}
     asyncio.run(run())
+
+
+
+def test_b7_cost_and_diagnostic_actions_are_admin_only_read_only(services, monkeypatch):
+    """The new inspection services never queue Recorder statistics."""
+    from custom_components.trybatec.units import meter_key
+    data = scenario(("FAKE-HOME", "WATER", "EF", False, [
+        ("2026-01-01", 10), ("2026-01-02", 12),
+    ]))
+    coordinator = SimpleNamespace(entry=SimpleNamespace(
+        entry_id="TEST-ENTRY", unique_id="TEST-ENTRY",
+        options={
+            "meter_units": {meter_key("FAKE-HOME", "EF", "WATER"): "m³"},
+            "annual_tariffs": '{"2026":{"EF":{"rate":3,"status":"provisional"}}}',
+        },
+    ))
+    called = []
+    async def loader(*_):
+        called.append("loaded")
+        return coordinator, date(2026, 1, 1), date(2026, 11, 7), data, 1
+    monkeypatch.setattr(services, "_load", loader)
+    auth = SimpleNamespace(async_get_user=lambda user_id: asyncio.sleep(
+        0, result=SimpleNamespace(is_admin=user_id == "admin")))
+    hass = SimpleNamespace(auth=auth)
+    async def run():
+        blocked = SimpleNamespace(context=SimpleNamespace(user_id="guest"), data={})
+        for action in (services.async_preview_costs, services.async_diagnose_history):
+            with pytest.raises(services.ServiceValidationError, match="administrator"):
+                await action(hass, blocked)
+        assert called == []
+        approved = SimpleNamespace(context=SimpleNamespace(user_id="admin"), data={})
+        costs = await services.async_preview_costs(hass, approved)
+        assert costs["persisted"] is False
+        assert costs["annual"][0]["currency"] == "EUR"
+        assert costs["annual"][0]["quantity"] == 2
+        assert costs["annual"][0]["estimated_cost"] == 6
+        diagnosis = await services.async_diagnose_history(hass, approved)
+        assert diagnosis["persisted"] is False
+        assert diagnosis["meters_total"] == 1
+        assert diagnosis["details"][0]["verified_source_unit"] == "m³"
+    asyncio.run(run())

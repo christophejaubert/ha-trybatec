@@ -25,7 +25,10 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DEAL_ID, CONF_METER_UNITS, DOMAIN, FLUIDS, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
+from .historical_costs import estimate_historical_costs
+from .history_diagnostics import diagnose_history as build_history_diagnostics
+from .parsing import validate_tariffs
 from .history_store import load_decisions
 from .units import resolve_meter_unit, unit_factor, normalized_unit, validate_meter_units
 from .recorder_guard import stage_pending, verified_snapshot, expected_windows
@@ -39,6 +42,8 @@ _LOGGER = logging.getLogger(__name__)
 PREVIEW_SERVICE = "preview_history"
 IMPORT_SERVICE = "import_history"
 VERIFY_SERVICE = "verify_history"
+COSTS_SERVICE = "preview_costs"
+DIAGNOSTICS_SERVICE = "diagnose_history"
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -473,6 +478,50 @@ async def async_verify_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         }
 
 
+
+async def async_preview_costs(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Administrator-only read-only annual costing, distinct from billing."""
+    await _require_admin(hass, call)
+    try:
+        coordinator, start, end, history, requests = await _load(hass, call)
+        tariffs = validate_tariffs(coordinator.entry.options.get(CONF_TARIFFS, "{}"))
+        overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
+        result = estimate_historical_costs(history, tariffs, overrides)
+    except ServiceValidationError:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ServiceValidationError("Historical costs cannot be calculated safely") from exc
+    except Exception as exc:
+        _LOGGER.warning("Trybatec cost preview unavailable: %s", type(exc).__name__)
+        raise ServiceValidationError("Unable to retrieve historical cost preview") from exc
+    return {
+        **result,
+        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "api_requests": requests, "persisted": False,
+    }
+
+
+async def async_diagnose_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Administrator-only diagnostics; never alters source/Recorder entries."""
+    await _require_admin(hass, call)
+    try:
+        coordinator, start, end, history, requests = await _load(hass, call)
+        overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
+        result = build_history_diagnostics(history, overrides)
+    except ServiceValidationError:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ServiceValidationError("Historical diagnostics cannot be evaluated safely") from exc
+    except Exception as exc:
+        _LOGGER.warning("Trybatec diagnostic preview unavailable: %s", type(exc).__name__)
+        raise ServiceValidationError("Unable to retrieve Trybatec diagnostic preview") from exc
+    return {
+        **result,
+        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "api_requests": requests, "persisted": False,
+    }
+
+
 def register_history_actions(hass: HomeAssistant) -> None:
     """Register only manual history actions; no automatic recorder changes."""
     async def preview(call: ServiceCall) -> dict[str, Any]:
@@ -485,6 +534,12 @@ def register_history_actions(hass: HomeAssistant) -> None:
     async def verify(call: ServiceCall) -> dict[str, Any]:
         return await async_verify_history(hass, call)
 
+    async def preview_costs(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_costs(hass, call)
+
+    async def diagnose(call: ServiceCall) -> dict[str, Any]:
+        return await async_diagnose_history(hass, call)
+
     hass.services.async_register(
         DOMAIN, PREVIEW_SERVICE, preview, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
@@ -495,5 +550,13 @@ def register_history_actions(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, VERIFY_SERVICE, verify, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, COSTS_SERVICE, preview_costs, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, DIAGNOSTICS_SERVICE, diagnose, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )

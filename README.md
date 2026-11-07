@@ -26,6 +26,39 @@
 - Import only via administrator-only **trybatec.import_history** with `confirm: true`, verified units, and other relevant flags. A persistent pending ledger blocks blind reimports. After Recorder processes queued rows, run **trybatec.verify_history** to compare every queued hourly sum with the recorded statistics. A failed or interrupted import remains pending; `retry_pending: true` permits only an identical retrial.
 - The UI is still based on native Home Assistant options flows, **not** a full-page bulk history editor. The Recorder importer is still asynchronous and non-atomic. Source and accounting timestamps remain separate.
 
+
+## b7 development branch — not published
+
+The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.
+The latest published pre-release remains **0.2.0b6**. Do not replace a working
+b6 installation with this development branch without a full backup and an
+explicit test plan. No historical data is written automatically.
+
+New administrator-only read-only Home Assistant actions:
+
+- `trybatec.preview_costs` — approximate annual costs in **EUR**, calculated
+  **only** from verified daily increments and separately reported,
+  explicitly approved accounting allocations. Amounts use the manually entered
+  tariff for the exact civil year and fluid. No extrapolation through gaps, no
+  previous-year tariff fallback, no fixed building charges and no claim that
+  a provisional or even an "approved" tariff means an approved invoice.
+  Quantities are normalized using each physical meter's confirmed index unit.
+  Unverified or fatally conflicting meters are withheld and itemized.
+- `trybatec.diagnose_history` — read-only report of gaps, decreasing indexes,
+  conflicting source observations, unverified units, and ambiguous replacement
+  overlaps by physical meter and fluid. No index rewriting or presumed
+  continuity between replaced meters.
+- The Trybatec API client now bounds the maximum received JSON body, meters
+  and readings; it retries HTTP 429/500/502/503/504 a limited number of times.
+  Permanent errors and unexpected response structures fail safely.
+- Both actions accept `start_date`, `end_date` and optional `entry_id` in
+  Developer Tools → Actions, require an authenticated HA administrator, and
+  do not queue or alter Recorder data. Previewing a ten-year period can issue
+  many API requests; use an appropriately narrow date range.
+
+This branch will be updated after live b6 feedback. Publication, merging, and
+installation are not part of this development stage.
+
 ## Features
 
 - User-interface setup with a portal username, password, and `dealId` obtained

@@ -91,3 +91,38 @@ verify_history:
       description: Optional when only one Trybatec account is configured.
       selector:
         text: {}
+
+
+preview_costs:
+  name: Preview annual historical costs (b7)
+  description: Administrator-only, read-only estimates by year, fluid and evidence type. User-entered tariffs and measured versus accounting allocations remain distinct; never an invoice or a Recorder write.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      description: Historical interval beginning (YYYY-MM-DD).
+      example: "2024-01-01"
+      selector:
+        text: {}
+    end_date:
+      description: Historical interval end (YYYY-MM-DD), defaults to today.
+      selector:
+        text: {}
+
+diagnose_history:
+  name: Diagnose historical meter readings (b7)
+  description: Administrator-only, read-only unit, interval, conflict and replacement diagnostics without changing source observations.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      description: Historical interval beginning (YYYY-MM-DD).
+      example: "2024-01-01"
+      selector:
+        text: {}
+    end_date:
+      description: Historical interval end (YYYY-MM-DD), defaults to today.
+      selector:
+        text: {}
