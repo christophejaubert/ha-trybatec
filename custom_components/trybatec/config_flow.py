@@ -33,8 +33,9 @@ from .const import (
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
-from .history_store import save_decision
+from .history_store import save_decision, load_decisions, save_review_window, load_review_window
 from .history_review import ZONE
+from .history import build_history
 
 UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
 
@@ -149,6 +150,22 @@ class TrybatecOptionsFlow(OptionsFlow):
         """Pick from the most recent administrator history preview, not arbitrary text."""
         candidates = self._review_list()
         if not candidates:
+            # After a HA restart, no raw API readings are cached. Fetch again
+            # once using the persisted review window; all decisions survive.
+            try:
+                from .history_services import _load
+                from types import SimpleNamespace
+                saved = await load_review_window(self.hass, self.config_entry.entry_id)
+                today = dt_util.now().astimezone(ZONE).date().isoformat()
+                start, end = saved or ("2021-01-01", today)
+                await _load(self.hass, SimpleNamespace(data={
+                    "entry_id": self.config_entry.entry_id,
+                    "start_date": start, "end_date": min(end, today),
+                }))
+                candidates = self._review_list()
+            except Exception:
+                return self.async_abort(reason="history_preview_required")
+        if not candidates:
             return self.async_abort(reason="history_preview_required")
         by_id = {item["key"]: item for item in candidates}
         if user_input is not None:
@@ -171,21 +188,37 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
 
     async def _save_review(self, decision: dict) -> ConfigFlowResult:
-        """Persist choices without modifying external statistics or source readings."""
+        """Persist decision then recompute candidates from cached source data."""
         if self._selected_reading is None or self._selected_reading["key"] not in {
             c["key"] for c in self._review_list()
         }:
             return self.async_abort(reason="history_preview_required")
         coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
-        # One writer at a time: an admin must not alter review decisions while
-        # a historical recorder import is underway for the same account.
         if not hasattr(coordinator, "_history_import_lock"):
             coordinator._history_import_lock = __import__("asyncio").Lock()
         async with coordinator._history_import_lock:
             await save_decision(self.hass, self.config_entry.entry_id, self._selected_reading["key"], decision)
-            coordinator._history_review_candidates = []
-        # Existing settings/tariffs remain unchanged; HA still controls the flow.
-        return self.async_create_entry(title="", data=dict(self.config_entry.options))
+            cache = getattr(coordinator, "_history_preview_cache", None)
+            if cache:
+                # Only the review decisions, not raw readings, are persisted.
+                await save_review_window(self.hass, self.config_entry.entry_id, cache["start"], cache["end"])
+                decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+                history = build_history(
+                    cache["payloads"], cache["start"], cache["end"],
+                    allowed_lots=cache["allowed_lots"], decisions=decisions,
+                )
+                coordinator._history_review_candidates = history["__review_candidates__"]
+            else:
+                # Legacy in-memory preview: keep candidates; next preview may
+                # fetch newer vendor records, but decisions are already saved.
+                for candidate in self._review_list():
+                    if candidate["key"] == self._selected_reading["key"]:
+                        candidate["decision"] = decision["action"]
+        self._selected_reading = None
+        self._pending_review = None
+        # Continue review without re-fetching 24 historical API windows.
+        return await self.async_step_history_review()
+
 
     async def async_step_history_decision(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self._selected_reading is None:
@@ -249,10 +282,18 @@ class TrybatecOptionsFlow(OptionsFlow):
         """Require final user approval of the particular source reading action."""
         if self._selected_reading is None or self._pending_review is None:
             return self.async_abort(reason="history_preview_required")
-        if user_input is not None and user_input.get("confirm") is True:
-            return await self._save_review(self._pending_review)
-        item = self._selected_reading
         decision = self._pending_review
+        item = self._selected_reading
+        outside = False
+        if decision["action"] == "correct" and decision.get("mode") == "accounting":
+            target = datetime.fromisoformat(decision["timestamp"])
+            source = datetime.fromisoformat(item["source_date"])
+            previous = datetime.fromisoformat(item["previous_date"]) if item.get("previous_date") else None
+            outside = target > source or (previous is not None and target <= previous)
+        if user_input is not None and user_input.get("confirm") is True and (
+            not outside or user_input.get("confirm_outside") is True
+        ):
+            return await self._save_review(self._pending_review)
         label = (
             f'{item["lot"]} / {item["fluid"]} / {item["meter_serial"]} – '
             f'{item["source_date"]} – {item["index"]}'
@@ -266,11 +307,15 @@ class TrybatecOptionsFlow(OptionsFlow):
             step_id="history_confirm",
             description_placeholders={
                 "reading": label,
+                "outside_warning": ("WARNING: outside the observed source interval; changes accounting period only." if outside else "Within the observed source interval."),
                 "interval_quantity": str(round(estimated_delta, 6)) if estimated_delta is not None else "not available",
                 "decision": decision["action"] + (
                     f' / {decision.get("mode", "")} / {decision.get("timestamp", "")}'
                     if decision["action"] == "correct" else ""
                 ),
             },
-            data_schema=vol.Schema({vol.Required("confirm", default=False): BooleanSelector()}),
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): BooleanSelector(),
+                **({"confirm_outside": BooleanSelector()} if outside else {}),
+            }),
         )

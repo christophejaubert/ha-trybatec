@@ -86,10 +86,9 @@ def test_options_menu_and_select_reading_then_reject_approval(ui, monkeypatch):
         reask = await flow.async_step_history_confirm({"confirm":False})
         assert reask["type"] == "form" and not saved
         final = await flow.async_step_history_confirm({"confirm":True})
-        assert final["type"] == "create_entry"
-        assert final["data"] == {"poll_minutes":720}
+        assert final["type"] == "form" and final["step_id"] == "history_review"
         assert len(saved)==1 and saved[0][-1]=={"action":"reject"}
-        assert coordinator._history_review_candidates == []
+        assert coordinator._history_review_candidates[0]["decision"] == "reject"
     asyncio.run(run())
 
 
@@ -124,3 +123,39 @@ def test_options_settings_renders_settings_step(ui):
     result = asyncio.run(flow.async_step_settings())
     assert result["type"] == "form"
     assert result["step_id"] == "settings"
+
+
+def test_heating_source_unit_needs_user_confirmation(ui):
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {("FAKE-HOME", "CET", "HEAT"): {
+        "lot":"FAKE-HOME", "fluid":"CET", "serial":"HEAT"}}}
+    from custom_components.trybatec.units import meter_token
+    token = meter_token("FAKE-HOME", "HEAT")
+    async def run():
+        page = await flow.async_step_heating_units()
+        assert page["step_id"] == "heating_units"
+        denied = await flow.async_step_heating_units({"meter":token,"unit":"MWh","confirm":False})
+        assert denied["type"] == "form"
+        done = await flow.async_step_heating_units({"meter":token,"unit":"MWh","confirm":True})
+        assert done["type"] == "create_entry"
+        assert done["data"]["heating_meter_units"][token] == "MWh"
+    asyncio.run(run())
+
+
+def test_outside_original_interval_needs_second_consent(ui, monkeypatch):
+    flow, coordinator = new_ui(ui)
+    coordinator._history_review_candidates[0]["previous_date"] = "2024-01-01T00:00:00+01:00"
+    saved=[]
+    async def fake_save(*args): saved.append(args)
+    monkeypatch.setattr(ui, "save_decision", fake_save)
+    async def run():
+        await flow.async_step_history_review({"reading":"a"*32})
+        await flow.async_step_history_decision({"choice":"correct"})
+        form = await flow.async_step_history_correction({"mode":"accounting","date":"2025-02-01","time":"12:00:00","reason":"Later accounting period approved"})
+        assert form["step_id"] == "history_confirm"
+        refused = await flow.async_step_history_confirm({"confirm":True})
+        assert refused["type"] == "form" and not saved
+        approved = await flow.async_step_history_confirm({"confirm":True,"confirm_outside":True})
+        assert approved["step_id"] == "history_review"
+        assert len(saved) == 1
+    asyncio.run(run())

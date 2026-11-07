@@ -55,10 +55,10 @@ def test_rejects_bad_dates_and_numbers():
 
 def test_parse_meter_and_deposed(sample):
     out = parse_lines(sample)
-    assert out["TEST-W1"]["last"][1] == 10.14
-    assert out["TEST-W1"]["last"][0].date().isoformat() == "2026-11-01"
-    assert out["TEST-W-OLD"]["deposed"] is True
-    assert out["TEST-W-OLD"]["last"] is None
+    assert out[("TEST","EF","TEST-W1")]["last"][1] == 10.14
+    assert out[("TEST","EF","TEST-W1")]["last"][0].date().isoformat() == "2026-11-01"
+    assert out[("","EF","TEST-W-OLD")]["deposed"] is True
+    assert out[("","EF","TEST-W-OLD")]["last"] is None
 
 
 def test_skip_decreasing_last_index():
@@ -69,7 +69,7 @@ def test_skip_decreasing_last_index():
             {"date": "2026-10-02T22:00:00+00:00", "value": 14.9},
         ],
     }]}
-    parsed = parse_lines(data)["TEST"]
+    parsed = parse_lines(data)[("","ECS","TEST")]
     assert parsed["last"] is None
     assert parsed["has_decreasing_indexes"]
 
@@ -114,7 +114,7 @@ def test_skip_index_below_prior_maximum():
         {"date":"2026-01-02T00:00:00+00:00", "value":295},
         {"date":"2026-01-03T00:00:00+00:00", "value":297},
     ]}]}
-    assert parse_lines(data)["TEST"]["last"] is None
+    assert parse_lines(data)[("","CET","TEST")]["last"] is None
 
 
 def test_rate_fallback_prefers_latest_approved():
@@ -126,3 +126,12 @@ def test_rate_fallback_prefers_latest_approved():
     assert rate["fallback"] is True
     assert resolve_tariff(t, 2025, "EF")["rate"] == 9
     assert resolve_tariff(t, 2024, "CET") is None
+
+
+def test_reused_serial_never_mix_lots_or_fluids():
+    lines = [{"compteur":"SAME","fluide":fluid,"lot":lot,"conso":1,
+              "indexes":[{"date":"2026-01-01T00:00:00+01:00","value":1}]}
+             for lot,fluid in (("A","EF"),("B","EF"),("A","ECS"))]
+    got = parse_lines({"lines":lines})
+    assert len(got) == 3
+    assert set(got) == {("A","EF","SAME"),("B","EF","SAME"),("A","ECS","SAME")}

@@ -36,6 +36,7 @@ from .history import (
 _LOGGER = logging.getLogger(__name__)
 PREVIEW_SERVICE = "preview_history"
 IMPORT_SERVICE = "import_history"
+AUDIT_SERVICE = "audit_history"
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -337,6 +338,66 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         }
 
 
+async def async_audit_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Read-only, bounded Recorder verification against stored planned rows.
+
+    A queued write is NOT treated as persisted until all hourly rows match.
+    No changes are made to Recorder, review choices or the local ledger.
+    """
+    await _require_admin(hass, call)
+    if "recorder" not in hass.config.components:
+        raise ServiceValidationError("Recorder is not loaded")
+    coordinator = _coordinator(hass, call.data)
+    storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
+    store = Store(hass, 1, f"{DOMAIN}.history_v4_{storage_key}")
+    stored = await store.async_load()
+    if stored is None:
+        return {"mode": "read_only", "series": [], "summary": {"total": 0, "verified": 0}}
+    if not isinstance(stored, dict) or stored.get("version") != 1 or not isinstance(stored.get("series"), dict):
+        raise ServiceValidationError("Invalid history origin ledger")
+    from homeassistant.components.recorder.statistics import get_last_statistics
+    from datetime import datetime, timezone
+    summary, results = {"total": 0, "verified": 0}, []
+    for logical, record in sorted(stored["series"].items()):
+        stat_id = record.get("statistic_id")
+        expected = record.get("snapshot")
+        if not isinstance(stat_id, str) or not isinstance(expected, list) or not expected:
+            raise ServiceValidationError("Invalid stored statistic series")
+        summary["total"] += 1
+        if len(expected) > 10000:
+            results.append({"statistic_id": stat_id, "status": "audit_size_limit"})
+            continue
+        try:
+            actual = await hass.async_add_executor_job(
+                get_last_statistics, hass, len(expected), stat_id, False, {"sum"}
+            )
+            rows = actual.get(stat_id, [])
+            matched = len(rows) == len(expected)
+            if matched:
+                for planned, observed in zip(expected, rows):
+                    when = observed.get("start")
+                    if isinstance(when, str):
+                        when = datetime.fromisoformat(when)
+                    if not isinstance(when, datetime) or when.tzinfo is None:
+                        matched = False
+                        break
+                    expected_at = datetime.fromisoformat(planned[0])
+                    if (when.astimezone(timezone.utc) != expected_at.astimezone(timezone.utc)
+                            or observed.get("sum") is None
+                            or abs(float(observed["sum"]) - float(planned[1])) > 0.000001):
+                        matched = False
+                        break
+            status = "verified" if matched else "missing_or_mismatched"
+            if matched:
+                summary["verified"] += 1
+        except Exception:
+            _LOGGER.warning("Trybatec Recorder audit failed for a statistic (details withheld)")
+            status = "audit_failed"
+        results.append({"statistic_id": stat_id, "status": status,
+                        "expected_rows": len(expected)})
+    return {"mode": "read_only", "summary": summary, "series": results}
+
+
 def register_history_actions(hass: HomeAssistant) -> None:
     """Register only manual history actions; no automatic recorder changes."""
     async def preview(call: ServiceCall) -> dict[str, Any]:
@@ -346,6 +407,9 @@ def register_history_actions(hass: HomeAssistant) -> None:
         result = await async_import_history(hass, call)
         return result if call.return_response else None
 
+    async def audit(call: ServiceCall) -> dict[str, Any]:
+        return await async_audit_history(hass, call)
+
     hass.services.async_register(
         DOMAIN, PREVIEW_SERVICE, preview, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
@@ -353,4 +417,8 @@ def register_history_actions(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, IMPORT_SERVICE, run_import, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, AUDIT_SERVICE, audit, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )

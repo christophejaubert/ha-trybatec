@@ -9,6 +9,6 @@ CONF_POLL_MINUTES = "poll_minutes"
 DEFAULT_POLL_MINUTES = 720
 MIN_POLL_MINUTES = 60
 FLUIDS = {"EF": "Cold water", "ECS": "Hot water", "CET": "Heating"}
-FLUID_UNITS = {"EF": "m³", "ECS": "m³", "CET": "kWh"}
+FLUID_UNITS = {"EF": "m³", "ECS": "m³", "CET": None}
 FLUID_RATE_UNITS = {"EF": "EUR/m³", "ECS": "EUR/m³", "CET": "EUR/kWh"}
 TIMEZONE = "Europe/Paris"

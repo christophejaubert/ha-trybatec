@@ -129,17 +129,22 @@ def test_correct_actual_date_does_not_mutate_source_or_join_new_meter():
     assert h["EF"]["annual_within_year"] == {"2024": 50}
 
 
-def test_wrong_accounting_date_is_rejected_for_that_interval_only():
+def test_user_can_attribute_sparse_period_outside_original_interval():
     old = input_line("A", "EF", [
         ("2024-01-01T00:00:00+01:00", 100),
         ("2025-01-01T00:00:00+01:00", 150),
     ])
     source = candidates(build(old))[0]
-    h = build(old, decisions={source["key"]: {"action": "correct", "mode": "accounting", "timestamp": "2025-02-01T12:00:00+01:00", "reason": "Outside observed interval intentionally"}})
-    assert h["EF"]["conflicts"] == 1
-    assert series(h)["accounting_allocations"] == []
-    with pytest.raises(ValueError, match="Conflicting"):
-        compose_plan(h, "A", ["EF"], allow_gaps=True, skip_conflicts=False, include_accounting=True)
+    h = build(old, decisions={source["key"]: {
+        "action": "correct", "mode": "accounting",
+        "timestamp": "2025-02-01T12:00:00+01:00",
+        "reason": "User explicitly approved later accounting attribution"
+    }})
+    assert h["EF"]["conflicts"] == 0
+    assert len(series(h)["accounting_allocations"]) == 1
+    plan, _ = compose_plan(h, "A", ["EF"], allow_gaps=True, skip_conflicts=False, include_accounting=True)
+    assert plan[0]["quantity"] == 50
+    assert plan[0]["rows"][-1]["start"].year == 2025
 
 
 def test_three_successive_meters_one_lot_and_other_lot_isolation():
@@ -221,3 +226,20 @@ def test_accounting_is_separate_and_never_imports_twice_on_same_source_replay():
     assert a[0]["statistic_id"] == b[0]["statistic_id"]
     assert a[0]["quantity"] == b[0]["quantity"] == 20
     assert first == second
+
+
+def test_backdated_allocation_does_not_duplicate_when_vendor_resends_source():
+    old = input_line("M", "EF", [
+        ("2024-01-01T00:00:00+01:00", 10),
+        ("2025-01-01T00:00:00+01:00", 20),
+    ])
+    key = candidates(build(old))[0]["key"]
+    decisions = {key: {"action":"correct","mode":"accounting","timestamp":"2023-12-31T23:59:00+01:00","reason":"Approved manual attribution"}}
+    plan_a, _ = compose_plan(build(old,decisions=decisions),"ACCOUNT",["EF"],allow_gaps=True,skip_conflicts=False,include_accounting=True)
+    plan_b, _ = compose_plan(build(old,decisions=decisions),"ACCOUNT",["EF"],allow_gaps=True,skip_conflicts=False,include_accounting=True)
+    ledger, first = reconcile_plan(None, plan_a)
+    next_ledger, second = reconcile_plan(ledger, plan_b)
+    assert first[0]["statistic_id"] == second[0]["statistic_id"]
+    assert first[0]["rows"] == second[0]["rows"]
+    assert ledger == next_ledger
+    assert first[0]["rows"][-1]["start"].year == 2023

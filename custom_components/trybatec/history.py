@@ -261,10 +261,13 @@ def build_history(
             chosen_accounting = meter.get("accounting_choices", {}).get(at)
             if chosen_accounting:
                 target_at, source_key = chosen_accounting
-                # An accounting-only attribution must not masquerade as a
-                # measured daily delta. The chosen time must fall inside the
-                # observed interval, and be later than its starting reading.
-                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and prev_at < target_at <= at):
+                # A deliberately user-confirmed accounting attribution may
+                # be dated before or after the actual source interval. It is
+                # NEVER a measured daily delta and remains in a separate
+                # accounting statistic series. Future dates are not allowed.
+                if not (span_hours > MAX_DAILY_INTERVAL_HOURS
+                        and target_at <= datetime.now(timezone.utc)
+                        and delta >= 0):
                     series["conflicts"] += 1
                     series["fatal_conflicts"] = True
                     parent["conflicts"] += 1

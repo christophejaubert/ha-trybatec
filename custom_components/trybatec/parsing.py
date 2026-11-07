@@ -59,7 +59,7 @@ def known_lots(payload: dict[str, Any]) -> set[str]:
 
 def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Normalize server lines, keyed by stable meter serial number."""
-    parsed: dict[str, dict[str, Any]] = {}
+    parsed: dict[tuple[str, str, str], dict[str, Any]] = {}
     for line in payload.get("lines", []):
         if not isinstance(line, dict):
             continue
@@ -88,7 +88,8 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
         # latest index until it recovers. It must not become a false reset.
         if indexes and indexes[-1][1] < max(value for _, value in indexes):
             last = None
-        parsed[serial] = {
+        lot = str(line.get("lot") or "").strip()
+        parsed[(lot, fluid, serial)] = {
             "serial": serial,
             "fluid": fluid,
             "lot": str(line.get("lot") or ""),

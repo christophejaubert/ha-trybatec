@@ -14,6 +14,7 @@ from math import isfinite
 from typing import Any
 
 from .const import FLUIDS
+from .units import to_kwh
 
 
 def identity(account_key: str, lot: str, fluid: str, serial: str, kind: str) -> str:
@@ -43,7 +44,8 @@ def _rows_for_allocations(allocations: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def compose_plan(history: dict, account_key: str, selected: list[str], *,
-                 allow_gaps: bool, skip_conflicts: bool, include_accounting: bool) -> tuple[list[dict], list[dict]]:
+                 allow_gaps: bool, skip_conflicts: bool, include_accounting: bool,
+                 heating_units: dict[tuple[str, str], str] | None = None) -> tuple[list[dict], list[dict]]:
     plan, skipped = [], []
     for (lot, fluid, serial), meter in sorted(history["__physical_meters__"].items()):
         if fluid not in selected:
@@ -55,17 +57,30 @@ def compose_plan(history: dict, account_key: str, selected: list[str], *,
             continue
         if (meter["gaps"] or meter["unallocated"] > 0) and not allow_gaps:
             raise ValueError("Sparse interval: confirm partial import with allow_gaps=true")
-        daily = meter["rows"]
+        unit = None
+        if fluid == "CET":
+            unit = (heating_units or {}).get((lot, serial))
+            if unit is None:
+                raise ValueError("Cannot import heating without a verified source unit")
+        scale = (lambda val: to_kwh(val, unit)) if unit else (lambda val: val)
+        # A previously imported CET v4 series may have been assumed kWh;
+        # confirmed-source CET statistics use a new distinct v5 identity.
+        suffix = f"_verified_{unit.lower()}" if unit else ""
+        daily = [
+            {**row, "state": scale(row["state"]), "sum": scale(row["sum"])}
+            for row in meter["rows"]
+        ]
         if len(daily) > 1:
             plan.append({
-                "logical_id": identity(account_key, lot, fluid, serial, "daily"),
+                "logical_id": identity(account_key, lot, fluid, serial, "daily") + suffix,
                 "kind": "daily", "lot": lot, "fluid": fluid, "serial": serial,
-                "rows": daily, "quantity": meter["importable"],
+                "rows": daily, "quantity": scale(meter["importable"]),
             })
         if include_accounting and meter["accounting_allocations"]:
             allocation_rows = _rows_for_allocations(meter["accounting_allocations"])
+            allocation_rows = [{**row, "state": scale(row["state"]), "sum": scale(row["sum"])} for row in allocation_rows]
             plan.append({
-                "logical_id": identity(account_key, lot, fluid, serial, "accounting"),
+                "logical_id": identity(account_key, lot, fluid, serial, "accounting") + suffix,
                 "kind": "accounting", "lot": lot, "fluid": fluid, "serial": serial,
                 "rows": allocation_rows, "quantity": allocation_rows[-1]["sum"],
             })

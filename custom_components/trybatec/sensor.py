@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 import json
+from hashlib import sha256
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -25,6 +26,7 @@ from .const import (
 )
 from .coordinator import TrybatecCoordinator
 from .parsing import resolve_tariff, validate_tariffs
+from .units import selected_heat_unit, to_kwh
 
 
 def _rates(entry: ConfigEntry) -> dict[str, dict[str, dict[str, Any]]]:
@@ -41,20 +43,20 @@ async def async_setup_entry(
     """Expose one index sensor per active physical meter and aggregate values."""
     coordinator: TrybatecCoordinator = hass.data[DOMAIN][entry.entry_id]
     account_key = entry.unique_id or entry.entry_id
-    known_serials: set[str] = set()
+    known_serials: set[tuple[str, str, str]] = set()
     known_fluids: set[str] = set()
 
     def add_new_meters_and_metrics() -> None:
         """Publish only fluids actually observed; supports water-only accounts."""
         new: list[SensorEntity] = []
         active_fluids: set[str] = set()
-        for serial, meter in coordinator.data["meters"].items():
+        for meter_key, meter in coordinator.data["meters"].items():
             if meter["deposed"]:
                 continue
             active_fluids.add(meter["fluid"])
-            if serial not in known_serials:
-                known_serials.add(serial)
-                new.append(TrybatecMeterSensor(coordinator, account_key, serial))
+            if meter_key not in known_serials:
+                known_serials.add(meter_key)
+                new.append(TrybatecMeterSensor(coordinator, entry, account_key, meter_key))
         for fluid in FLUIDS:
             if fluid in active_fluids and fluid not in known_fluids:
                 known_fluids.add(fluid)
@@ -80,24 +82,35 @@ class TrybatecBaseSensor(CoordinatorEntity[TrybatecCoordinator], SensorEntity):
 
 
 class TrybatecMeterSensor(TrybatecBaseSensor):
-    """Cumulative index of a single physical meter (never merged across resets)."""
+    """One physical meter, scoped by account + lot + fluid + serial."""
 
     def __init__(
-        self, coordinator: TrybatecCoordinator, account_key: str, serial: str
+        self, coordinator: TrybatecCoordinator, entry: ConfigEntry,
+        account_key: str, meter_key: tuple[str, str, str],
     ) -> None:
         super().__init__(coordinator)
-        self._serial = serial
-        meter = coordinator.data["meters"][serial]
-        fluid = meter["fluid"]
-        self._attr_unique_id = f"{account_key}_{serial}_index"
-        self._attr_name = f"{FLUIDS[fluid]} {serial} index"
-        self._attr_native_unit_of_measurement = FLUID_UNITS[fluid]
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._key = meter_key
+        meter = coordinator.data["meters"][meter_key]
+        lot, fluid, serial = meter_key
+        self._source_unit = selected_heat_unit(entry.options, lot, serial) if fluid == "CET" else None
+        # Composite identity prevents future collisions between different lots.
+        opaque = sha256(f"{account_key}\0{lot}\0{fluid}\0{serial}".encode()).hexdigest()[:24]
+        self._attr_unique_id = f"{account_key}_{opaque}_{self._source_unit or 'raw'}_index"
+        self._attr_name = f"{FLUIDS[fluid]} {serial} index" + (
+            " (unverified unit)" if fluid == "CET" and not self._source_unit else ""
+        )
+        self._attr_native_unit_of_measurement = (
+            "kWh" if fluid == "CET" and self._source_unit else FLUID_UNITS[fluid]
+        )
+        self._attr_state_class = (
+            SensorStateClass.TOTAL_INCREASING if fluid != "CET" or self._source_unit else None
+        )
         self._attr_device_class = (
-            SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER
+            SensorDeviceClass.ENERGY if fluid == "CET" and self._source_unit
+            else SensorDeviceClass.WATER if fluid != "CET" else None
         )
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{account_key}_{serial}")},
+            "identifiers": {(DOMAIN, f"{account_key}_{opaque}")},
             "name": f"Trybatec {FLUIDS[fluid]} ({serial})",
             "manufacturer": "Trybatec",
             "model": "Remote meter",
@@ -105,14 +118,15 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
 
     @property
     def native_value(self) -> float | None:
-        meter = self.coordinator.data["meters"].get(self._serial)
+        meter = self.coordinator.data["meters"].get(self._key)
         if not meter or not meter["last"]:
             return None
-        return meter["last"][1]
+        value = meter["last"][1]
+        return to_kwh(value, self._source_unit) if self._key[1] == "CET" and self._source_unit else value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        meter = self.coordinator.data["meters"].get(self._serial)
+        meter = self.coordinator.data["meters"].get(self._key)
         if not meter:
             return {}
         return {
@@ -121,6 +135,8 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             "reading_time": meter["last"][0].isoformat() if meter["last"] else None,
             "deposed": meter["deposed"],
             "has_decreasing_indexes": meter["has_decreasing_indexes"],
+            "source_unit_verified": self._source_unit if self._key[1] == "CET" else None,
+            "unit_confirmation_required": self._key[1] == "CET" and not self._source_unit,
         }
 
 
@@ -166,6 +182,20 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         year = str(self.coordinator.data["year"])
         annual = self.coordinator.data["annual"][self._fluid]["value"]
         tariff = resolve_tariff(_rates(self._entry), int(year), self._fluid)
+        if self._fluid == "CET":
+            # Each serial may use a different unit; no account-level guess.
+            meters = [m for m in self.coordinator.data["meters"].values()
+                      if m["fluid"] == "CET" and m["indexes"] and
+                      m["period_consumption"] is not None]
+            if not meters:
+                return None
+            amounts = []
+            for m in meters:
+                unit = selected_heat_unit(self._entry.options, m["lot"], m["serial"])
+                if unit is None:
+                    return None
+                amounts.append(to_kwh(m["period_consumption"], unit))
+            annual = round(sum(amounts), 6)
         if self._metric == "volume":
             return annual
         if tariff is None:
@@ -192,4 +222,5 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             ),
             "price_source_year": tariff["source_year"] if tariff else None,
             "note": "Portal period estimates; not approved building charges",
+            "heating_units_require_per_meter_confirmation": self._fluid == "CET",
         }
