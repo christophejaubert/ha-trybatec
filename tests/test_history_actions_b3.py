@@ -234,3 +234,54 @@ def test_import_service_never_imports_unverified_heating(services, monkeypatch):
             await services.async_import_history(hass, call)
         assert calls == []
     asyncio.run(run())
+
+
+def test_b6_verify_history_requires_all_recorder_rows_before_clearing_pending(services, monkeypatch):
+    """Recorder queueing is not an acknowledgement; every expected bucket must match."""
+    import datetime as dt
+    stat = "trybatec:history_v5_ef_daily_fictitious_m3"
+    a = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+    b = a + dt.timedelta(days=1)
+    snapshot = [[a.isoformat(), 0.0], [b.isoformat(), 2.0]]
+    logical = stat
+    database = {"value": {
+        "version": 1,
+        "series": {logical: {"statistic_id": stat, "snapshot": snapshot}},
+        "pending": {logical: stat},
+    }}
+    class StoreStub:
+        def __init__(self, *args): pass
+        async def async_load(self): return database["value"]
+        async def async_save(self, value): database["value"] = value
+    monkeypatch.setattr(services, "Store", StoreStub)
+    monkeypatch.setattr(services, "_coordinator", lambda *args: SimpleNamespace(
+        entry=SimpleNamespace(entry_id="fictional-account")
+    ))
+    monkeypatch.setattr(services.dt_util, "utcnow", lambda: dt.datetime.now(dt.timezone.utc), raising=False)
+    values = {"full": False}
+    async def stats(*args, **kwargs):
+        assert args[:2] == ("recorder", "get_statistics")
+        assert kwargs.get("return_response") is True
+        rows = [{"start": a.isoformat(), "sum": 0.0}]
+        if values["full"]:
+            rows.append({"start": b.isoformat(), "sum": 2.0})
+        return {"statistics": {stat: rows}}
+    async def user(*args):
+        return SimpleNamespace(is_admin=True)
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=user),
+        config=SimpleNamespace(components={"recorder"}),
+        services=SimpleNamespace(async_call=stats),
+    )
+    call = SimpleNamespace(context=SimpleNamespace(user_id="admin"), data={})
+    async def run():
+        result = await services.async_verify_history(hass, call)
+        assert result["status"] == "pending_recorder_verification"
+        assert result["pending"][0]["missing_or_mismatched_rows"] == 1
+        assert database["value"]["pending"] == {logical: stat}
+        values["full"] = True
+        done = await services.async_verify_history(hass, call)
+        assert done["status"] == "verified"
+        assert done["verified"][0]["rows"] == 2
+        assert database["value"]["pending"] == {}
+    asyncio.run(run())
