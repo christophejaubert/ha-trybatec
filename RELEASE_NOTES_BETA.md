@@ -1,11 +1,12 @@
-# 0.2.0b5 — Historical review safety, thermal units and meter isolation
+# 0.2.0b6 — Per-meter units, Recorder verification and historical preflight
 
-Experimental GitHub pre-release. No automatic Recorder writes. Back up Home Assistant including Recorder and .storage before importing.
+Experimental pre-release. Back up Home Assistant, including Recorder and .storage, before import.
 
-- Diehl SHARKY 774 measures thermal energy in configurable kWh, MWh or GJ; DN 15 alone does not prove the portal unit. CET defaults to unverified until an administrator selects the confirmed source unit, with conversion to kWh where appropriate.
-- Live meter parsing no longer merges the same serial across multiple lots or fluids. Historical lot, fluid and physical meter isolation remains mandatory.
-- The options review wizard refreshes in memory after each choice without 24 new API calls. Saved decisions remain persistent after restart; sources can be fetched again when needed.
-- Out-of-interval accounting allocation requires an additional affirmative confirmation and written reason. Original timestamps remain separate from accounting dates; sparse allocations remain separate from daily measurements.
-- Regression tests cover the new approval path, account isolation and verified thermal units.
+- Explicit source units: recognize known unit fields if Trybatec returns them. No assumption that those fields actually exist on every account. If absent, require a manual unit per physical meter (also for old meters visible in the history preview).
+- Water: m³ or L → m³. Thermal: kWh, MWh or GJ → kWh. Incompatible and conflicting units remain unavailable; old global heating-unit setting is no longer used.
+- Separate b6 meter entity IDs and history_v5 statistic IDs; no automatic migration, deletion or Energy dashboard switching. Do not select multiple generations of the same usage in Energy.
+- Import stages a pending journal before Recorder queueing, blocks blind reimports and provides administrator action trybatec.verify_history. It checks every expected hourly bucket and sum against recorder.get_statistics. This verification is a separate step after Recorder processes the queue; import is not atomic.
+- Added per-meter unit UI and graphical read-only history overview. Displays possible replacements and overlaps without merging different physical meter histories.
+- Improved test coverage for missing/conflicting units, multiple lots, pending journals and recorder bucket verification.
 
-Remaining limitations: Recorder imports remain asynchronous and lack atomic acknowledgement; no automatic series migration or Energy-dashboard switching. The options UI is not a full bulk wizard and no broad Trybatec customer-account verification exists. Former CET entities may retain incorrectly assumed kWh statistics; review before reusing.
+Remaining limits: no evidence that the undocumented Trybatec API exposes unit metadata, no full-page bulk review editor, no automated Energy dashboard migration, no production proof across multiple Trybatec accounts. Installing or updating never automatically writes historical statistics.

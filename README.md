@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Current experimental beta: 0.2.0b5** — local review refresh, explicit out-of-period accounting, verified thermal units, and live meter isolation. Back up Home Assistant before historical imports.
+**Current experimental beta: 0.2.0b6** — verified per-meter units, pending Recorder verification, historical preview and isolated statistical generations. Back up Home Assistant before historical imports.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -16,6 +16,15 @@
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
 > HACS, or OpenAI. Test with your own account before using it for monitoring.
+
+## Changes in 0.2.0b6 — Read before historical imports
+
+- **No unit is inferred from a counter model.** The undocumented Trybatec response *may* include an explicit index-unit field; these names are candidates, not a verified API contract. If none exists, set an individual unit for **every** physical meter via **Configure → Verify meter units**, after checking the actual index scale. The former global `heating_unit` option is **ignored** in b6.
+- Water EF/ECS indices accept **m³ or L** and are normalized to **m³**. CET accepts **kWh, MWh or GJ** and is normalized to **kWh**. Unknown, unsupported or conflicting units produce unavailable consumption, not an invented unit. Year-to-date summaries are withheld if any contributing meter lacks a verified source unit.
+- b6 live sensors use **new entity unique IDs** and historic imports use **history_v5** IDs. Existing b5 entities/statistics are neither migrated nor deleted. **Never select both old and new generations of the same consumption in Energy.** This may require manual Energy configuration and cleanup.
+- Use **trybatec.preview_history** to inspect raw vendor readings, per-meter source units and possible replacements. Physical meters remain distinct even when appearing successive. Use **Configure → Historical preview overview** and the review steps to save corrections/attributions.
+- Import only via administrator-only **trybatec.import_history** with `confirm: true`, verified units, and other relevant flags. A persistent pending ledger blocks blind reimports. After Recorder processes queued rows, run **trybatec.verify_history** to compare every queued hourly sum with the recorded statistics. A failed or interrupted import remains pending; `retry_pending: true` permits only an identical retrial.
+- The UI is still based on native Home Assistant options flows, **not** a full-page bulk history editor. The Recorder importer is still asynchronous and non-atomic. Source and accounting timestamps remain separate.
 
 ## Features
 
@@ -33,10 +42,10 @@
   is used as an explicit fallback (otherwise the latest provisional rate).
 - Default poll interval: 12 hours; minimum: 1 hour.
 - Supports UI translations for French and English.
-- Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present.
+- Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present. Estimates with unverifiable meter units are withheld.
 - Historical readings handle one meter, successive physical meters, parallel meters, multiple dwellings, and sparse/backdated-looking observations without client-specific assumptions.
 
-## Historical readings and Home Assistant recorder (`0.2.0b5`)
+## Historical readings and Home Assistant recorder (`0.2.0b6`)
 
 **EXPERIMENTAL. NO AUTOMATIC RECORDER WRITES.** Back up Home Assistant
 **including Recorder and `.storage`** before importing. No history is imported
@@ -84,7 +93,7 @@ only after backing up and reviewing the preview. Use `confirm: true`.
   are skipped. You may disable cold or hot water separately with
   `include_cold_water` and `include_hot_water`.
 - **Measured near-daily intervals** (up to 27 h, including DST changes) are
-  stored in distinct per-physical-meter `history_v4_..._daily_...` series. Sparse
+  stored in distinct per-physical-meter `history_v5_..._daily_...` series. Sparse
   intervals are NOT interpolated into fictitious daily consumption. A small
   index decline isolates uncertain increments without losing the whole meter.
   Contradictory readings are isolated; a fundamental identity collision
@@ -92,12 +101,12 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - If the account has sparse intervals, set `allow_gaps: true` to explicitly
   permit a **partial measured-daily import**.
 - **User-approved accounting allocations** of sparse consumption are stored
-  in **separate** per-meter `history_v4_..._accounting_...` series, never made to
+  in **separate** per-meter `history_v5_..._accounting_...` series, never made to
   look like measured daily usage. Opt in with `include_accounting: true` and
   `confirm_accounting: true`. Allocation outside the observed source interval requires an **extra explicit checkbox confirmation** and a justification; source dates are preserved. The allocated amount is a nonnegative difference between two source indexes, not the meter index itself. For instance, a
   deliberate **31 Dec 23:59** selection is recorded into the **31 Dec 23:00**
   local hourly statistics bucket, not the following civil year.
-- **Heating is OFF by default**. The thermal source unit is **unverified** until configured under integration options: kWh, MWh, or GJ (all converted to kWh for energy statistics). Both `include_heating: true` and `confirm_heating_kwh: true` remain required for historical heating imports. SHARKY 774 DN 15 is a thermal energy meter, but its configured unit and Trybatec portal scaling require confirmation. Manufacturer: https://www.diehl.com/metering/fr/produits-et-solutions/produits/comptage-de-lenergie-thermique/sharky-774-compact-fr/.
+- **Heating is OFF by default**. Each source unit is verified separately for each physical CET meter: kWh, MWh or GJ, converted to kWh. Both `include_heating: true` and `confirm_heating_kwh: true` are required. SHARKY 774 DN 15 does not establish the source unit. Manufacturer: https://www.diehl.com/metering/fr/produits-et-solutions/produits/comptage-de-lenergie-thermique/sharky-774-compact-fr/.
 - **Multiple serial numbers** stay separate even if they may be successive
   physical generations of a single lot's consumption point. Overlapping
   meters are never assumed to be successive.
@@ -114,7 +123,7 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 
 ### Restrictions and known limits
 
-- The new `history_v4_` statistics deliberately do not overwrite or migrate
+- The new `history_v5_` statistics deliberately do not overwrite or migrate
   previous `history_...` or `history_v3_...` Recorder statistics. Using multiple
   generations of the same consumption in Energy may double-count it.
 - A single annual interval's total can be attributed **by convention** to a
@@ -191,9 +200,9 @@ Preview action results may contain physical meter serials and index values. Reda
 GitHub.** La sauvegarde de `<CONFIG>` doit protéger le contenu des entrées de
 configuration, y compris les mots de passe.
 
-### Unité des compteurs thermiques
+### Unités des compteurs (b6)
 
-L'option `heating_unit` est `unverified` par défaut. Tant que l'unité de l'index CET transmis par Trybatec n'est pas vérifiée, le capteur brut n'annonce pas de kWh et n'est pas une source d'énergie valide. Choisir `kWh`, `MWh` ou `GJ` uniquement après vérification de l'afficheur réel et de la mise à l'échelle Trybatec. **Après mise à jour, vérifier les anciennes entités CET et anciennes statistiques avant de configurer le tableau Énergie.**
+Dans les options **Vérifier les unités des compteurs**, définir au besoin l'unité **du relevé transmis par Trybatec** pour chaque compteur. L'ancienne option globale `heating_unit` n'est plus appliquée. Vérifier l'unité sur l'afficheur et la mise à l'échelle du portail. Si l'unité reste inconnue, le capteur de consommation est indisponible. **Contrôler les anciens identifiants d'entités et les séries d'historique avant d'utiliser le tableau Énergie.**
 
 ### Tarifs historiques
 

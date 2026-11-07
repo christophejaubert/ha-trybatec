@@ -27,6 +27,7 @@ from .const import (
 )
 from .coordinator import TrybatecCoordinator
 from .parsing import resolve_tariff, validate_tariffs
+from .units import normalized_unit, unit_factor
 
 
 def _rates(entry: ConfigEntry) -> dict[str, dict[str, dict[str, Any]]]:
@@ -61,7 +62,7 @@ async def async_setup_entry(
             if fluid in active_fluids and fluid not in known_fluids:
                 known_fluids.add(fluid)
                 allowed_metrics = ("volume", "cost", "price")
-                if fluid == "CET" and entry.options.get(CONF_HEATING_UNIT, "unverified") == "unverified":
+                if not coordinator.data["annual"][fluid]["unit_verified"]:
                     allowed_metrics = ("volume",)
                 new.extend(
                     TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric)
@@ -94,16 +95,16 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         self._serial = serial
         meter = coordinator.data["meters"][serial]
         physical_serial = meter["serial"]
-        self._heat_unit = coordinator.entry.options.get(CONF_HEATING_UNIT, "unverified") if meter["fluid"] == "CET" else None
-        suffix = ("_" + sha256(f"{meter['lot']}\0{meter['fluid']}\0{physical_serial}".encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
+        self._source_unit = meter.get("verified_unit")
+        suffix = ("_" + sha256(json.dumps([meter["lot"], meter["fluid"], physical_serial], separators=(",", ":")).encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
         fluid = meter["fluid"]
-        unverified = fluid == "CET" and self._heat_unit == "unverified"
-        unit_suffix = "_unverified" if unverified else (f"_{self._heat_unit}" if fluid == "CET" and self._heat_unit in ("MWh", "GJ") else "")
-        self._attr_unique_id = f"{account_key}_{physical_serial}{suffix}{unit_suffix}_index"
-        self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (" (unit unverified)" if unverified else "")
-        self._attr_native_unit_of_measurement = None if unverified else ("kWh" if fluid == "CET" else FLUID_UNITS[fluid])
-        self._attr_state_class = None if unverified else SensorStateClass.TOTAL_INCREASING
-        self._attr_device_class = None if unverified else (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER)
+        # A new ID prevents old assumed-unit statistics from being silently reused.
+        tag = self._source_unit or "unverified"
+        self._attr_unique_id = f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
+        self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (" (unit unverified)" if not self._source_unit else "")
+        self._attr_native_unit_of_measurement = normalized_unit(fluid) if self._source_unit else None
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING if self._source_unit else None
+        self._attr_device_class = (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER) if self._source_unit else None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{account_key}_{physical_serial}{suffix}")},
             "name": f"Trybatec {FLUIDS[fluid]} ({physical_serial})",
@@ -114,12 +115,9 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
     @property
     def native_value(self) -> float | None:
         meter = self.coordinator.data["meters"].get(self._serial)
-        if not meter or not meter["last"]:
+        if not meter or not meter["last"] or meter.get("verified_unit") != self._source_unit or not self._source_unit:
             return None
-        raw = meter["last"][1]
-        if meter["fluid"] == "CET" and self._heat_unit != "unverified":
-            return round(raw * {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[self._heat_unit], 6)
-        return raw
+        return round(meter["last"][1] * unit_factor(meter["fluid"], self._source_unit), 6)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -128,8 +126,9 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             return {}
         return {
             "lot": meter["lot"],
-            "source_unit": self._heat_unit,
-            "unit_verified": self._heat_unit is None or self._heat_unit != "unverified",
+            "portal_unit": meter.get("portal_unit"),
+            "source_unit": meter.get("verified_unit"),
+            "unit_verified": meter.get("verified_unit") is not None,
             "location": meter["location"],
             "reading_time": meter["last"][0].isoformat() if meter["last"] else None,
             "deposed": meter["deposed"],
@@ -152,9 +151,7 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         self._entry = entry
         self._fluid = fluid
         self._metric = metric
-        self._heat_unit = entry.options.get(CONF_HEATING_UNIT, "unverified") if fluid == "CET" else None
-        suffix = "_unverified" if self._heat_unit == "unverified" else ""
-        self._attr_unique_id = f"{account_key}_{fluid}_{metric}{suffix}"
+        self._attr_unique_id = f"{account_key}_{fluid}_{metric}_b6_verified"
         display = {"volume": "YTD usage (estimate)", "cost": "YTD cost (estimate)", "price": "Annual unit price"}
         self._attr_name = f"{FLUIDS[fluid]} {display[metric]}"
         self._attr_device_info = {
@@ -163,8 +160,8 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             "manufacturer": "Trybatec",
         }
         if metric == "volume":
-            self._attr_native_unit_of_measurement = (None if self._heat_unit == "unverified" else "kWh") if fluid == "CET" else FLUID_UNITS[fluid]
-            self._attr_device_class = None if self._heat_unit == "unverified" else (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER)
+            self._attr_native_unit_of_measurement = normalized_unit(fluid)
+            self._attr_device_class = SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER
             self._attr_state_class = SensorStateClass.MEASUREMENT
         elif metric == "cost":
             self._attr_native_unit_of_measurement = "EUR"
@@ -179,18 +176,14 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         year = str(self.coordinator.data["year"])
         annual = self.coordinator.data["annual"][self._fluid]["value"]
         tariff = resolve_tariff(_rates(self._entry), int(year), self._fluid)
-        if self._metric == "volume":
-            if self._fluid == "CET" and annual is not None and self._heat_unit != "unverified":
-                return round(annual * {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[self._heat_unit], 6)
-            return annual
-        if self._fluid == "CET" and self._heat_unit == "unverified":
+        if not self.coordinator.data["annual"][self._fluid]["unit_verified"]:
             return None
+        if self._metric == "volume":
+            return annual  # Already converted to canonical unit in parsing.
         if tariff is None:
             return None
         if self._metric == "price":
             return tariff["rate"]
-        if self._fluid == "CET" and annual is not None:
-            annual *= {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[self._heat_unit]
         return round(annual * tariff["rate"], 4) if annual is not None else None
 
     @property
@@ -204,6 +197,7 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             "estimate_only": True,
             "meter_count": summary["meters"],
             "coverage_warning": summary["coverage_warning"],
+            "unit_verified": summary["unit_verified"],
             "accounting_status": (
                 "fallback_from_prior_year"
                 if tariff and tariff["fallback"]

@@ -27,13 +27,14 @@ from .api import TrybatecAuthError, TrybatecClient, TrybatecConnectionError, Try
 from .const import (
     CONF_DEAL_ID,
     CONF_POLL_MINUTES,
-    CONF_HEATING_UNIT, HEATING_UNITS,
+    CONF_HEATING_UNIT, HEATING_UNITS, CONF_METER_UNITS,
     CONF_TARIFFS,
     DEFAULT_POLL_MINUTES,
     DOMAIN,
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
+from .units import meter_key, resolve_meter_unit, validate_meter_units, _ALLOWED
 from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
@@ -111,9 +112,10 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     _selected_reading: dict | None = None
     _pending_review: dict | None = None
+    _selected_meter_unit_key: str | None = None
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["settings", "history_review"])
+        return self.async_show_menu(step_id="init", menu_options=["settings", "meter_units", "history_overview", "history_review"])
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -123,7 +125,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             except (ValueError, TypeError, json.JSONDecodeError):
                 errors[CONF_TARIFFS] = "invalid_tariffs"
             else:
-                return self.async_create_entry(title="", data=user_input)
+                return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
         schema = vol.Schema(
             {
                 vol.Required(
@@ -133,10 +135,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_POLL_MINUTES, max=10080)),
                 vol.Required(
-                    CONF_HEATING_UNIT,
-                    default=self.config_entry.options.get(CONF_HEATING_UNIT, "unverified"),
-                ): vol.In(HEATING_UNITS),
-                vol.Required(
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
@@ -144,6 +142,122 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
+
+    def _known_meter_units(self, coordinator) -> dict[str, dict]:
+        """Current plus cached historical (including replaced) physical meters."""
+        overrides = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
+        meters = {
+            meter_key(m["lot"], m["fluid"], m["serial"]): m
+            for m in coordinator.data.get("meters", {}).values()
+        }
+        cache = getattr(coordinator, "_history_review_cache", None)
+        if cache:
+            payloads, start, end, lots = cache
+            history = build_history(payloads, start, end, allowed_lots=lots)
+            for (lot, fluid, serial), item in history["__physical_meters__"].items():
+                key = meter_key(lot, fluid, serial)
+                if key not in meters:
+                    source = item.get("portal_unit")
+                    meters[key] = {
+                        "lot": lot, "fluid": fluid, "serial": serial,
+                        "deposed": item["retired"], "portal_unit": source,
+                        "verified_unit": resolve_meter_unit(lot, fluid, serial, source, overrides),
+                    }
+        return meters
+
+    async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Select one physical meter; never silently reuse a unit from another."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self.async_abort(reason="history_preview_required")
+        mapping = self._known_meter_units(coordinator)
+        if not mapping:
+            return self.async_abort(reason="no_readings_to_review")
+        if user_input is not None:
+            chosen = user_input.get("meter")
+            if chosen not in mapping:
+                return self.async_abort(reason="history_preview_required")
+            self._selected_meter_unit_key = chosen
+            return await self.async_step_meter_unit()
+        choices = {
+            key: (
+                f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
+                f'portail: {m.get("portal_unit") or "not provided"} · '
+                f'verified: {m.get("verified_unit") or "unknown"}'
+            )[:240] for key, m in mapping.items()
+        }
+        return self.async_show_form(
+            step_id="meter_units",
+            data_schema=vol.Schema({vol.Required("meter"): vol.In(choices)}),
+        )
+
+    async def async_step_meter_unit(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Persist only a single verified unit override, with conflict prevention."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self.async_abort(reason="history_preview_required")
+        selected = self._known_meter_units(coordinator).get(self._selected_meter_unit_key)
+        if selected is None:
+            return self.async_abort(reason="history_preview_required")
+        current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
+        current_unit = current.get(self._selected_meter_unit_key, "unverified")
+        allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
+        if user_input is not None:
+            candidate = user_input.get("unit", "unverified")
+            if candidate not in allowed:
+                return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"},
+                                            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}))
+            if candidate != "unverified" and selected.get("portal_unit") in _ALLOWED[selected["fluid"]] and candidate != selected["portal_unit"]:
+                return self.async_show_form(step_id="meter_unit", errors={"base": "conflicting_meter_unit"},
+                                            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}))
+            if candidate == "unverified":
+                current.pop(self._selected_meter_unit_key, None)
+            else:
+                current[self._selected_meter_unit_key] = candidate
+            return self.async_create_entry(
+                title="", data={**self.config_entry.options, CONF_METER_UNITS: current}
+            )
+        return self.async_show_form(
+            step_id="meter_unit",
+            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}),
+            description_placeholders={
+                "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
+                "portal_unit": str(selected.get("portal_unit") or "not provided"),
+            },
+        )
+
+    async def async_step_history_overview(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Graphical, read-only preflight. Detailed decisions still use the wizard."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self.async_abort(reason="history_preview_required")
+        cache = getattr(coordinator, "_history_review_cache", None)
+        if cache is None:
+            return self.async_abort(reason="history_preview_required")
+        from .history_store import load_decisions
+        payloads, start, end, allowed_lots = cache
+        decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        meters = history["__physical_meters__"]
+        flagged = history["__review_candidates__"]
+        lines = [
+            f'{fluid} / {lot} / {serial}: {data["first"]} → {data["last"]}; '
+            f'gaps={data["gaps"]}, conflicts={data["conflicts"]}'
+            for (lot, fluid, serial), data in sorted(meters.items())
+        ]
+        if user_input is not None and user_input.get("review"):
+            coordinator._history_review_candidates = flagged
+            return await self.async_step_history_review()
+        return self.async_show_form(
+            step_id="history_overview",
+            data_schema=vol.Schema({vol.Required("review", default=False): BooleanSelector()}),
+            description_placeholders={
+                "period": f"{start.isoformat()} → {end.isoformat()}",
+                "meters": str(len(meters)),
+                "flagged": str(len(flagged)),
+                "details": " | ".join(lines[:15])[:1400] or "No source observations",
+            },
+        )
 
     def _review_list(self) -> list[dict]:
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)

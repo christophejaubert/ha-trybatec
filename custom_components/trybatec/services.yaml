@@ -72,8 +72,22 @@ import_history:
       default: false
       selector:
         boolean: {}
+    retry_pending:
+      description: Retry an IDENTICAL pending import only after investigating its missing Recorder rows. Never authorizes changed data.
+      default: false
+      selector:
+        boolean: {}
     confirm:
       description: Explicit confirmation of backup, preview review and recorder write.
       required: true
       selector:
         boolean: {}
+
+verify_history:
+  name: Verify imported Recorder statistics (b6)
+  description: Read all expected hourly statistics from Recorder and confirm persistence only if every stored bucket and sum matches. Pending imports block new imports.
+  fields:
+    entry_id:
+      description: Optional when only one Trybatec account is configured.
+      selector:
+        text: {}

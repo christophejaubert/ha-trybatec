@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
 from .parsing import numeric, parse_timestamp
+from .units import portal_index_unit
 from .history_review import apply_review_to_meter, review_candidates
 
 MAX_REQUEST_DAYS = 92
@@ -91,9 +92,17 @@ def combine_payloads(
                 "lot": lot, "fluid": fluid, "serial": serial,
                 "indexes": {}, "retired": False, "conflicts": 0,
                 "conflict_times": set(), "fatal_conflicts": False,
+                "portal_unit": None,
             })
             serial_fluids[(lot, serial)].add(fluid)
             meter["retired"] |= line.get("depose") is True
+            found_unit = portal_index_unit(line)
+            if found_unit is not None:
+                existing_unit = meter["portal_unit"]
+                meter["portal_unit"] = (
+                    found_unit if existing_unit is None or existing_unit == found_unit
+                    else "conflict"
+                )
             points = line.get("indexes")
             if not isinstance(points, list):
                 continue
@@ -206,7 +215,8 @@ def build_history(
         parent["conflicts"] += meter["conflicts"]
         series = {
             "lot": lot, "fluid": fluid, "serial": serial,
-            "retired": meter["retired"], "first": readings[0][0],
+            "retired": meter["retired"], "portal_unit": meter["portal_unit"],
+            "first": readings[0][0],
             "last": readings[-1][0], "rows": [], "anchor": None,
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
             "fatal_conflicts": meter["fatal_conflicts"],

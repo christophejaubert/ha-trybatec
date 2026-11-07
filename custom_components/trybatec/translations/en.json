@@ -22,71 +22,86 @@
   },
   "options": {
     "step": {
-      "init": {
+      "settings": {
         "title": "Trybatec options",
-        "description": "Tariff JSON example: {\"2025\": {\"EF\": {\"rate\": 4.25, \"status\": \"provisional\"}}. Supported fluids: EF, ECS, CET. Costs are estimates, not a billing statement.",
+        "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
           "annual_tariffs": "Annual tariffs (JSON, optional)"
         }
+      },
+      "init": {
+        "title": "Trybatec options",
+        "menu_options": {
+          "settings": "Settings",
+          "history_review": "Review historical readings",
+          "meter_units": "Verify meter units",
+          "history_overview": "Historical preview overview"
+        }
+      },
+      "history_review": {
+        "title": "Choose a reading for review",
+        "description": "Run trybatec.preview_history first. Only readings from the latest preview appear.",
+        "data": {
+          "reading": "Reading"
+        }
+      },
+      "history_decision": {
+        "title": "Reading decision",
+        "description": "Original Trybatec reading remains unchanged. Decision is stored locally.",
+        "data": {
+          "choice": "Decision"
+        }
+      },
+      "history_correction": {
+        "title": "Correct or attribute a reading",
+        "description": "Only correct measurement date with evidence. Accounting attribution is a convention, not a measurement timestamp.",
+        "data": {
+          "mode": "Correction type",
+          "date": "Date",
+          "time": "Time",
+          "reason": "Required justification"
+        }
+      },
+      "history_confirm": {
+        "title": "Confirm reading decision",
+        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}",
+        "data": {
+          "confirm": "I confirm this decision",
+          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval"
+        }
+      },
+      "meter_units": {
+        "title": "Select meter",
+        "description": "Portal-reported and individually confirmed units. Retired meters appear after a history preview.",
+        "data": {
+          "meter": "Physical meter"
+        }
+      },
+      "meter_unit": {
+        "title": "Meter index unit",
+        "description": "Meter: {meter}. Unit reported by portal: {portal_unit}. Verify the INDEX unit, not just manufacturer specifications. Conflicts disable statistics.",
+        "data": {
+          "unit": "Confirmed source unit"
+        }
+      },
+      "history_overview": {
+        "title": "Historical preflight",
+        "description": "Period: {period}. Meters: {meters}. Readings flagged: {flagged}.\\n{details}\\nDistinct physical meters are never automatically merged. Import through the admin action trybatec.import_history.",
+        "data": {
+          "review": "Continue to flagged readings"
+        }
       }
     },
     "error": {
-      "invalid_tariffs": "Invalid tariff JSON. See the example."
-    }
-  },
-  "services": {
-    "preview_history": {
-      "name": "Preview historical readings",
-      "description": "Reads available Trybatec historical meter indexes and reports gaps; never changes Home Assistant statistics.",
-      "fields": {
-        "entry_id": {
-          "name": "Account entry ID",
-          "description": "Optional if exactly one Trybatec account is installed."
-        },
-        "start_date": {
-          "name": "Start date",
-          "description": "YYYY-MM-DD; start of the historical period (default 2021-01-01)."
-        },
-        "end_date": {
-          "name": "End date",
-          "description": "YYYY-MM-DD; defaults to today (Europe/Paris)."
-        }
-      }
+      "invalid_tariffs": "Invalid tariff JSON. See the example.",
+      "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change).",
+      "invalid_meter_unit": "Unsupported unit for this fluid.",
+      "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value."
     },
-    "import_history": {
-      "name": "Import historical statistics",
-      "description": "EXPERIMENTAL: queues distinct, external long-term statistics. Make a backup, run the preview first, and explicitly confirm.",
-      "fields": {
-        "entry_id": {
-          "name": "Account entry ID",
-          "description": "Optional if exactly one account is installed."
-        },
-        "start_date": {
-          "name": "Start date",
-          "description": "YYYY-MM-DD; do not change between re-imports of the same series."
-        },
-        "end_date": {
-          "name": "End date",
-          "description": "YYYY-MM-DD; defaults to today."
-        },
-        "include_heating": {
-          "name": "Include heating",
-          "description": "Off by default because heating units may not be kWh."
-        },
-        "confirm_heating_kwh": {
-          "name": "Confirm heating is kWh",
-          "description": "Required when including heating. Do not check for allocation units."
-        },
-        "allow_gaps": {
-          "name": "Allow gaps",
-          "description": "Accept observed intervals longer than 3 days without interpolation."
-        },
-        "confirm": {
-          "name": "Confirm import",
-          "description": "Required: confirms backup, preview and consent to queue recorder database changes."
-        }
-      }
+    "abort": {
+      "history_preview_required": "First run a new history preview from Developer Tools → Actions.",
+      "no_readings_to_review": "No historical readings require review."
     }
   }
 }
