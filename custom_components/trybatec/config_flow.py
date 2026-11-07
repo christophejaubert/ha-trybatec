@@ -35,6 +35,7 @@ from .const import (
 )
 from .parsing import validate_tariffs
 from .history_store import save_decision
+from .history import build_history
 from .history_review import ZONE
 
 UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
@@ -153,8 +154,18 @@ class TrybatecOptionsFlow(OptionsFlow):
     async def async_step_history_review(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Pick from the most recent administrator history preview, not arbitrary text."""
         candidates = self._review_list()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if not candidates and coordinator is not None and not hasattr(coordinator, "_history_review_cache"):
+            # Fetch source readings only when opening a review without an active cache.
+            from types import SimpleNamespace
+            from .history_services import _load
+            try:
+                await _load(self.hass, SimpleNamespace(data={"entry_id": self.config_entry.entry_id}))
+            except Exception:
+                return self.async_abort(reason="history_preview_required")
+            candidates = self._review_list()
         if not candidates:
-            return self.async_abort(reason="history_preview_required")
+            return self.async_abort(reason="no_readings_to_review")
         by_id = {item["key"]: item for item in candidates}
         if user_input is not None:
             chosen = by_id.get(user_input.get("reading"))
@@ -187,10 +198,20 @@ class TrybatecOptionsFlow(OptionsFlow):
         if not hasattr(coordinator, "_history_import_lock"):
             coordinator._history_import_lock = __import__("asyncio").Lock()
         async with coordinator._history_import_lock:
-            await save_decision(self.hass, self.config_entry.entry_id, self._selected_reading["key"], decision)
-            coordinator._history_review_candidates = []
-        # Existing settings/tariffs remain unchanged; HA still controls the flow.
-        return self.async_create_entry(title="", data=dict(self.config_entry.options))
+            saved = await save_decision(self.hass, self.config_entry.entry_id, self._selected_reading["key"], decision)
+            cache = getattr(coordinator, "_history_review_cache", None)
+            if cache is not None:
+                payloads, start, end, allowed_lots = cache
+                updated = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=saved)
+                coordinator._history_review_candidates = updated["__review_candidates__"]
+            else:
+                coordinator._history_review_candidates = [
+                    {**item, "decision": saved.get(item["key"], {"action": "unreviewed"})["action"]}
+                    for item in self._review_list()
+                ]
+        self._selected_reading = None
+        self._pending_review = None
+        return await self.async_step_history_review()
 
     async def async_step_history_decision(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self._selected_reading is None:
@@ -230,6 +251,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                     "action": "correct", "mode": user_input["mode"],
                     "timestamp": a.isoformat(), "reason": user_input["reason"],
                 }
+                if decision["mode"] == "accounting":
+                    previous = self._selected_reading.get("previous_date")
+                    if previous and not (datetime.fromisoformat(previous) < a <= datetime.fromisoformat(self._selected_reading["source_date"])):
+                        decision["requires_out_of_period_confirmation"] = True
                 self._pending_review = decision
                 return await self.async_step_history_confirm()
             except ValueError:
@@ -255,7 +280,12 @@ class TrybatecOptionsFlow(OptionsFlow):
         if self._selected_reading is None or self._pending_review is None:
             return self.async_abort(reason="history_preview_required")
         if user_input is not None and user_input.get("confirm") is True:
-            return await self._save_review(self._pending_review)
+            approved = dict(self._pending_review)
+            if approved.pop("requires_out_of_period_confirmation", False):
+                if user_input.get("confirm_outside_period") is not True:
+                    return await self.async_step_history_confirm()
+                approved["out_of_period_confirmed"] = True
+            return await self._save_review(approved)
         item = self._selected_reading
         decision = self._pending_review
         label = (
@@ -267,15 +297,20 @@ class TrybatecOptionsFlow(OptionsFlow):
             if item.get("previous_index") is not None and item["index"] >= item["previous_index"]
             else None
         )
+        override = bool(decision.get("requires_out_of_period_confirmation"))
+        fields = {vol.Required("confirm", default=False): BooleanSelector()}
+        if override:
+            fields[vol.Required("confirm_outside_period", default=False)] = BooleanSelector()
         return self.async_show_form(
             step_id="history_confirm",
             description_placeholders={
                 "reading": label,
                 "interval_quantity": str(round(estimated_delta, 6)) if estimated_delta is not None else "not available",
+                "outside_interval_warning": ("WARNING: accounting period differs from source observation interval, this is not a measurement timestamp. Additional approval is mandatory." if override else ""),
                 "decision": decision["action"] + (
                     f' / {decision.get("mode", "")} / {decision.get("timestamp", "")}'
                     if decision["action"] == "correct" else ""
                 ),
             },
-            data_schema=vol.Schema({vol.Required("confirm", default=False): BooleanSelector()}),
+            data_schema=vol.Schema(fields),
         )

@@ -72,7 +72,9 @@ def new_ui(ui):
 def test_options_menu_and_select_reading_then_reject_approval(ui, monkeypatch):
     flow, coordinator = new_ui(ui)
     saved = []
-    async def save(*args): saved.append(args)
+    async def save(*args):
+        saved.append(args)
+        return {"a"*32: args[-1]}
     monkeypatch.setattr(ui,"save_decision",save)
     async def run():
         assert (await flow.async_step_init())["type"] == "menu"
@@ -96,7 +98,9 @@ def test_options_menu_and_select_reading_then_reject_approval(ui, monkeypatch):
 def test_correction_with_accounting_date_and_dst_refusal(ui, monkeypatch):
     flow, coordinator = new_ui(ui)
     saved = []
-    async def save(*args): saved.append(args)
+    async def save(*args):
+        saved.append(args)
+        return {"a"*32: args[-1]}
     monkeypatch.setattr(ui,"save_decision",save)
     async def run():
         await flow.async_step_history_review({"reading":"a"*32})

@@ -64,9 +64,10 @@
       },
       "history_confirm": {
         "title": "Confirm reading decision",
-        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.",
+        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}",
         "data": {
-          "confirm": "I confirm this decision"
+          "confirm": "I confirm this decision",
+          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval"
         }
       }
     },
@@ -75,7 +76,8 @@
       "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change)."
     },
     "abort": {
-      "history_preview_required": "First run a new history preview from Developer Tools → Actions."
+      "history_preview_required": "First run a new history preview from Developer Tools → Actions.",
+      "no_readings_to_review": "No historical readings require review."
     }
   }
 }

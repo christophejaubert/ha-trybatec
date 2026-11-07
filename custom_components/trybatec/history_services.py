@@ -130,6 +130,7 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     # Persisted review choices apply only to exact source fingerprint matches.
     # The preview itself never writes to Home Assistant storage or recorder.
     decisions = await load_decisions(hass, coordinator.entry.entry_id)
+    coordinator._history_review_cache = (payloads, start, end, allowed_lots)
     history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
     # In-memory proposals for the integration options UI, never persisted by preview.
     coordinator._history_review_candidates = history["__review_candidates__"]

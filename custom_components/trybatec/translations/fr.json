@@ -64,9 +64,10 @@
       },
       "history_confirm": {
         "title": "Confirmer le traitement du relevé",
-        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.",
+        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}",
         "data": {
-          "confirm": "Je confirme cette décision"
+          "confirm": "Je confirme cette décision",
+          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
         }
       }
     },
@@ -75,7 +76,8 @@
       "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure)."
     },
     "abort": {
-      "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions."
+      "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",
+      "no_readings_to_review": "Aucun relevé historique à examiner."
     }
   }
 }
