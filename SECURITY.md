@@ -14,7 +14,7 @@ This integration communicates directly from the user's Home Assistant host to
 - Vulnerability reports: contact the repository maintainer privately using
   a GitHub security advisory **after** the repository is published.
 
-## Historical recorder access (0.2.0b3+)
+## Historical recorder access (0.2.0b4+, proposed)
 
 Historical preview and import actions require an **authenticated Home Assistant
 administrator**. Automated or unauthenticated contexts are refused by design.
@@ -32,3 +32,23 @@ lot references to the current HA administrator: **do not post these publicly**.
 Persistent origin records and the portal password are included in HA backups.
 Do not enable public HA access without authentication, and secure backup files.
 Legacy b1/b2 statistics are not automatically removed or converted.
+
+## v4 historical decisions and revisions
+
+Review decisions are persisted in the local Home Assistant `.storage` directory.
+The decision key is an exact-source hash that includes the lot, serial, fluid,
+source timestamp and index value. The stored data include the choice, any
+user-entered justification, date correction and audit timestamp. Administrators
+should avoid entering confidential details into justifications; protect and
+back up `.storage`. A changed vendor source does not inherit old decisions.
+
+Option-flow controls require an administrator to access integration settings;
+the history import actions independently check administrator identity and
+explicit confirmation. A separate confirmation is required for accounting
+allocations and for any non-append revision to existing statistics.
+
+A failed or interrupted asynchronous Recorder queue may leave a pending
+external-statistics write. Re-running an unchanged import is designed to be
+idempotent, but the user must check actual Recorder persistence before trusting
+any totals. Backfilled revisions create distinct external series and never
+silently delete the old one. Switching the Energy dashboard remains manual.

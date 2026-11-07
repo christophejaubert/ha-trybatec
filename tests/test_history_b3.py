@@ -163,7 +163,7 @@ def test_conflicting_overlapping_api_pages_never_choose_last_arbitrarily():
     conflict = line("W", "ECS", days("2026-01-02", [3, 999]))
     h = build_history([{"lines": [first]}, {"lines": [conflict]}], date(2026, 1, 1), date(2026, 2, 1))
     assert h["ECS"]["conflicts"] == 1
-    assert h["ECS"]["total"] == 1
+    assert h["ECS"]["total"] == 0  # Conflicting end reading is excluded from trusted usage.
 
 
 def test_serial_in_two_fluid_types_within_same_lot_is_flagged():

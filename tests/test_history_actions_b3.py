@@ -100,16 +100,16 @@ def test_sparse_legacy_rejects_by_default_or_skips_without_reallocation(services
     assert any(x["reason"] == "no_daily_cadence_intervals" for x in skipped)
 
 
-def test_decreasing_meter_blocks_selected_fluid_by_default(services):
+def test_decreasing_meter_preserves_independent_good_fluid_and_isolates_bad_interval(services):
     h = scenario(
         ("L", "BAD", "EF", False, [("2026-01-01", 10), ("2026-01-02", 9), ("2026-01-03", 12)]),
         ("L", "GOOD", "ECS", False, [("2026-01-01", 0), ("2026-01-02", 2)]),
     )
-    with pytest.raises(ValueError, match="decreasing"):
+    with pytest.raises(ValueError, match="sparse"):
         services.prepare_import_plan(h, "ACCOUNT", ["EF", "ECS"])
-    plan, skipped = services.prepare_import_plan(h, "ACCOUNT", ["EF", "ECS"], skip_anomalous_meters=True)
+    plan, skipped = services.prepare_import_plan(h, "ACCOUNT", ["EF", "ECS"], allow_gaps=True)
     assert len(plan) == 1 and plan[0]["fluid"] == "ECS"
-    assert any(x["reason"] == "conflicts_or_decreases" for x in skipped)
+    assert any(x["reason"] == "no_daily_cadence_intervals" for x in skipped)
 
 
 def test_stable_id_first_import_reimport_and_origin_change_refusal(services):
@@ -200,7 +200,7 @@ def test_import_service_writes_only_pseudonymous_selected_meter_series(services,
         assert result["status"].startswith("queued")
         assert len(queue) == 1
         metadata, rows = queue[0]
-        assert metadata["statistic_id"].startswith("trybatec:history_v3_ecs_")
+        assert metadata["statistic_id"].startswith("trybatec:history_v4_ecs_daily_")
         assert "HOT" not in metadata["statistic_id"]
         assert "fake-entry" not in metadata["statistic_id"]
         assert metadata["unit_of_measurement"] == "m³"

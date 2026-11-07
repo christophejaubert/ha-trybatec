@@ -17,7 +17,7 @@ preview_history:
         text: {}
 import_history:
   name: Import historical statistics (experimental)
-  description: Administrator-only, experimental. Backup and confirm first. Only near-daily increments are imported per physical meter; older sparse differences remain unallocated.
+  description: Administrator-only, experimental. Backup and confirm first. Near-daily measured increments and optional explicit accounting allocations use separate per-meter statistics; no automatic backfill or legacy migration.
   fields:
     entry_id:
       selector:
@@ -53,7 +53,22 @@ import_history:
       selector:
         boolean: {}
     skip_anomalous_meters:
-      description: Skip entire physical meters with conflicting or decreasing indexes. Other selected meters can be imported safely.
+      description: Skip meters with fatal unresolved identity/date conflicts; isolated source conflicts and declines can preserve other daily-safe intervals.
+      default: false
+      selector:
+        boolean: {}
+    include_accounting:
+      description: Opt in to separately import user-approved accounting allocations of sparse consumption (not daily measurements).
+      default: false
+      selector:
+        boolean: {}
+    confirm_accounting:
+      description: Additional explicit confirmation to queue historical accounting allocations.
+      default: false
+      selector:
+        boolean: {}
+    confirm_revision:
+      description: Allow creating a NEW versioned statistics series for backfills/corrections. Old series remain and must be deselected manually in Energy.
       default: false
       selector:
         boolean: {}

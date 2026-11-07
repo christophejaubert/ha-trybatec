@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Current beta: 0.2.0b3** (isolated per-lot/per-meter history, sparse observations kept separate from daily import, administrator-only services).
+**Proposed beta: 0.2.0b4** — per-reading review in Home Assistant options, separate approved accounting allocations, and safe recorder revision handling. This feature branch is NOT a released version until CI and publication are completed.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Prototype sans maintenance garantie.
 
@@ -34,102 +34,112 @@
 - Default poll interval: 12 hours; minimum: 1 hour.
 - Supports UI translations for French and English.
 - Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present.
-- v3 historical data handle one meter, many sequential physical meters, parallel meters, and sparse/backdated-looking observations without assuming anything about a particular building or customer.
+- Historical readings handle one meter, successive physical meters, parallel meters, multiple dwellings, and sparse/backdated-looking observations without client-specific assumptions.
 
-## Historical readings and Home Assistant recorder (`0.2.0b3`)
+## Historical readings and Home Assistant recorder (proposed `0.2.0b4`)
 
-**IMPORTANT: EXPERIMENTAL / NEVER AUTOMATIC. Back up Home Assistant (including
-recorder and `.storage`) before any import.** Installing or updating this
-integration does not write historical statistics, reconfigure the Energy
-dashboard, or modify previous external statistic series. Administrator access is
-required to use both historical actions.
+**EXPERIMENTAL. NO AUTOMATIC RECORDER WRITES.** Back up Home Assistant
+**including Recorder and `.storage`** before importing. No history is imported
+on install, restart, update or daily polling. History actions require an
+**authenticated administrator** and deliberate confirmation.
 
-In **Developer Tools → Actions** (*Outils de développement → Actions*):
+### Review historical data in the integration user interface
 
-1. Run **`trybatec.preview_history`** with `start_date` (for example
-   `2021-01-01`) and optional `end_date`. It reads portal indexes without
-   changing the database. Inspect `statistics`: `EF` (cold water), `ECS` (hot
-   water), `CET` (heating). Any absent fluid reports zero meters rather than
-   blocking the present fluids. The preview contains dates, gaps, decreases,
-   conflicts, dwelling points, possible replacement transitions, and overlaps.
-2. Read **`observed_consumption`**, **`unallocated_consumption`**, and
-   **`importable_daily_consumption`** separately. Historical annual/periodic
-   index snapshots are retained in the preview, but NOT interpolated into
-   invented daily energy/water use. `yearly_consumption_by_end_reading` is a
-   legacy estimate and may misallocate multi-year gaps; use
-   `yearly_consumption_within_same_year` and
-   `yearly_daily_cadence_only` to understand the coverage.
-3. In 0.2.0b3, `trybatec.import_history` creates one distinct external
-   **statistic series per physical meter**, pseudonymous and scoped to the
-   account + lot + fluid + serial. It **does not** automatically join multiple
-   physical meter serials into one logical consumption point; dates alone do
-   not prove that two meters replaced one another. Multiple non-overlapping
-   serials are only shown as **unconfirmed** possible replacements.
-4. Only after backup and review, run `trybatec.import_history` with
-   `confirm: true`. Cold and hot water are selected by default, but either can
-   be disabled independently (`include_cold_water`, `include_hot_water`).
-   Absent types are skipped. If an individual meter contains corrections,
-   conflicts or index decreases, the whole selection is **refused** unless
-   `skip_anomalous_meters: true` is explicitly set (this skips affected meters
-   **entirely**, without importing them). If there are unknown/sparse periods,
-   set `allow_gaps: true` only when you accept a **partial daily-only import**:
-   **the historical differences from those periods are excluded, not
-   assigned to their ending reading**. A source is imported only if it has
-   near-daily, non-decreasing intervals.
-5. Heating is excluded by default. Enable it only after independently
-   confirming its units are actual kWh: set **both** `include_heating: true`
-   and `confirm_heating_kwh: true`. Some sites use allocation units, for which
-   kWh import would be incorrect.
-6. Verify the returned `series`, `skipped`, `rows_queued`, and
-   `unallocated_sparse_consumption`. Queuing the data is not proof that
-   recorder has persisted it; check **Developer Tools → Statistics** after
-   recorder processes the request.
+1. In **Developer Tools → Actions**, execute **`trybatec.preview_history`**
+   with the widest credible start date. This read-only action returns
+   `review_candidates` for long intervals, decreases and disputed source
+   readings. It also caches the candidate list in memory for your account.
+2. Open **Settings → Devices & services → Trybatec → Configure → Review historical
+   readings** (*Paramètres → Appareils et services → Trybatec → Configurer*).
+   Select a source reading belonging to the configured account/lot and choose:
+   - **Accept unchanged:** retain source reading; this does **not** magically
+     make a year-long interval a known daily consumption.
+   - **Correct and accept:** select **actual measurement date** (with a
+     supporting explanation), or **accounting attribution date/time** (only a
+     convention for the amount observed between two indexes). Choose date and
+     time in the local Europe/Paris timezone. Ambiguous/nonexistent local
+     times during daylight-saving transitions are rejected.
+   - **Exclude:** remove that exact source reading from subsequent import
+     calculations, preserving the source and the surrounding safe intervals.
+   - **Postpone:** similarly exclude the reading until the decision is revised.
+3. Confirm the selected action on a separate screen. Choices are preserved
+   locally with an audit timestamp and justification, keyed to a hash of the
+   exact source reading (account store + lot + fluid + serial + timestamp +
+   value). When Trybatec changes the source timestamp or value, the old choice
+   does **not** apply blindly. The source portal is never modified.
+4. **Run `preview_history` again** after a decision to inspect the effect.
+   The preview action never writes to Recorder or persistent storage itself.
+   The review interface stores choices in `.storage`; back it up with Recorder.
 
-### Physical meters, privacy and stable statistics
+**Limit:** This is a native Home Assistant *options flow*, not yet a custom
+full-page dashboard. A review requires a preceding preview to populate
+candidates; a new preview is required after each saved choice. Only flagged
+readings are selectable. The source API has no documented provenance flags,
+so neither a backdated-looking entry nor a correction is called "manual" without
+independent evidence. Text justification is requested but not verified by code;
+no file upload or automatic proof verification is included.
 
-- The integration first filters data by the **lot identifiers** provided by
-  the authenticated Trybatec account, then keeps each `(lot, fluid, serial)`
-  distinct. A repeated serial across two lots cannot merge their histories.
-  Invalid or missing lot identifiers are not guessed.
-- External IDs begin `trybatec:history_v3_` and contain **only hash-derived
-  identifiers**, not raw apartment names, serial numbers, credentials or
-  portal UUIDs. Dates are **not part of these IDs**.
-- The first observed near-daily interval establishes a baseline for its
-  physical series. For repeat imports, a per-account origin ledger is kept
-  under Home Assistant's `.storage` and verified before any recorder call.
-  Imports that change the original baseline or truncate a previously imported
-  date range are rejected. Back up this ledger with recorder.
-- **Existing b1/b2 `trybatec:history_...` series remain untouched.** The new
-  `history_v3` series are separate. Do **not** select both old and new series
-  in the Energy dashboard, as this may duplicate their consumption. No
-  automatic historical migration is performed.
-- Sparse, manually entered, transferred or retrospectively dated readings
-  cannot be reliably distinguished without trustworthy portal provenance
-  metadata. The integration therefore marks uncertainty **without claiming
-  to know whether a reading was manually entered**. A portal timestamp may
-  differ from the actual physical reading date.
-- Multiple serials for one fluid could indicate **replacement or parallel
-  metering**. Neither is inferred as a fact based solely on order of dates.
+### Explicit import controls
 
-### Known limits for the experimental v3 importer
+`trybatec.import_history` is still an opt-in administrative action. Run it
+only after backing up and reviewing the preview. Use `confirm: true`.
 
-- Still no all-in-one graphical history wizard, no CSV/XLSX import,
-  no automatic conversion of historical sparse intervals into accurate daily
-  readings, and no merging of legacy/current live sensor statistics.
-- Historical long-gap differences are visible in preview but **not imported**
-  into the daily-cadence statistics, even with `allow_gaps: true`.
-- Input is restricted to at most 10 years per action and bounded API requests;
-  access to the vendor's undocumented portal may fail or change.
-- The legacy **live sensor** representation still uses serial-based identity;
-  v3 multi-lot isolation is for historical statistics. A rare duplicate
-  serial reused across dwellings in live sensors is not yet fully addressed.
-- `trybatec.preview_history` and `trybatec.import_history` are restricted
-  to an authenticated Home Assistant administrator; HA automations without a
-  user context are deliberately refused.
-- No broad live-account testing has been performed on unrelated customer
-  environments. Synthetic fixtures cover missing fluids, one-meter histories,
-  three successive meters, concurrent meters, multiple lots, historical sparse
-  observations, API conflicts and security edge cases.
+- **Water-only accounts and accounts with no heating work:** absent fluids
+  are skipped. You may disable cold or hot water separately with
+  `include_cold_water` and `include_hot_water`.
+- **Measured near-daily intervals** (up to 27 h, including DST changes) are
+  stored in distinct per-physical-meter `history_v4_..._daily_...` series. Sparse
+  intervals are NOT interpolated into fictitious daily consumption. A small
+  index decline isolates uncertain increments without losing the whole meter.
+  Contradictory readings are isolated; a fundamental identity collision
+  prevents unsafe import of that meter.
+- If the account has sparse intervals, set `allow_gaps: true` to explicitly
+  permit a **partial measured-daily import**.
+- **User-approved accounting allocations** of sparse consumption are stored
+  in **separate** per-meter `history_v4_..._accounting_...` series, never made to
+  look like measured daily usage. Opt in with `include_accounting: true` and
+  `confirm_accounting: true`. The allocation timestamp must lie inside the
+  observed source interval, and the amount is calculated as a verified
+  nonnegative difference between two source indexes. For instance, a
+  deliberate **31 Dec 23:59** selection is recorded into the **31 Dec 23:00**
+  local hourly statistics bucket, not the following civil year.
+- **Heating is OFF by default**. It can be imported only after independent
+  confirmation of genuine kWh (not heating allocation units) using
+  `include_heating: true` and `confirm_heating_kwh: true`.
+- **Multiple serial numbers** stay separate even if they may be successive
+  physical generations of a single lot's consumption point. Overlapping
+  meters are never assumed to be successive.
+- **Idempotent re-imports and later extensions:** when all previously written
+  rows are unchanged, an identical re-import or append uses the same v4
+  statistic ID. Backfills/corrections that would alter previous cumulative
+  sums are rejected unless `confirm_revision: true`; then a **NEW versioned
+  statistic series** is created and the old one remains untouched.
+  **The user must manually replace the old series in the Energy dashboard**
+  before using the new revision. Do NOT select old and new simultaneously.
+- The import returns the queued series, skipped meters and any replaced old
+  IDs. Queueing external statistics is asynchronous; verify persistence in
+  **Developer Tools → Statistics** after the recorder has processed the data.
+
+### Restrictions and known limits
+
+- The new `history_v4_` statistics deliberately do not overwrite or migrate
+  previous `history_...` or `history_v3_...` Recorder statistics. Using multiple
+  generations of the same consumption in Energy may double-count it.
+- A single annual interval's total can be attributed **by convention** to a
+  chosen end-of-year bucket, but this never proves that the energy/water was
+  consumed on that day. Keep accounting allocations distinct from daily use.
+- The Trybatec `/api/v1/indexes` API is undocumented. Historical access is
+  limited to 10 years per request with API and payload-size limits. Some
+  vendor accounts may expose only partial or inconsistent history.
+- The live/current sensor representation still uses serial-only identity;
+  duplicate serials across different lots are isolated in historical
+  statistics but not yet fully handled in live sensors.
+- No complete CSV/XLSX ingestion, automatic conversion of sparse intervals
+  to daily readings, provenance audit of source documents, full graphical
+  bulk review, or automatic switching of revised Recorder statistics in the
+  Energy dashboard is implemented.
+- No broad live customer-account testing has been performed beyond a limited
+  account preview. Synthetic tests are not a replacement for end-to-end testing.
 
 ## Logo / identity
 

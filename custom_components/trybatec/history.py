@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
 from .parsing import numeric, parse_timestamp
+from .history_review import apply_review_to_meter, review_candidates
 
 MAX_REQUEST_DAYS = 92
 MAX_HISTORY_DAYS = 3660
@@ -89,6 +90,7 @@ def combine_payloads(
             meter = meters.setdefault(key, {
                 "lot": lot, "fluid": fluid, "serial": serial,
                 "indexes": {}, "retired": False, "conflicts": 0,
+                "conflict_times": set(), "fatal_conflicts": False,
             })
             serial_fluids[(lot, serial)].add(fluid)
             meter["retired"] |= line.get("depose") is True
@@ -112,6 +114,7 @@ def combine_payloads(
                 prev = meter["indexes"].get(at)
                 if prev is not None and prev != val:
                     meter["conflicts"] += 1
+                    meter["conflict_times"].add(at)
                     if len(conflicts) < MAX_DETAILS:
                         conflicts.append({
                             "fluid": fluid, "lot": lot, "meter_serial": serial,
@@ -126,6 +129,7 @@ def combine_payloads(
         if len(fluids) > 1:
             for fluid in fluids:
                 meters[(lot, fluid, serial)]["conflicts"] += 1
+                meters[(lot, fluid, serial)]["fatal_conflicts"] = True
                 if len(conflicts) < MAX_DETAILS:
                     conflicts.append({
                         "fluid": fluid, "lot": lot, "meter_serial": serial,
@@ -162,6 +166,7 @@ def _detail_list_append(lst: list[dict[str, Any]], val: dict[str, Any]) -> None:
 def build_history(
     payloads: list[dict[str, Any]], start: date, end: date,
     allowed_lots: set[str] | None = None,
+    decisions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Produce legacy per-fluid previews plus isolated per-meter import plans.
 
@@ -170,12 +175,30 @@ def build_history(
     day, even with allow_gaps=True. One physical serial = one series.
     """
     meters, conflicts = combine_payloads(payloads, allowed_lots, start, end)
+    decisions = decisions or {}
+    # Capture raw observations before processing user decisions; never overwrite
+    # a source record in the in-memory API representation.
+    candidates = review_candidates(meters, decisions)
+    for meter in meters.values():
+        indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
+        # A contradictory provider timestamp cannot serve as a trusted
+        # baseline. Drop that particular reading from the plan, not the
+        # surrounding valid observations or the entire physical meter.
+        for conflicted_at in meter["conflict_times"]:
+            indexes.pop(conflicted_at, None)
+        meter["indexes"] = indexes
+        meter["accounting_choices"] = allocations
+        meter["conflicts"] += len(clashes)
+        if clashes:
+            meter["fatal_conflicts"] = True
+        conflicts.extend(clashes)
     output: dict[str, Any] = {fluid: _new_summary() for fluid in FLUIDS}
     per_point: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for key, meter in sorted(meters.items()):
         lot, fluid, serial = key
         readings = sorted(meter["indexes"].items())
         if not readings:
+            output[fluid]["conflicts"] += meter["conflicts"]
             continue
         parent = output[fluid]
         parent["meters"] += 1
@@ -186,10 +209,12 @@ def build_history(
             "retired": meter["retired"], "first": readings[0][0],
             "last": readings[-1][0], "rows": [], "anchor": None,
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
+            "fatal_conflicts": meter["fatal_conflicts"],
             "total": 0.0, "importable": 0.0, "unallocated": 0.0,
             "annual_within_year": defaultdict(float),
             "annual_daily": defaultdict(float),
             "annual_by_end": defaultdict(float),
+            "accounting_allocations": [],
         }
         # This is *not* a replacement chain; the group identifies only the
         # same dwelling and fluid and is not used to combine two series.
@@ -233,6 +258,26 @@ def build_history(
             series["annual_by_end"][year] += delta
             if prev_at.astimezone(LOCAL_ZONE).year == at.astimezone(LOCAL_ZONE).year:
                 series["annual_within_year"][str(at.astimezone(LOCAL_ZONE).year)] += delta
+            chosen_accounting = meter.get("accounting_choices", {}).get(at)
+            if chosen_accounting:
+                target_at, source_key = chosen_accounting
+                # An accounting-only attribution must not masquerade as a
+                # measured daily delta. The chosen time must fall inside the
+                # observed interval, and be later than its starting reading.
+                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and prev_at < target_at <= at):
+                    series["conflicts"] += 1
+                    series["fatal_conflicts"] = True
+                    parent["conflicts"] += 1
+                    _detail_list_append(parent["conflict_details"], {
+                        "lot": lot, "fluid": fluid, "meter_serial": serial,
+                        "reason": "invalid_accounting_attribution",
+                        "source_key": source_key,
+                    })
+                else:
+                    series["accounting_allocations"].append({
+                        "at": _bucket(target_at), "quantity": round(delta, 6),
+                        "source_key": source_key,
+                    })
             if 1 <= span_hours <= MAX_DAILY_INTERVAL_HOURS:
                 if series["anchor"] is None:
                     series["anchor"] = {
@@ -339,6 +384,7 @@ def build_history(
                     total += delta
                     info["rows"].append({"start": at, "state": round(total, 6), "sum": round(total, 6)})
     # Explicitly keep the import data outside the per-fluid summaries.
+    output["__review_candidates__"] = candidates
     output["__physical_meters__"] = {
         (m["lot"], m["fluid"], m["serial"]): m
         for entries in per_point.values() for m in entries

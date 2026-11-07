@@ -26,6 +26,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_DEAL_ID, DOMAIN, FLUIDS, TIMEZONE
+from .history_store import load_decisions
+from .history_v4 import compose_plan, reconcile_plan
 from .history import (
     MAX_HISTORY_DAYS, build_history, history_windows, physical_statistic_id,
     summarize_preview,
@@ -46,6 +48,9 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional("confirm_heating_kwh", default=False): bool,
         vol.Optional("allow_gaps", default=False): bool,
         vol.Optional("skip_anomalous_meters", default=False): bool,
+        vol.Optional("include_accounting", default=False): bool,
+        vol.Optional("confirm_accounting", default=False): bool,
+        vol.Optional("confirm_revision", default=False): bool,
         vol.Optional("confirm", default=False): bool,
     },
     extra=vol.PREVENT_EXTRA,
@@ -122,7 +127,12 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     }
     if not allowed_lots:
         raise ServiceValidationError("No verified dwelling lot identifiers to filter history")
-    history = build_history(payloads, start, end, allowed_lots=allowed_lots)
+    # Persisted review choices apply only to exact source fingerprint matches.
+    # The preview itself never writes to Home Assistant storage or recorder.
+    decisions = await load_decisions(hass, coordinator.entry.entry_id)
+    history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+    # In-memory proposals for the integration options UI, never persisted by preview.
+    coordinator._history_review_candidates = history["__review_candidates__"]
     return coordinator, start, end, history, len(windows)
 
 
@@ -141,10 +151,10 @@ def prepare_import_plan(
     for (lot, fluid, serial), data in sorted(meters.items()):
         if fluid not in selected:
             continue
-        if data["conflicts"] or data["decreases"]:
+        if data["conflicts"]:
             if not skip_anomalous_meters:
                 raise ValueError(
-                    "Selected meter has conflicting or decreasing indexes; "
+                    "Selected meter has conflicting observations; "
                     "review preview or choose skip_anomalous_meters"
                 )
             skipped.append({
@@ -225,6 +235,8 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "api_requests": requests,
         "statistics": summarize_preview(history),
+        "review_candidates": history["__review_candidates__"],
+        "review_interface": "Settings → Devices & services → Trybatec → Configure (history review)",
         "warning": (
             "Sparse or retrospectively recorded index dates are not verified "
             "measurement dates. Only near-daily intervals are importable. "
@@ -257,46 +269,46 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         if "CET" in chosen and data["CET"]["meters"] and not call.data.get("confirm_heating_kwh"):
             raise ServiceValidationError("Heating import requires verified kWh, not allocation units")
         account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
+        if call.data.get("include_accounting") and not call.data.get("confirm_accounting"):
+            raise ServiceValidationError("Manual accounting allocations need confirm_accounting=true")
         try:
-            plan, skipped = prepare_import_plan(
+            plan, skipped = compose_plan(
                 data, account_key, chosen,
                 allow_gaps=bool(call.data.get("allow_gaps", False)),
-                skip_anomalous_meters=bool(call.data.get("skip_anomalous_meters", False)),
+                skip_conflicts=bool(call.data.get("skip_anomalous_meters", False)),
+                include_accounting=bool(call.data.get("include_accounting", False)),
             )
         except ValueError as exc:
             raise ServiceValidationError(str(exc)) from exc
         if not plan:
-            raise ServiceValidationError(
-                "Nothing safely importable: selected fluids contain no unambiguous daily intervals"
-            )
+            raise ServiceValidationError("No eligible measured or manually attributed intervals")
 
-        # One store per account, not per period. No personal identifiers in filename.
+        # The v4 namespace does not modify any existing b1/b2/v3 statistics.
         storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
-        store: Store = Store(hass, 1, f"{DOMAIN}.history_v3_{storage_key}")
+        store: Store = Store(hass, 1, f"{DOMAIN}.history_v4_{storage_key}")
         try:
-            old = await store.async_load()
-            new = validate_existing_origins(old, plan, end)
+            stored = await store.async_load()
+            updated, approved = reconcile_plan(
+                stored, plan, confirm_revision=bool(call.data.get("confirm_revision", False)),
+            )
         except ValueError as exc:
             raise ServiceValidationError(str(exc)) from exc
         except Exception as exc:
-            _LOGGER.warning("Trybatec v3 history origin check failed: %s", type(exc).__name__)
-            raise ServiceValidationError("Unable to verify stored historical origins") from exc
-
-        # Save origins before queuing recorder writes: if persistence fails,
-        # no recorder write is made. Writes are still asynchronous/not atomic.
+            _LOGGER.warning("Trybatec v4 ledger read failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Cannot verify existing history ledger") from exc
         try:
-            await store.async_save(new)
+            await store.async_save(updated)
         except Exception as exc:
-            _LOGGER.warning("Trybatec v3 history origin save failed: %s", type(exc).__name__)
-            raise ServiceValidationError("Cannot safely persist history origins") from exc
+            _LOGGER.warning("Trybatec v4 ledger write failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Cannot persist v4 history ledger") from exc
 
         queued: list[dict[str, Any]] = []
-        for item in plan:
+        for item in approved:
             stat_id, fluid = item["statistic_id"], item["fluid"]
             metadata = {
                 "statistic_id": stat_id,
                 "source": DOMAIN,
-                "name": f"Trybatec historical {FLUIDS[fluid]} ({stat_id[-8:]})",
+                "name": f"Trybatec {item['kind']} {FLUIDS[fluid]} ({stat_id[-8:]})",
                 "unit_of_measurement": "kWh" if fluid == "CET" else "m³",
                 "unit_class": "energy" if fluid == "CET" else "volume",
                 "mean_type": StatisticMeanType.NONE,
@@ -304,22 +316,23 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
             }
             async_add_external_statistics(hass, metadata, item["rows"])
             queued.append({
-                "statistic_id": stat_id, "fluid": fluid,
+                "statistic_id": stat_id, "kind": item["kind"], "fluid": fluid,
                 "lot": item["lot"], "meter_serial": item["serial"],
                 "rows_queued": len(item["rows"]),
-                "importable_consumption": item["importable_consumption"],
-                "unallocated_sparse_consumption": item["excluded_sparse_consumption"],
+                "quantity": item["quantity"],
+                "replaces": item["replaces"],
             })
-        _LOGGER.info("Trybatec v3 queued %d isolated history series", len(queued))
+        _LOGGER.info("Trybatec v4 queued %d isolated history series", len(queued))
         return {
             "status": "queued_in_recorder_not_yet_confirmed_persisted",
-            "mode": "daily_cadence_only_per_physical_meter",
+            "mode": "v4_daily_and_explicit_accounting_per_physical_meter",
             "start_date": start.isoformat(), "end_date": end.isoformat(),
             "api_requests": requests, "series": queued, "skipped": skipped,
             "warnings": (
-                "Sparse historical changes were excluded (not interpolated). "
-                "Each meter has its own statistics; legacy b1/b2 statistics "
-                "remain separate. No automatic replacement-chain merging."
+                "Unreviewed sparse periods were not assigned to days. "
+                "Accounting allocations are separate from measured daily use. "
+                "Existing b1/b2/v3 series are untouched; revised v4 generations "
+                "must replace their old series manually in the Energy dashboard."
             ),
         }
 
