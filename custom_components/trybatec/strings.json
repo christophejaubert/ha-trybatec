@@ -37,7 +37,8 @@
           "settings": "Settings",
           "history_review": "Review historical readings",
           "meter_units": "Verify meter units",
-          "history_overview": "Historical preview overview"
+          "history_overview": "Historical preview overview",
+          "history_meters": "Physical meter details"
         }
       },
       "history_review": {
@@ -92,11 +93,10 @@
       },
       "history_overview": {
         "title": "Historical preflight",
-        "description": "**Period:** {period}\n\n**{meters} meters · {flagged} readings flagged for review**\n\n- **Cold water (EF)**: {ef_meters} meter(s), {ef_gaps} gap(s), {ef_conflicts} conflict(s)\n- **Hot water (ECS)**: {ecs_meters} meter(s), {ecs_gaps} gap(s), {ecs_conflicts} conflict(s)\n- **Heating (CET)**: {cet_meters} meter(s), {cet_gaps} gap(s), {cet_conflicts} conflict(s)\n\nSelect a meter below to inspect its dates and anomalies. Physical meters are never automatically merged.\n\n[Open Developer Tools → Actions]({actions_url})",
-        "data": {
-          "review": "Continue to flagged readings",
-          "return_to_menu": "Revenir au menu principal",
-          "meter_detail": "Meter details"
+        "description": "**Period:** {period}\n\n**{meters} meters · {flagged} readings flagged for review**\n\n- **Cold water (EF)**: {ef_meters} meter(s), {ef_gaps} gap(s), {ef_conflicts} conflict(s)\n- **Hot water (ECS)**: {ecs_meters} meter(s), {ecs_gaps} gap(s), {ecs_conflicts} conflict(s)\n- **Heating (CET)**: {cet_meters} meter(s), {cet_gaps} gap(s), {cet_conflicts} conflict(s)\n\nPer-meter details are available separately in the integration options. Physical meters are never automatically merged.\n\n[Open Developer Tools → Actions]({actions_url})",
+        "menu_options": {
+          "history_start_review": "Review flagged readings",
+          "init": "← Back to main menu"
         }
       },
       "history_empty": {
@@ -111,6 +111,16 @@
         "description": "**{meter}** · Lot {lot} · {status}\n\n- **First reading:** {first}\n- **Last reading:** {last}\n- **Gaps:** {gaps}\n- **Index decreases:** {decreases}\n- **Conflicts:** {conflicts}\n- **API index unit:** {unit}\n\nRaw readings are not modified. Replaced physical meters remain separate.\n\n[Open Developer Tools → Actions]({actions_url})",
         "data": {
           "navigation": "Navigation"
+        }
+      },
+      "history_start_review": {
+        "title": "Review flagged readings"
+      },
+      "history_meters": {
+        "title": "Physical meter details",
+        "description": "Choose one of {meters} physical meters, including retired meters. Inspection does not change historical readings.\n\n[Open Developer Tools → Actions]({actions_url})",
+        "data": {
+          "meter_detail": "Physical meter"
         }
       }
     },

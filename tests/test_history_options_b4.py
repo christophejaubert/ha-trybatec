@@ -231,8 +231,9 @@ def test_history_overview_is_compact_and_meter_details_use_local_dates(ui, monke
 
     async def run():
         summary = await flow.async_step_history_overview()
-        assert summary["type"] == "form"
+        assert summary["type"] == "menu"
         assert summary["step_id"] == "history_overview"
+        assert summary["menu_options"] == ["history_start_review", "init"]
         placeholders = summary["description_placeholders"]
         assert placeholders["meters"] == "2"
         assert placeholders["ef_meters"] == "1"
@@ -242,7 +243,7 @@ def test_history_overview_is_compact_and_meter_details_use_local_dates(ui, monke
         assert all("T00:00" not in x for x in placeholders.values())
         # A retired meter can be selected independently, never merged.
         selected = ui.meter_key("TEST-LOT", "CET", "FAKE-HEAT")
-        detail = await flow.async_step_history_overview({"meter_detail": selected})
+        detail = await flow.async_step_history_meters({"meter_detail": selected})
         assert detail["type"] == "form"
         assert detail["step_id"] == "history_meter_detail"
         data = detail["description_placeholders"]
@@ -253,8 +254,8 @@ def test_history_overview_is_compact_and_meter_details_use_local_dates(ui, monke
         assert data["status"] == "retired"
         # Navigation is explicit and has no side effects on options.
         back = await flow.async_step_history_meter_detail({"navigation": "overview"})
-        assert back["step_id"] == "history_overview"
-        await flow.async_step_history_overview({"meter_detail": selected})
+        assert back["step_id"] == "history_meters"
+        await flow.async_step_history_meters({"meter_detail": selected})
         main = await flow.async_step_history_meter_detail({"navigation": "main"})
         assert main["type"] == "menu"
         assert main["step_id"] == "init"
@@ -278,7 +279,46 @@ def test_history_overview_localized_translations_have_real_line_breaks():
         assert "{ef_meters}" in compact["description"]
         assert "{ecs_meters}" in compact["description"]
         assert "{cet_meters}" in compact["description"]
-        assert "meter_detail" in compact["data"]
+        assert "data" not in compact
+        assert compact["menu_options"] == {"history_start_review": ("Examiner les relevés" if filename.endswith("fr.json") else "Review flagged readings"), "init": ("← Retour au menu principal" if filename.endswith("fr.json") else "← Back to main menu")}
+        assert "meter_detail" in steps["history_meters"]["data"]
         assert "{first}" in steps["history_meter_detail"]["description"]
         assert "{last}" in steps["history_meter_detail"]["description"]
         assert "navigation" in steps["history_meter_detail"]["data"]
+
+
+def test_history_overview_single_click_navigation_never_saves(ui, monkeypatch):
+    """Review and back are direct HA menu actions with no checkbox or form submission."""
+    flow, coordinator = new_ui(ui)
+    from custom_components.trybatec import history_store
+
+    async def no_decisions(*args):
+        return {}
+
+    monkeypatch.setattr(history_store, "load_decisions", no_decisions)
+    coordinator._history_review_cache = (
+        [{"lines": [{
+            "compteur": "FAKE-1", "lot": "TEST", "fluide": "EF",
+            "indexes": [
+                {"date": "2025-01-01T00:00:00+01:00", "value": 1},
+                {"date": "2025-01-18T00:00:00+01:00", "value": 15},
+            ],
+        }]}], date(2025, 1, 1), date(2025, 1, 19), None,
+    )
+    async def run():
+        overview = await flow.async_step_history_overview()
+        assert overview["type"] == "menu"
+        assert overview["menu_options"] == ["history_start_review", "init"]
+        assert "data_schema" not in overview
+        assert "review" not in overview
+        assert "return_to_menu" not in overview
+        reviewing = await flow.async_step_history_start_review()
+        assert reviewing["step_id"] == "history_review"
+        assert reviewing["type"] == "form"
+        assert len(coordinator._history_review_candidates) == 1
+        again = await flow.async_step_history_overview()
+        assert again["type"] == "menu"
+        back = await flow.async_step_init()
+        assert back["type"] == "menu" and back["step_id"] == "init"
+        assert flow.config_entry.options == {"poll_minutes": 720}
+    asyncio.run(run())

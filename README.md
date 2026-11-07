@@ -39,6 +39,8 @@ Le portail Trybatec affiche des unités de **consommation graphique** (notamment
 
 ### b7 — Aperçu historique simplifié (interface)
 
+L'écran principal de l'aperçu utilise un **menu à deux choix directs**, « Examiner les relevés » et « Retour au menu principal ». Il n'y a plus de case à cocher suivie d'un bouton de soumission. La consultation détaillée des compteurs est accessible séparément depuis **Configurer → Détails des compteurs**. Les choix de navigation ne modifient ni les options ni les données historiques.
+
 Dans **Configurer → Aperçu de l’historique**, la vue principale présente la période et les compteurs, avec des indicateurs agrégés par fluide (nombre de compteurs, lacunes et conflits), sans afficher les dates UTC de chaque compteur dans un paragraphe unique. Un sélecteur ouvre une fiche par compteur, avec ses dates converties dans le fuseau local de Home Assistant (Europe/Paris), son statut et ses anomalies. La fiche permet de revenir à l’aperçu, d’ouvrir la revue des relevés ou de retourner au menu. La navigation en lecture seule ne modifie aucune décision ni aucun index.
 
 Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, sans caractères littéraux `\\n`. Les relevés historiques restent accessibles uniquement après une prévisualisation et les imports Recorder nécessitent toujours une action administrateur distincte.

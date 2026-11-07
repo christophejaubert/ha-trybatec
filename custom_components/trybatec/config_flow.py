@@ -138,7 +138,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["settings", "meter_units", "history_overview", "history_review"])
+        return self.async_show_menu(step_id="init", menu_options=["settings", "meter_units", "history_overview", "history_meters", "history_review"])
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None and user_input.get("return_to_menu") is True:
@@ -281,7 +281,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
 
     async def async_step_history_overview(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Compact per-fluid overview; details on demand, never a wall of raw UTC timestamps."""
+        """Two one-click menu actions, without a checkbox and a second submit."""
         if user_input is not None and user_input.get("return_to_menu") is True:
             return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
@@ -299,51 +299,81 @@ class TrybatecOptionsFlow(OptionsFlow):
         history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
         meters = history["__physical_meters__"]
         flagged = history["__review_candidates__"]
-        # The selection contains only opaque, computed IDs; never accept
-        # arbitrary lot numbers or user-supplied meter paths as lookups.
-        meter_choices = {"summary": self._nav_text(
-            "— Sélectionner un compteur —", "— Select a meter —"
-        )}
-        detail_keys = {}
-        fluid_names = {
-            "EF": self._nav_text("Eau froide", "Cold water"),
-            "ECS": self._nav_text("Eau chaude", "Hot water"),
-            "CET": self._nav_text("Chauffage", "Heating"),
-        }
-        for (lot, fluid, serial), meter in sorted(meters.items()):
-            key = meter_key(lot, fluid, serial)
-            detail_keys[key] = (lot, fluid, serial)
-            status = self._nav_text("ancien", "retired") if meter["retired"] else self._nav_text("actif", "active")
-            meter_choices[key] = f"{fluid_names[fluid]} · {serial} · {lot} ({status})"[:160]
-        if user_input is not None:
-            selected = user_input.get("meter_detail", "summary")
-            if selected != "summary":
-                if selected not in detail_keys:
-                    return self.async_abort(reason="history_preview_required")
-                self._selected_history_meter_key = selected
-                return await self.async_step_history_meter_detail()
-            if user_input.get("review"):
-                coordinator._history_review_candidates = flagged
-                return await self.async_step_history_review()
+        if user_input is not None and user_input.get("review") is True:
+            coordinator._history_review_candidates = flagged
+            return await self.async_step_history_review()
         summary = {}
         for fluid in ("EF", "ECS", "CET"):
             values = history[fluid]
             summary[fluid.lower() + "_meters"] = str(values["meters"])
             summary[fluid.lower() + "_gaps"] = str(values["gaps"])
             summary[fluid.lower() + "_conflicts"] = str(values["conflicts"])
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="history_overview",
-            data_schema=vol.Schema({
-                vol.Optional("meter_detail", default="summary"): vol.In(meter_choices),
-                vol.Required("review", default=False): BooleanSelector(),
-                vol.Optional("return_to_menu", default=False): BooleanSelector(),
-            }),
+            menu_options=["history_start_review", "init"],
             description_placeholders={
                 "period": f"{start:%d/%m/%Y} – {end:%d/%m/%Y}",
                 "meters": str(len(meters)),
                 "flagged": str(len(flagged)),
                 "actions_url": self._actions_url(),
                 **summary,
+            },
+        )
+
+    async def async_step_history_start_review(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """A single menu click starts review; no changes are saved by navigation."""
+        return await self.async_step_history_overview({"review": True})
+
+    async def async_step_history_meters(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Independent per-physical-meter details, outside the two-action overview."""
+        if user_input is not None and user_input.get("return_to_menu") is True:
+            return await self._go_to_main_menu()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self.async_abort(reason="history_preview_required")
+        cache = getattr(coordinator, "_history_review_cache", None)
+        if cache is None:
+            return self.async_show_menu(
+                step_id="history_empty", menu_options=["init"],
+                description_placeholders={"actions_url": self._actions_url()},
+            )
+        from .history_store import load_decisions
+        payloads, start, end, allowed_lots = cache
+        decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        meter_choices = {}
+        fluid_names = {
+            "EF": self._nav_text("Eau froide", "Cold water"),
+            "ECS": self._nav_text("Eau chaude", "Hot water"),
+            "CET": self._nav_text("Chauffage", "Heating"),
+        }
+        for (lot, fluid, serial), meter in sorted(history["__physical_meters__"].items()):
+            key = meter_key(lot, fluid, serial)
+            status = self._nav_text("ancien", "retired") if meter["retired"] else self._nav_text("actif", "active")
+            meter_choices[key] = f"{fluid_names[fluid]} · {serial} · {lot} ({status})"[:160]
+        if not meter_choices:
+            return self.async_show_menu(
+                step_id="history_empty", menu_options=["init"],
+                description_placeholders={"actions_url": self._actions_url()},
+            )
+        if user_input is not None:
+            selected = user_input.get("meter_detail")
+            if selected not in meter_choices:
+                return self.async_abort(reason="history_preview_required")
+            self._selected_history_meter_key = selected
+            return await self.async_step_history_meter_detail()
+        return self.async_show_form(
+            step_id="history_meters",
+            data_schema=vol.Schema({
+                vol.Required("meter_detail"): vol.In(meter_choices),
+            }),
+            description_placeholders={
+                "meters": str(len(meter_choices)),
+                "actions_url": self._actions_url(),
             },
         )
 
@@ -356,14 +386,14 @@ class TrybatecOptionsFlow(OptionsFlow):
             if selected_action == "main":
                 return await self._go_to_main_menu()
             if selected_action == "review":
-                return await self.async_step_history_overview({"review": True})
+                return await self.async_step_history_start_review()
             if selected_action == "overview":
                 self._selected_history_meter_key = None
-                return await self.async_step_history_overview()
+                return await self.async_step_history_meters()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         cache = getattr(coordinator, "_history_review_cache", None) if coordinator else None
         if cache is None or self._selected_history_meter_key is None:
-            return await self.async_step_history_overview()
+            return await self.async_step_history_meters()
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
@@ -375,12 +405,12 @@ class TrybatecOptionsFlow(OptionsFlow):
         ]
         if len(matches) != 1:
             self._selected_history_meter_key = None
-            return await self.async_step_history_overview()
+            return await self.async_step_history_meters()
         lot, fluid, serial, meter = matches[0]
         first = meter["first"].astimezone(ZONE).strftime("%d/%m/%Y")
         last = meter["last"].astimezone(ZONE).strftime("%d/%m/%Y")
         choices = {
-            "overview": self._nav_text("← Retour à l’aperçu", "← Back to overview"),
+            "overview": self._nav_text("← Retour aux compteurs", "← Back to meter list"),
             "review": self._nav_text("Examiner les relevés", "Review readings"),
             "main": self._nav_text("← Menu principal", "← Main menu"),
         }

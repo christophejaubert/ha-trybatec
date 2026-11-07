@@ -37,7 +37,8 @@
           "settings": "Réglages",
           "history_review": "Réviser les relevés historiques",
           "meter_units": "Vérifier les unités des compteurs",
-          "history_overview": "Synthèse graphique de l’historique"
+          "history_overview": "Synthèse graphique de l’historique",
+          "history_meters": "Détails des compteurs"
         }
       },
       "history_review": {
@@ -92,11 +93,10 @@
       },
       "history_overview": {
         "title": "Aperçu de l’historique",
-        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nChoisissez un compteur ci-dessous pour voir ses dates et anomalies. Aucun compteur n'est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
-        "data": {
-          "review": "Poursuivre vers les relevés à valider",
-          "return_to_menu": "Revenir au menu principal",
-          "meter_detail": "Détails d'un compteur"
+        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "menu_options": {
+          "history_start_review": "Examiner les relevés",
+          "init": "← Retour au menu principal"
         }
       },
       "history_empty": {
@@ -111,6 +111,16 @@
         "description": "**{meter}** · Lot {lot} · {status}\n\n- **Premier relevé :** {first}\n- **Dernier relevé :** {last}\n- **Périodes lacunaires :** {gaps}\n- **Baisses d’index :** {decreases}\n- **Conflits :** {conflicts}\n- **Unité de l’index API :** {unit}\n\nLes relevés bruts ne sont pas modifiés. Les compteurs successifs restent distincts.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
           "navigation": "Navigation"
+        }
+      },
+      "history_start_review": {
+        "title": "Examiner les relevés"
+      },
+      "history_meters": {
+        "title": "Détails des compteurs",
+        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "data": {
+          "meter_detail": "Compteur physique"
         }
       }
     },
