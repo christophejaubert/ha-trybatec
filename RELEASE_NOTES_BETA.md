@@ -1,12 +1,13 @@
-# 0.1.0b1 — Experimental pre-release (2026-11-07)
+# 0.2.0b1 — Experimental historical-data beta (2026-11-07)
 
-**Experimental / beta. Do not use for billing, financial reporting or safety-critical monitoring. No guaranteed maintenance or support.**
+**Experimental. Backup Home Assistant including the recorder database before using historical import. No guaranteed maintenance or support.**
 
-- Initial Home Assistant integration based on undocumented Trybatec consumer portal endpoints.
-- UI authentication and index retrieval, per-physical-meter sensors and optional annual tariffs.
-- Parsing guards and limited handling of token rejection.
-- 19 local unit tests; **no verified real Home Assistant deployment** yet.
-- No historical backfill. The service may change without notice. Index gaps and resets can lead to misleading statistics; verify the values manually before using them.
-- GitHub releases tagged `0.1.0b1` must be marked as **Pre-release** to opt-in via Home Assistant Marketplace.
+- Adds `trybatec.preview_history` (read-only review of available past indexes and anomalies).
+- Adds `trybatec.import_history`, which requires explicit `confirm: true` to queue **isolated external** Home Assistant long-term statistics; no automatic import or database changes on startup.
+- Supports meter replacements, duplicate observations, missing intervals and index-decrease validation. No interpolation, no fabricated consumption; external history does not overwrite live sensor statistics.
+- Includes cold/hot water by default. Heating historical import is blocked without explicit confirmation that the underlying unit is kWh.
+- Uses separate anonymized series IDs and filters by current configured dwelling lot(s).
+- **Limitations:** API history availability and compatibility remain unverified in live accounts; CSV/XLSX fallback and automatic ongoing historical synchronization are not implemented. Preview and verify first.
+- 31 local tests before publication. Functional live Home Assistant recorder import requires post-installation validation.
 
-Feedback is welcome but no bug fix, security patch, compatibility update or response is promised. Neither Trybatec nor OpenAI maintains or endorses this independent project.
+Independent, unofficial Trybatec project developed with the assistance of ChatGPT (OpenAI). Not affiliated with Trybatec, Home Assistant or OpenAI. Maintenance, support, security fixes and future releases are not guaranteed.

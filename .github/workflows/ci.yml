@@ -37,4 +37,30 @@ jobs:
       - name: Display installed version and import custom component
         run: |
           python -m pip show homeassistant | grep Version
-          python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor"
+          python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor; import custom_components.trybatec.history_services"
+
+  publish-experimental-beta:
+    # Publish only after all tests pass, and only for a direct push to main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [pure-tests, latest-homeassistant-import]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify beta version before publishing
+        run: |
+          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b1"'
+      - name: Create experimental GitHub pre-release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view '0.2.0b1' > /dev/null 2>&1; then
+            echo 'The 0.2.0b1 release already exists; leaving it unchanged.'
+          else
+            gh release create '0.2.0b1' \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title 'Trybatec 0.2.0b1 — Experimental Beta' \
+              --notes-file RELEASE_NOTES_BETA.md
+          fi

@@ -1,0 +1,39 @@
+preview_history:
+  fields:
+    entry_id:
+      example: ""
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      example: "2026-11-07"
+      selector:
+        text: {}
+import_history:
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      selector:
+        text: {}
+    include_heating:
+      selector:
+        boolean: {}
+    confirm_heating_kwh:
+      selector:
+        boolean: {}
+    allow_gaps:
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}

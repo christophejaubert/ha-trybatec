@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import config_validation as cv
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -10,8 +11,16 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import TrybatecClient
 from .const import DOMAIN
 from .coordinator import TrybatecCoordinator
+from .history_services import register_history_actions
 
 PLATFORMS = [Platform.SENSOR]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register opt-in actions without writing any statistics on startup."""
+    register_history_actions(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

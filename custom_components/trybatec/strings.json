@@ -34,5 +34,59 @@
     "error": {
       "invalid_tariffs": "Invalid tariff JSON. See the example."
     }
+  },
+  "services": {
+    "preview_history": {
+      "name": "Preview historical readings",
+      "description": "Reads available Trybatec historical meter indexes and reports gaps; never changes Home Assistant statistics.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry ID",
+          "description": "Optional if exactly one Trybatec account is installed."
+        },
+        "start_date": {
+          "name": "Start date",
+          "description": "YYYY-MM-DD; start of the historical period (default 2021-01-01)."
+        },
+        "end_date": {
+          "name": "End date",
+          "description": "YYYY-MM-DD; defaults to today (Europe/Paris)."
+        }
+      }
+    },
+    "import_history": {
+      "name": "Import historical statistics",
+      "description": "EXPERIMENTAL: queues distinct, external long-term statistics. Make a backup, run the preview first, and explicitly confirm.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry ID",
+          "description": "Optional if exactly one account is installed."
+        },
+        "start_date": {
+          "name": "Start date",
+          "description": "YYYY-MM-DD; do not change between re-imports of the same series."
+        },
+        "end_date": {
+          "name": "End date",
+          "description": "YYYY-MM-DD; defaults to today."
+        },
+        "include_heating": {
+          "name": "Include heating",
+          "description": "Off by default because heating units may not be kWh."
+        },
+        "confirm_heating_kwh": {
+          "name": "Confirm heating is kWh",
+          "description": "Required when including heating. Do not check for allocation units."
+        },
+        "allow_gaps": {
+          "name": "Allow gaps",
+          "description": "Accept observed intervals longer than 3 days without interpolation."
+        },
+        "confirm": {
+          "name": "Confirm import",
+          "description": "Required: confirms backup, preview and consent to queue recorder database changes."
+        }
+      }
+    }
   }
 }

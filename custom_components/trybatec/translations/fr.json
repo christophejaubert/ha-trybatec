@@ -34,5 +34,59 @@
     "error": {
       "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple."
     }
+  },
+  "services": {
+    "preview_history": {
+      "name": "Prévisualiser les relevés historiques",
+      "description": "Interroge les anciens index Trybatec et signale les lacunes sans modifier les statistiques.",
+      "fields": {
+        "entry_id": {
+          "name": "ID du compte",
+          "description": "Facultatif si un seul compte est installé."
+        },
+        "start_date": {
+          "name": "Date de début",
+          "description": "AAAA-MM-JJ ; début de la période (par défaut 2021-01-01)."
+        },
+        "end_date": {
+          "name": "Date de fin",
+          "description": "AAAA-MM-JJ ; aujourd’hui par défaut (heure de Paris)."
+        }
+      }
+    },
+    "import_history": {
+      "name": "Importer les statistiques historiques",
+      "description": "EXPÉRIMENTAL : ajoute des séries statistiques externes distinctes. Sauvegarder HA, prévisualiser et confirmer.",
+      "fields": {
+        "entry_id": {
+          "name": "ID du compte",
+          "description": "Facultatif si un seul compte est installé."
+        },
+        "start_date": {
+          "name": "Date de début",
+          "description": "AAAA-MM-JJ ; garder la même date lors des réimportations."
+        },
+        "end_date": {
+          "name": "Date de fin",
+          "description": "AAAA-MM-JJ ; aujourd’hui par défaut."
+        },
+        "include_heating": {
+          "name": "Inclure le chauffage",
+          "description": "Désactivé par défaut : l’unité du chauffage n’est pas garantie."
+        },
+        "confirm_heating_kwh": {
+          "name": "Confirmer le chauffage en kWh",
+          "description": "Obligatoire pour importer le chauffage ; ne pas cocher pour des unités de répartition."
+        },
+        "allow_gaps": {
+          "name": "Autoriser les lacunes",
+          "description": "Accepter les intervalles de plus de trois jours, sans interpolation."
+        },
+        "confirm": {
+          "name": "Confirmer l’importation",
+          "description": "Obligatoire : confirme la sauvegarde, la prévisualisation et l’autorisation d’écrire dans Recorder."
+        }
+      }
+    }
   }
 }

@@ -1,5 +1,7 @@
 # Trybatec for Home Assistant — UNOFFICIAL / EXPERIMENTAL BETA
 
+**Current beta: 0.2.0b1** (historical data preview/import, explicitly opt-in).
+
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Prototype sans maintenance garantie.
 
 **EN:** Unofficial Home Assistant integration for meters available via the Trybatec portal (cold water, hot water, heating). Prototype; maintenance not guaranteed.
@@ -27,6 +29,61 @@
   is used as an explicit fallback (otherwise the latest provisional rate).
 - Default poll interval: 12 hours; minimum: 1 hour.
 - Supports UI translations for French and English.
+
+## Historical readings and Home Assistant recorder (0.2.0b1)
+
+**IMPORTANT: EXPERIMENTAL / NEVER AUTOMATIC. Back up Home Assistant (including the
+recorder database) before importing.** The integration does not write historical
+statistics during installation, setup, routine polling or upgrades.
+
+After installing 0.2.0b1 and restarting Home Assistant, open **Developer
+Tools → Actions** (Outils de développement → Actions):
+
+1. Run **`trybatec.preview_history`**. Use `start_date: "2021-01-01"` (or the
+   first available date) and optionally `end_date: "YYYY-MM-DD"`. The action
+   fetches history from the portal but does not change the database. Note the
+   total, first/last dates, number of meter serials, gaps and anomalous indexes
+   for `EF` (cold water), `ECS` (hot water) and `CET` (heating).
+2. Confirm that the data belong to your unit and that all three physical units
+   are correct. If the API returns only a short partial history, **do not
+   assume that older years have been imported**. Read the preview coverage.
+3. Only after backup and review, call **`trybatec.import_history`** with the
+   *same* start date and `confirm: true`. The command imports **cold and hot
+   water only** by default. `allow_gaps: true` is additionally required if
+   there are observed gaps over three days. Decreasing/conflicting indexes
+   always block the import. To include heating, set `include_heating: true`
+   and `confirm_heating_kwh: true` **only if you have independently verified
+   that Trybatec's heating unit is kWh, not allocation units**.
+4. The import queues three (or two) **separate external long-term statistic
+   series**, prefixed `trybatec:history_...`, using Home Assistant's supported
+   recorder API. They **do not overwrite the statistics belonging to the live
+   sensor entities**. A new physical meter starts its own baseline, rather
+   than adding its raw index to the previous meter. No readings are fabricated
+   between missing dates: accumulated consumption across a missing interval
+   is assigned to its ending reading.
+5. Consult **Developer Tools → Statistics** to inspect the resulting statistic
+   series; recorder writes are asynchronous, so a 'queued' response does not
+   mean the database has already stored every row. Repeated imports **with
+   the same start date** update identical hourly timestamps, rather than
+   creating duplicates; a *different* start date creates a *different* series.
+
+### Important limitations of historical beta
+
+- The Trybatec `/api/v1/indexes` endpoint is **undocumented**. Historical
+  paging by date is based on the observed API interface, not an official
+  contract. The portal may not return data as far back as requested.
+- Only authenticated portal data are imported in 0.2.0b1. **CSV/XLSX fallback,
+  automated ongoing historical synchronization and merging with the existing
+  live sensor statistic IDs are NOT implemented.** They are future work.
+- Data are requested in overlapping 92-day windows, serial/date duplicates
+  removed, and metering is restricted to the dwelling lot(s) present in the
+  configured account. A lot lacking an identifier is deliberately omitted.
+- The accumulated first reading of each physical meter is an initial baseline,
+  **not usage**. A meter replaced between readings may leave unobservable
+  consumption. Large gaps and a partial year require manual review.
+- Existing history can be updated at matching timestamps if you repeat an
+  import, and source corrections can alter earlier totals. Never use this
+  import as an audited billing record.
 
 ## Limitations / safety
 
