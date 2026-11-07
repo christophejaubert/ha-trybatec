@@ -78,14 +78,14 @@
       },
       "meter_units": {
         "title": "Choisir le compteur",
-        "description": "Unités relevées dans le portail ou déclarées par compteur. Les compteurs remplacés sont inclus lorsqu’un historique a été prévisualisé.",
+        "description": "Trybatec affiche des unités dans ses graphiques (m³ ou kWh), mais cela ne garantit pas l’unité des index transmis par l’API. Sélectionnez un compteur pour comparer la référence graphique et l’unité source explicitement détectée. Une unité inconnue reste à confirmer avant tout import.",
         "data": {
           "meter": "Compteur physique"
         }
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Unité fournie par le portail : {portal_unit}. Vérifiez l’unité de l’INDEX, et non simplement la fiche constructeur. Une unité incompatible bloque les statistiques.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.",
         "data": {
           "unit": "Unité source confirmée"
         }

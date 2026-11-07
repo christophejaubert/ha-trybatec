@@ -127,6 +127,9 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         return {
             "lot": meter["lot"],
             "portal_unit": meter.get("portal_unit"),
+            "portal_display_unit": meter.get("portal_display_unit"),
+            "source_index_unit_origin": meter.get("index_unit_origin"),
+            "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
             "source_unit": meter.get("verified_unit"),
             "unit_verified": meter.get("verified_unit") is not None,
             "location": meter["location"],

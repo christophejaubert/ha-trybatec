@@ -64,6 +64,8 @@ def diagnose_history(
                 "first_observed": meter["first"].isoformat(),
                 "last_observed": meter["last"].isoformat(),
                 "source_unit": meter.get("portal_unit"),
+                "portal_display_unit": meter.get("portal_display_unit"),
+                "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
                 "verified_source_unit": unit,
                 "gaps": meter.get("gaps", 0),
                 "decreases": meter.get("decreases", 0),

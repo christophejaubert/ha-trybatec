@@ -27,6 +27,16 @@
 - The UI is still based on native Home Assistant options flows, **not** a full-page bulk history editor. The Recorder importer is still asynchronous and non-atomic. Source and accounting timestamps remain separate.
 
 
+### b7 — Traitement des unités source et diagnostics
+
+Le portail Trybatec affiche des unités de **consommation graphique** (notamment m³ et kWh). Ces unités ne prouvent pas que l'index brut fourni par l'API `/api/v1/indexes` utilise la même échelle.
+
+- Le lecteur b7 cherche les champs d'unité *explicites* dans les propriétés de chaque compteur, ses métadonnées d'index et chaque relevé imbriqué. Si différents champs sont incompatibles, la source est signalée comme conflictuelle.
+- `trybatec.preview_history` expose pour chaque compteur : `portal_unit` (unité source réellement trouvée, éventuellement nulle), `portal_display_unit` (référence graphique indicative), `source_index_unit_field_paths` (chemins des propriétés portant un nom d'unité, sans leurs valeurs) et `index_unit_status`. Les éventuelles clés d'unité inconnues sont diagnostiquées mais **jamais interprétées arbitrairement**.
+- Les résultats `statistics` n'affichent plus `m³` pour un historique EF/ECS dont l'unité source est inconnue : `unit_status` distingue la confirmation de l'index et l'unité de présentation. Les totaux de relevés bruts sont indiqués comme **deltas d'index non normalisés** lorsqu'une unité source manque.
+- Cette modification ne déduit pas automatiquement l'échelle de l'index CET à partir du modèle SHARKY ou de l'intitulé `kWh` d'un graphique. Sans propriété API explicite ni vérification manuelle de l'échelle, les statistiques d'énergie demeurent indisponibles. Aucun import n'est réalisé automatiquement.
+- **Limite :** les noms exacts des champs de la réponse Trybatec restent non documentés. La présence d'une unité dans l'interface web ne garantit pas qu'elle existe dans les lignes retournées par l'endpoint d'index.
+
 ## b7 development branch — not published
 
 The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.

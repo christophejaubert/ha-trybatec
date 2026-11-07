@@ -14,7 +14,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
-from .units import portal_index_unit, resolve_meter_unit, unit_factor, validate_meter_units
+from .units import (
+    portal_index_unit, portal_display_unit, index_unit_field_paths,
+    resolve_meter_unit, unit_factor, validate_meter_units,
+)
 
 
 def numeric(value: Any) -> float | None:
@@ -118,6 +121,14 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "decrease_dates": anomalies[:10],
             "period_consumption": numeric(line.get("conso")),
             "portal_unit": portal_index_unit(line),
+            "portal_display_unit": portal_display_unit(fluid),
+            "index_unit_field_paths": index_unit_field_paths(line),
+            "index_unit_origin": (
+                "api_explicit" if portal_index_unit(line) not in (None, "conflict", "unverified")
+                else "api_conflict" if portal_index_unit(line) == "conflict"
+                else "api_unrecognized" if portal_index_unit(line) == "unverified"
+                else "not_detected_in_index_payload"
+            ),
         }
     return parsed
 

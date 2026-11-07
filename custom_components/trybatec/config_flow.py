@@ -34,7 +34,7 @@ from .const import (
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
-from .units import meter_key, resolve_meter_unit, validate_meter_units, _ALLOWED
+from .units import meter_key, portal_display_unit, resolve_meter_unit, validate_meter_units, _ALLOWED
 from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
@@ -190,6 +190,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                     meters[key] = {
                         "lot": lot, "fluid": fluid, "serial": serial,
                         "deposed": item["retired"], "portal_unit": source,
+                        "portal_display_unit": item.get("portal_display_unit") or portal_display_unit(fluid),
                         "verified_unit": resolve_meter_unit(lot, fluid, serial, source, overrides),
                     }
         return meters
@@ -210,12 +211,15 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return self.async_abort(reason="history_preview_required")
             self._selected_meter_unit_key = chosen
             return await self.async_step_meter_unit()
-        portal_label = self._nav_text("portail", "portal")
-        verified_label = self._nav_text("unité vérifiée", "verified unit")
+        display_label = self._nav_text("graphique", "chart")
+        source_label = self._nav_text("index API", "API index")
+        verified_label = self._nav_text("confirmée", "confirmed")
+        missing_label = self._nav_text("non détectée", "not detected")
         choices = {
             key: (
                 f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
-                f'{portal_label}: {m.get("portal_unit") or "—"} · '
+                f'{display_label}: {m.get("portal_display_unit") or portal_display_unit(m["fluid"]) or "—"} · '
+                f'{source_label}: {m.get("portal_unit") or missing_label} · '
                 f'{verified_label}: {m.get("verified_unit") or "—"}'
             )[:240] for key, m in mapping.items()
         }
@@ -269,7 +273,8 @@ class TrybatecOptionsFlow(OptionsFlow):
             data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}),
             description_placeholders={
                 "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
-                "portal_unit": str(selected.get("portal_unit") or "not provided"),
+                "portal_unit": str(selected.get("portal_unit") or self._nav_text("non détectée", "not detected")),
+                "display_unit": str(selected.get("portal_display_unit") or portal_display_unit(selected["fluid"]) or "—"),
             },
         )
 

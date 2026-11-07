@@ -234,7 +234,7 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
     """Preview is read-only and exposes meter details only to the administrator."""
     await _require_admin(hass, call)
     try:
-        _, start, end, history, requests = await _load(hass, call)
+        coordinator, start, end, history, requests = await _load(hass, call)
     except ServiceValidationError:
         raise
     except Exception as exc:
@@ -244,7 +244,11 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "api_requests": requests,
-        "statistics": summarize_preview(history),
+        "statistics": summarize_preview(
+            history, meter_units=validate_meter_units(
+                coordinator.entry.options.get(CONF_METER_UNITS, {})
+            ),
+        ),
         "review_candidates": history["__review_candidates__"],
         "replacement_groups": {
             fluid: history[fluid]["points"] for fluid in FLUIDS
@@ -252,7 +256,15 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "meter_units": [
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
-                "portal_unit": meter.get("portal_unit"), "retired": meter["retired"],
+                "portal_unit": meter.get("portal_unit"),
+                "portal_display_unit": meter.get("portal_display_unit"),
+                "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
+                "index_unit_status": (
+                    "api_explicit" if meter.get("portal_unit") not in (None, "unverified", "conflict")
+                    else "unverified_or_conflicting" if meter.get("portal_unit") in ("unverified", "conflict")
+                    else "no_unit_field_found_in_index_payload"
+                ),
+                "retired": meter["retired"],
             }
             for (lot, fluid, serial), meter in history["__physical_meters__"].items()
         ],
@@ -261,7 +273,8 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
             "Sparse or retrospectively recorded index dates are not verified "
             "measurement dates. Only near-daily intervals are importable. "
             "Different physical meters are never automatically joined; "
-            "all meter units must be verified before historical import."
+            "the portal chart display unit does not establish index units. "
+            "All source index units must be confirmed before historical import."
         ),
     }
 

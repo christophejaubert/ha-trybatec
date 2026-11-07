@@ -16,7 +16,10 @@ from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
 from .parsing import numeric, parse_timestamp
-from .units import portal_index_unit
+from .units import (
+    portal_index_unit, portal_display_unit, index_unit_field_paths,
+    resolve_meter_unit, validate_meter_units, normalized_unit,
+)
 from .history_review import apply_review_to_meter, review_candidates
 
 MAX_REQUEST_DAYS = 92
@@ -93,9 +96,12 @@ def combine_payloads(
                 "indexes": {}, "retired": False, "conflicts": 0,
                 "conflict_times": set(), "fatal_conflicts": False,
                 "portal_unit": None,
+                "portal_display_unit": portal_display_unit(fluid),
+                "index_unit_field_paths": set(),
             })
             serial_fluids[(lot, serial)].add(fluid)
             meter["retired"] |= line.get("depose") is True
+            meter["index_unit_field_paths"].update(index_unit_field_paths(line))
             found_unit = portal_index_unit(line)
             if found_unit is not None:
                 existing_unit = meter["portal_unit"]
@@ -216,6 +222,8 @@ def build_history(
         series = {
             "lot": lot, "fluid": fluid, "serial": serial,
             "retired": meter["retired"], "portal_unit": meter["portal_unit"],
+            "portal_display_unit": meter["portal_display_unit"],
+            "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],
             "last": readings[-1][0], "rows": [], "anchor": None,
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
@@ -416,18 +424,47 @@ def physical_statistic_id(account_key: str, lot: str, fluid: str, serial: str) -
     return f"trybatec:history_v3_{fluid.lower()}_{digest}"
 
 
-def summarize_preview(history: dict[str, dict[str, Any]], include_heating: bool = True) -> dict[str, Any]:
+def summarize_preview(
+    history: dict[str, dict[str, Any]], include_heating: bool = True,
+    *, meter_units: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """No raw portal payload or credentials in logs; metadata in local UI only."""
     result: dict[str, Any] = {}
+    overrides = validate_meter_units(meter_units or {})
     for fluid in FLUIDS:
         if fluid == "CET" and not include_heating:
             continue
         info = history[fluid]
+        physical = [
+            meter for (_, source_fluid, _), meter
+            in history.get("__physical_meters__", {}).items()
+            if source_fluid == fluid
+        ]
+        confirmed = sum(
+            resolve_meter_unit(
+                meter["lot"], fluid, meter["serial"], meter.get("portal_unit"), overrides
+            ) is not None for meter in physical
+        )
+        fully_verified = bool(physical) and confirmed == len(physical)
+        summary_unit = (
+            normalized_unit(fluid) if fully_verified
+            else "unverified (heat meter)" if fluid == "CET"
+            else "unverified (source index)"
+        )
         result[fluid] = {
             "meters": info["meters"], "observations": info["observations"],
             "statistic_hours": len(info["rows"]),
             "observed_consumption": info["total"],
-            "unit": "unverified (heat meter)" if fluid == "CET" else "m³",
+            "unit": summary_unit,
+            "unit_status": "verified" if fully_verified else "unverified",
+            "meters_with_confirmed_source_unit": confirmed,
+            "meters_without_confirmed_source_unit": len(physical) - confirmed,
+            "portal_chart_display_unit_reference": portal_display_unit(fluid),
+            "unit_warning": (
+                "Raw index deltas below are not normalized and must not be "
+                "interpreted as calibrated consumption until ALL source units "
+                "are verified."
+            ) if not fully_verified else None,
             "gaps_over_3_days": info["gaps"],
             "gap_details": info["gap_details"],
             "index_decreases": info["decreases"],

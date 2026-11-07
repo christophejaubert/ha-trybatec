@@ -18,13 +18,91 @@ _UNIT_ALIASES = {
     "m³": "m³", "m3": "m³", "cubic meter": "m³", "cubic metre": "m³",
     "l": "L", "liter": "L", "litre": "L", "litres": "L", "liters": "L",
     "kwh": "kWh", "mwh": "MWh", "gj": "GJ",
+    "kw h": "kWh", "mw h": "MWh", "kw·h": "kWh", "mw·h": "MWh",
+    "m^3": "m³", "mètre cube": "m³", "mètres cubes": "m³",
 }
 # Field names are *candidate* JSON properties, NOT proof that Trybatec serves them.
 # Inspect a redacted, authenticated payload before treating any as documented.
 _INDEX_UNIT_FIELDS = (
-    "indexUnit", "index_unit", "uniteIndex", "unite_index",
-    "unitOfMeasurement", "unitOfMeasure", "unit", "unite", "unité",
+    "indexUnit", "index_unit", "indexUnits", "index_units",
+    "uniteIndex", "unite_index", "unitéIndex",
+    "unitOfMeasurement", "unitOfMeasure", "uniteMesure",
+    "meterUnit", "meter_unit", "unit", "unite", "unité",
+    "uom",
 )
+# Inspect only contexts that are explicitly about a physical meter or its
+# cumulative index. Never infer an index unit from consumption-chart metadata.
+_INDEX_METADATA_FIELDS = (
+    "indexMetadata", "index_metadata", "indexInfo", "index_info",
+    "meterMetadata", "meter_metadata", "meterInfo", "meter_info",
+    "compteurInfo", "compteur_info", "counterMetadata", "counter_metadata",
+    "meter", "meterDetails", "compteurDetails", "counter", "index",
+    "indexData", "metadata",
+)
+_CHART_METADATA_FIELDS = (
+    "consumption", "consommation", "chart", "graph", "series",
+)
+
+_INDEX_VALUE_FIELDS = (
+    "indexes", "indices", "readings", "releves",
+)
+# These labels have been observed on the Trybatec *consumption charts*, NOT
+# in a documented API response. A chart unit is NEVER sufficient to type
+# the source cumulative index or to import energy statistics.
+_PORTAL_CHART_UNITS = {"EF": "m³", "ECS": "m³", "CET": "kWh"}
+
+
+def portal_display_unit(fluid: str) -> str | None:
+    """Unit displayed on the known portal consumption charts, not raw index."""
+    return _PORTAL_CHART_UNITS.get(fluid)
+
+
+def index_unit_field_paths(line: dict[str, Any]) -> list[str]:
+    """Unit-related field *names* only, never payload values or tokens.
+
+    Discover unknown property names in chart metadata too, but only the
+    explicit index/physical-meter contexts can certify a raw index unit.
+    """
+    names: set[str] = set()
+
+    def scan_fields(mapping: dict[str, Any], prefix: str) -> None:
+        for field in mapping:
+            if not isinstance(field, str) or len(field) > 80:
+                continue
+            folded = field.casefold()
+            if any(word in folded for word in ("unit", "unite", "unité", "uom")):
+                names.add(f"{prefix}{field}")
+
+    scan_fields(line, "")
+    for field in (*_INDEX_METADATA_FIELDS, *_CHART_METADATA_FIELDS):
+        context = line.get(field)
+        if isinstance(context, dict):
+            scan_fields(context, f"{field}.")
+    for field in _INDEX_VALUE_FIELDS:
+        rows = line.get(field)
+        if isinstance(rows, list):
+            for reading in rows[:1000]:
+                if isinstance(reading, dict):
+                    scan_fields(reading, f"{field}[].")
+    return sorted(names)[:80]
+
+
+def _unit_candidates(line: dict[str, Any]) -> list[Any]:
+    found = [line[field] for field in _INDEX_UNIT_FIELDS
+             if field in line and line[field] not in (None, "")]
+    for field in _INDEX_METADATA_FIELDS:
+        context = line.get(field)
+        if isinstance(context, dict):
+            found.extend(context[key] for key in _INDEX_UNIT_FIELDS
+                         if key in context and context[key] not in (None, ""))
+    for field in _INDEX_VALUE_FIELDS:
+        rows = line.get(field)
+        if isinstance(rows, list):
+            for reading in rows:
+                if isinstance(reading, dict):
+                    found.extend(reading[key] for key in _INDEX_UNIT_FIELDS
+                                 if key in reading and reading[key] not in (None, ""))
+    return found
 
 
 def normalize_unit(raw: Any) -> str | None:
@@ -35,8 +113,7 @@ def normalize_unit(raw: Any) -> str | None:
 
 def portal_index_unit(line: dict[str, Any]) -> str | None:
     """None = field absent; unverified = unsupported; conflict = incompatible fields."""
-    found = [line[field] for field in _INDEX_UNIT_FIELDS
-             if field in line and line[field] is not None and line[field] != ""]
+    found = _unit_candidates(line)
     if not found:
         return None
     parsed = [normalize_unit(value) for value in found]

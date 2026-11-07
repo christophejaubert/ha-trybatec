@@ -75,3 +75,57 @@ def test_pending_journal_blocks_mutations_until_confirmed_or_exact_retry():
     assert stage_pending(waiting, [item], allow_identical_retry=True)["pending"] == waiting["pending"]
     with pytest.raises(ValueError, match="pending verification"):
         stage_pending(waiting, [{"logical_id": "OTHER", "statistic_id": "trybatec:other"}], allow_identical_retry=True)
+
+
+def test_portal_chart_unit_is_not_the_raw_index_unit():
+    from custom_components.trybatec.units import portal_display_unit
+    assert portal_display_unit("EF") == "m³"
+    assert portal_display_unit("ECS") == "m³"
+    assert portal_display_unit("CET") == "kWh"
+    # Display conventions alone must never enable Recorder/energy statistics.
+    for fluid in ("EF", "ECS", "CET"):
+        assert portal_index_unit({"fluide": fluid, "indexes": [
+            {"date": "2026-01-01T00:00:00+01:00", "value": 100},
+        ]}) is None
+        assert resolve_meter_unit("L", fluid, "S", None, {}) is None
+
+
+def test_explicit_nested_meter_index_units_are_detected_and_normalized():
+    from custom_components.trybatec.units import index_unit_field_paths
+    row = {"compteur": "FAKE", "fluide": "CET",
+           "meterMetadata": {"unitOfMeasurement": "MWh"},
+           "indexes": [{"date": "2026-01-01T00:00:00+01:00", "value": 1.0}]}
+    assert portal_index_unit(row) == "MWh"
+    assert index_unit_field_paths(row) == ["meterMetadata.unitOfMeasurement"]
+    assert portal_index_unit({"indexMetadata": {"uniteIndex": "kWh"}}) == "kWh"
+    assert portal_index_unit({"indexes": [{"value": 1.0, "unit": "kWh"}]}) == "kWh"
+    assert portal_index_unit({"indexes": [
+        {"value": 1.0, "unit": "MWh"}, {"value": 2.0, "unit": "kWh"},
+    ]}) == "conflict"
+
+
+def test_conflicting_nested_and_top_level_source_units_disable_import():
+    assert portal_index_unit({
+        "unit": "m3", "meterMetadata": {"unitOfMeasurement": "L"},
+        "fluide": "EF",
+    }) == "conflict"
+    key = meter_key("L", "EF", "S")
+    assert resolve_meter_unit("L", "EF", "S", "conflict", {key: "m³"}) is None
+
+
+def test_diagnostics_expose_only_unit_property_paths_not_raw_values():
+    from custom_components.trybatec.units import index_unit_field_paths
+    row = {
+        "compteur": "SECRET-SERIAL", "fluide": "EF", "unit": "m3",
+        "indexMetadata": {"unit": "m³", "secret": "NEVER-LEAK"},
+        "indexes": [{"date": "2026-01-01T00:00:00+01:00",
+                     "value": 100, "unitOfMeasure": "m3"}],
+    }
+    paths = index_unit_field_paths(row)
+    assert paths == ["indexMetadata.unit", "indexes[].unitOfMeasure", "unit"]
+    assert "SECRET-SERIAL" not in str(paths) and "NEVER-LEAK" not in str(paths)
+
+
+def test_nested_unit_values_reject_non_strings():
+    assert portal_index_unit({"meterInfo": {"unit": 100}}) == "unverified"
+    assert portal_index_unit({"indexes": [{"unit": "kWh"}, {"unit": "bad"}]}) == "unverified"

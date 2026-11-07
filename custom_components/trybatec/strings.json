@@ -78,14 +78,14 @@
       },
       "meter_units": {
         "title": "Select meter",
-        "description": "Portal-reported and individually confirmed units. Retired meters appear after a history preview.",
+        "description": "Trybatec displays units on its charts (m³ or kWh), but they do not establish the raw API index scale. Select a meter to compare the illustrative chart unit and any explicitly detected source index unit. Unknown units require confirmation before import.",
         "data": {
           "meter": "Physical meter"
         }
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Unit reported by portal: {portal_unit}. Verify the INDEX unit, not just manufacturer specifications. Conflicts disable statistics.",
+        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.",
         "data": {
           "unit": "Confirmed source unit"
         }
