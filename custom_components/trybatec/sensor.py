@@ -96,7 +96,7 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         meter = coordinator.data["meters"][serial]
         physical_serial = meter["serial"]
         self._source_unit = meter.get("verified_unit")
-        suffix = ("_" + sha256(f"{meter['lot']}\\0{meter['fluid']}\\0{physical_serial}".encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
+        suffix = ("_" + sha256(json.dumps([meter["lot"], meter["fluid"], physical_serial], separators=(",", ":")).encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
         fluid = meter["fluid"]
         # A new ID prevents old assumed-unit statistics from being silently reused.
         tag = self._source_unit or "unverified"
