@@ -1,8 +1,10 @@
 # Trybatec for Home Assistant — UNOFFICIAL / EXPERIMENTAL BETA
 
-![Unofficial Trybatec Home Assistant integration icon](custom_components/trybatec/brand/icon@2x.png)
+<p align="center">
+  <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
+</p>
 
-**Current beta: 0.2.0b2** (dated historical diagnostics, per-fluid opt-in import and user-selected icon).
+**Current beta: 0.2.0b3** (isolated per-lot/per-meter history, sparse observations kept separate from daily import, administrator-only services).
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Prototype sans maintenance garantie.
 
@@ -31,61 +33,103 @@
   is used as an explicit fallback (otherwise the latest provisional rate).
 - Default poll interval: 12 hours; minimum: 1 hour.
 - Supports UI translations for French and English.
+- Water-only installations are supported. Current-year fluid metric sensors are created only for fluids whose active meters are actually present.
+- v3 historical data handle one meter, many sequential physical meters, parallel meters, and sparse/backdated-looking observations without assuming anything about a particular building or customer.
 
-## Historical readings and Home Assistant recorder (0.2.0b1+, diagnostics improved in 0.2.0b2)
+## Historical readings and Home Assistant recorder (`0.2.0b3`)
 
-**IMPORTANT: EXPERIMENTAL / NEVER AUTOMATIC. Back up Home Assistant (including the
-recorder database) before importing.** The integration does not write historical
-statistics during installation, setup, routine polling or upgrades.
+**IMPORTANT: EXPERIMENTAL / NEVER AUTOMATIC. Back up Home Assistant (including
+recorder and `.storage`) before any import.** Installing or updating this
+integration does not write historical statistics, reconfigure the Energy
+dashboard, or modify previous external statistic series. Administrator access is
+required to use both historical actions.
 
-After installing 0.2.0b1 and restarting Home Assistant, open **Developer
-Tools → Actions** (Outils de développement → Actions):
+In **Developer Tools → Actions** (*Outils de développement → Actions*):
 
-1. Run **`trybatec.preview_history`**. Use `start_date: "2021-01-01"` (or the
-   first available date) and optionally `end_date: "YYYY-MM-DD"`. The action
-   fetches history from the portal but does not change the database. Note the
-   total, first/last dates, number of meter serials, gaps and anomalous indexes
-   for `EF` (cold water), `ECS` (hot water) and `CET` (heating). As of **0.2.0b2**, the response lists the exact dates, meter serials and indexes involved in each decline or gap, plus year-by-year consumption estimates. These annual figures attribute long intervals to the last observation; they are not audited yearly totals.
-2. Confirm that the data belong to your unit and that all three physical units
-   are correct. If the API returns only a short partial history, **do not
-   assume that older years have been imported**. Read the preview coverage.
-3. Only after backup and review, call **`trybatec.import_history`** with the
-   *same* start date and `confirm: true`. The command imports **cold and hot
-   water only** by default. `allow_gaps: true` is additionally required if
-   there are observed gaps over three days. Decreasing/conflicting indexes
-   always block the import. To include heating, set `include_heating: true`
-   and `confirm_heating_kwh: true` **only if you have independently verified
-   that Trybatec's heating unit is kWh, not allocation units**.
-4. The import queues three (or two) **separate external long-term statistic
-   series**, prefixed `trybatec:history_...`, using Home Assistant's supported
-   recorder API. They **do not overwrite the statistics belonging to the live
-   sensor entities**. A new physical meter starts its own baseline, rather
-   than adding its raw index to the previous meter. No readings are fabricated
-   between missing dates: accumulated consumption across a missing interval
-   is assigned to its ending reading.
-5. Consult **Developer Tools → Statistics** to inspect the resulting statistic
-   series; recorder writes are asynchronous, so a 'queued' response does not
-   mean the database has already stored every row. Repeated imports **with
-   the same start date** update identical hourly timestamps, rather than
-   creating duplicates; a *different* start date creates a *different* series.
+1. Run **`trybatec.preview_history`** with `start_date` (for example
+   `2021-01-01`) and optional `end_date`. It reads portal indexes without
+   changing the database. Inspect `statistics`: `EF` (cold water), `ECS` (hot
+   water), `CET` (heating). Any absent fluid reports zero meters rather than
+   blocking the present fluids. The preview contains dates, gaps, decreases,
+   conflicts, dwelling points, possible replacement transitions, and overlaps.
+2. Read **`observed_consumption`**, **`unallocated_consumption`**, and
+   **`importable_daily_consumption`** separately. Historical annual/periodic
+   index snapshots are retained in the preview, but NOT interpolated into
+   invented daily energy/water use. `yearly_consumption_by_end_reading` is a
+   legacy estimate and may misallocate multi-year gaps; use
+   `yearly_consumption_within_same_year` and
+   `yearly_daily_cadence_only` to understand the coverage.
+3. In 0.2.0b3, `trybatec.import_history` creates one distinct external
+   **statistic series per physical meter**, pseudonymous and scoped to the
+   account + lot + fluid + serial. It **does not** automatically join multiple
+   physical meter serials into one logical consumption point; dates alone do
+   not prove that two meters replaced one another. Multiple non-overlapping
+   serials are only shown as **unconfirmed** possible replacements.
+4. Only after backup and review, run `trybatec.import_history` with
+   `confirm: true`. Cold and hot water are selected by default, but either can
+   be disabled independently (`include_cold_water`, `include_hot_water`).
+   Absent types are skipped. If an individual meter contains corrections,
+   conflicts or index decreases, the whole selection is **refused** unless
+   `skip_anomalous_meters: true` is explicitly set (this skips affected meters
+   **entirely**, without importing them). If there are unknown/sparse periods,
+   set `allow_gaps: true` only when you accept a **partial daily-only import**:
+   **the historical differences from those periods are excluded, not
+   assigned to their ending reading**. A source is imported only if it has
+   near-daily, non-decreasing intervals.
+5. Heating is excluded by default. Enable it only after independently
+   confirming its units are actual kWh: set **both** `include_heating: true`
+   and `confirm_heating_kwh: true`. Some sites use allocation units, for which
+   kWh import would be incorrect.
+6. Verify the returned `series`, `skipped`, `rows_queued`, and
+   `unallocated_sparse_consumption`. Queuing the data is not proof that
+   recorder has persisted it; check **Developer Tools → Statistics** after
+   recorder processes the request.
 
-### Important limitations of historical beta
+### Physical meters, privacy and stable statistics
 
-- The Trybatec `/api/v1/indexes` endpoint is **undocumented**. Historical
-  paging by date is based on the observed API interface, not an official
-  contract. The portal may not return data as far back as requested.
-- Only authenticated portal data are imported in 0.2.0b2. **CSV/XLSX fallback,
-  automated ongoing historical synchronization and merging with the existing
-  live sensor statistic IDs are NOT implemented.** They are future work.
-- Data are requested in overlapping 92-day windows, serial/date duplicates
-  removed, and metering is restricted to the dwelling lot(s) present in the
-  configured account. A lot lacking an identifier is deliberately omitted.
-- The accumulated first reading of each physical meter is an initial baseline,
-  **not usage**. A meter replaced between readings may leave unobservable
-  consumption. Large gaps and a partial year require manual review.
-- Existing history can be updated at matching timestamps if you repeat an
-  import, and source corrections can alter earlier totals. Never use this
-  import as an audited billing record.
+- The integration first filters data by the **lot identifiers** provided by
+  the authenticated Trybatec account, then keeps each `(lot, fluid, serial)`
+  distinct. A repeated serial across two lots cannot merge their histories.
+  Invalid or missing lot identifiers are not guessed.
+- External IDs begin `trybatec:history_v3_` and contain **only hash-derived
+  identifiers**, not raw apartment names, serial numbers, credentials or
+  portal UUIDs. Dates are **not part of these IDs**.
+- The first observed near-daily interval establishes a baseline for its
+  physical series. For repeat imports, a per-account origin ledger is kept
+  under Home Assistant's `.storage` and verified before any recorder call.
+  Imports that change the original baseline or truncate a previously imported
+  date range are rejected. Back up this ledger with recorder.
+- **Existing b1/b2 `trybatec:history_...` series remain untouched.** The new
+  `history_v3` series are separate. Do **not** select both old and new series
+  in the Energy dashboard, as this may duplicate their consumption. No
+  automatic historical migration is performed.
+- Sparse, manually entered, transferred or retrospectively dated readings
+  cannot be reliably distinguished without trustworthy portal provenance
+  metadata. The integration therefore marks uncertainty **without claiming
+  to know whether a reading was manually entered**. A portal timestamp may
+  differ from the actual physical reading date.
+- Multiple serials for one fluid could indicate **replacement or parallel
+  metering**. Neither is inferred as a fact based solely on order of dates.
+
+### Known limits for the experimental v3 importer
+
+- Still no all-in-one graphical history wizard, no CSV/XLSX import,
+  no automatic conversion of historical sparse intervals into accurate daily
+  readings, and no merging of legacy/current live sensor statistics.
+- Historical long-gap differences are visible in preview but **not imported**
+  into the daily-cadence statistics, even with `allow_gaps: true`.
+- Input is restricted to at most 10 years per action and bounded API requests;
+  access to the vendor's undocumented portal may fail or change.
+- The legacy **live sensor** representation still uses serial-based identity;
+  v3 multi-lot isolation is for historical statistics. A rare duplicate
+  serial reused across dwellings in live sensors is not yet fully addressed.
+- `trybatec.preview_history` and `trybatec.import_history` are restricted
+  to an authenticated Home Assistant administrator; HA automations without a
+  user context are deliberately refused.
+- No broad live-account testing has been performed on unrelated customer
+  environments. Synthetic fixtures cover missing fluids, one-meter histories,
+  three successive meters, concurrent meters, multiple lots, historical sparse
+  observations, API conflicts and security edge cases.
 
 ## Logo / identity
 
@@ -95,10 +139,10 @@ Preview action results may contain physical meter serials and index values. Reda
 
 ## Limitations / safety
 
-- **Not production-validated:** no live account, Home Assistant runtime or
+- **Not production-validated:** only a limited live-account preview was inspected; no broad Home Assistant runtime or
   service contract was available for automated end-to-end tests. The format is
   based on a redacted, verified capture of the portal API response.
-- **Historical 2021–2025 live-sensor backfill is not implemented:** the historical import creates distinct external recorder statistics. Historic rates
+- **Historical 2021–2025 live-sensor backfill is not implemented:** the historical import creates distinct per-meter external recorder statistics. Historic rates
   can be stored, but current cost sensors use the **current civil year** only.
 - Year-to-date consumption is **not an audited accounting statement**. Missing
   telemetry, corrections and replaced meters can affect the portal-reported

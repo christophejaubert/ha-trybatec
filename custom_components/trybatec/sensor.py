@@ -42,33 +42,31 @@ async def async_setup_entry(
     coordinator: TrybatecCoordinator = hass.data[DOMAIN][entry.entry_id]
     account_key = entry.unique_id or entry.entry_id
     known_serials: set[str] = set()
+    known_fluids: set[str] = set()
 
-    def add_new_meters() -> None:
+    def add_new_meters_and_metrics() -> None:
+        """Publish only fluids actually observed; supports water-only accounts."""
         new: list[SensorEntity] = []
+        active_fluids: set[str] = set()
         for serial, meter in coordinator.data["meters"].items():
-            if meter["deposed"] or serial in known_serials:
+            if meter["deposed"]:
                 continue
-            known_serials.add(serial)
-            new.append(TrybatecMeterSensor(coordinator, account_key, serial))
+            active_fluids.add(meter["fluid"])
+            if serial not in known_serials:
+                known_serials.add(serial)
+                new.append(TrybatecMeterSensor(coordinator, account_key, serial))
+        for fluid in FLUIDS:
+            if fluid in active_fluids and fluid not in known_fluids:
+                known_fluids.add(fluid)
+                new.extend(
+                    TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric)
+                    for metric in ("volume", "cost", "price")
+                )
         if new:
             async_add_entities(new)
 
-    add_new_meters()
-    async_add_entities(
-        [
-            TrybatecAnnualSensor(coordinator, entry, account_key, fluid, "volume")
-            for fluid in FLUIDS
-        ]
-        + [
-            TrybatecAnnualSensor(coordinator, entry, account_key, fluid, "cost")
-            for fluid in FLUIDS
-        ]
-        + [
-            TrybatecAnnualSensor(coordinator, entry, account_key, fluid, "price")
-            for fluid in FLUIDS
-        ]
-    )
-    entry.async_on_unload(coordinator.async_add_listener(add_new_meters))
+    add_new_meters_and_metrics()
+    entry.async_on_unload(coordinator.async_add_listener(add_new_meters_and_metrics))
 
 
 class TrybatecBaseSensor(CoordinatorEntity[TrybatecCoordinator], SensorEntity):

@@ -1,13 +1,16 @@
-"""Conservative history reconstruction for the unofficial Trybatec integration.
+"""Conservative, multi-property Trybatec history (experimental v3).
 
-Index samples are never interpolated. An observed interval's delta belongs to
-its final reading date; crossing a year boundary is explicitly reported.
+Untrusted portal records are partitioned by (lot, fluid, physical serial).
+A sparse/backfilled observation is not evidence of daily consumption or of the
+actual date the reading was taken. Only near-daily, non-decreasing intervals
+produce importable increments. Never join serials into one logical meter.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
+from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -17,10 +20,17 @@ from .parsing import numeric, parse_timestamp
 MAX_REQUEST_DAYS = 92
 MAX_HISTORY_DAYS = 3660
 MAX_DETAILS = 100
+MAX_METERS = 3000
+MAX_OBSERVATIONS = 500000
+MAX_LINES = 50000
+# Daily polling can span 23 or 25 hours at DST transitions; 27h tolerates both.
+MAX_DAILY_INTERVAL_HOURS = 27
+LONG_GAP_DAYS = 3
+LOCAL_ZONE = ZoneInfo(TIMEZONE)
 
 
 def history_windows(start: date, end: date) -> list[tuple[date, date]]:
-    """Query overlapping windows to tolerate inclusive/exclusive API bounds."""
+    """Overlapping windows tolerate inclusive/exclusive API bounds."""
     if end < start or (end - start).days > MAX_HISTORY_DAYS:
         raise ValueError("Historical date range is invalid or exceeds 10 years")
     result: list[tuple[date, date]] = []
@@ -32,165 +42,333 @@ def history_windows(start: date, end: date) -> list[tuple[date, date]]:
     return result
 
 
-def combine_payloads(
-    payloads: list[dict[str, Any]], allowed_lots: set[str] | None = None
-) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    """Merge observations by physical serial and UTC timestamp.
+def _label(s: str) -> str:
+    """Prevent unbounded cardinality and control chars in third-party labels."""
+    if len(s) > 128 or any(ord(c) < 32 for c in s):
+        raise ValueError("Invalid meter or lot identifier in Trybatec payload")
+    return s.strip()
 
-    Restrict to the user's known lot identifiers and flag conflicting samples
-    rather than guessing which index is correct.
+
+def combine_payloads(
+    payloads: list[dict[str, Any]], allowed_lots: set[str] | None = None,
+    start: date | None = None, end: date | None = None,
+) -> tuple[dict[tuple[str, str, str], dict[str, Any]], list[dict[str, Any]]]:
+    """Deduplicate physical readings without crossing apartments or fluids.
+
+    Reject ambiguous same-time values rather than choosing the last response.
+    A serial can reappear in different lots, but within one lot it must not
+    refer to several fluids. Only explicitly allowed lots are considered.
     """
-    meters: dict[str, dict[str, Any]] = {}
+    meters: dict[tuple[str, str, str], dict[str, Any]] = {}
     conflicts: list[dict[str, Any]] = []
+    count = 0
+    line_count = 0
+    serial_fluids: dict[tuple[str, str], set[str]] = defaultdict(set)
     for payload in payloads:
         if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list):
             raise ValueError("Invalid Trybatec history payload")
         for line in payload["lines"]:
+            line_count += 1
+            if line_count > MAX_LINES:
+                raise ValueError("Trybatec history exceeds safe line count")
             if not isinstance(line, dict):
                 continue
             serial, fluid = line.get("compteur"), line.get("fluide")
             if not isinstance(serial, str) or not serial.strip() or fluid not in FLUIDS:
                 continue
-            if allowed_lots is not None and str(line.get("lot") or "").strip() not in allowed_lots:
+            raw_lot = line.get("lot")
+            lot = _label(str(raw_lot).strip()) if raw_lot is not None else ""
+            if allowed_lots is not None and lot not in allowed_lots:
                 continue
-            serial = serial.strip()
-            item = meters.setdefault(serial, {"fluid": fluid, "indexes": {}, "retired": False})
-            if item["fluid"] != fluid:
-                conflicts.append({
-                    "fluid": fluid, "meter_serial": serial, "reason": "fluid_changed",
-                    "previous_fluid": item["fluid"],
-                })
-                # A single serial associated with multiple fluids is unsafe for both.
-                conflicts.append({
-                    "fluid": item["fluid"], "meter_serial": serial, "reason": "fluid_changed",
-                    "previous_fluid": fluid,
-                })
+            if not lot:  # Never import orphan data into an arbitrary dwelling.
                 continue
-            item["retired"] = item["retired"] or line.get("depose") is True
-            for point in line.get("indexes") if isinstance(line.get("indexes"), list) else []:
+            serial = _label(serial)
+            key = (lot, fluid, serial)
+            if key not in meters and len(meters) >= MAX_METERS:
+                raise ValueError("Trybatec history exceeds safe meter count")
+            meter = meters.setdefault(key, {
+                "lot": lot, "fluid": fluid, "serial": serial,
+                "indexes": {}, "retired": False, "conflicts": 0,
+            })
+            serial_fluids[(lot, serial)].add(fluid)
+            meter["retired"] |= line.get("depose") is True
+            points = line.get("indexes")
+            if not isinstance(points, list):
+                continue
+            for point in points:
+                count += 1
+                if count > MAX_OBSERVATIONS:
+                    raise ValueError("Trybatec history exceeds safe reading count")
                 if not isinstance(point, dict):
                     continue
                 at = parse_timestamp(point.get("date"))
                 val = numeric(point.get("value"))
                 if at is None or val is None:
                     continue
+                local_day = at.astimezone(LOCAL_ZONE).date()
+                if (start is not None and local_day < start) or (end is not None and local_day > end):
+                    continue  # Do not trust the API to honor date bounds.
                 at = at.astimezone(timezone.utc)
-                old = item["indexes"].get(at)
-                if old is not None and old != val:
-                    conflicts.append({
-                        "fluid": fluid, "meter_serial": serial, "reason": "conflicting_indexes",
-                        "date": at.astimezone(ZoneInfo(TIMEZONE)).isoformat(),
-                        "previous_index": old, "current_index": val,
-                    })
+                prev = meter["indexes"].get(at)
+                if prev is not None and prev != val:
+                    meter["conflicts"] += 1
+                    if len(conflicts) < MAX_DETAILS:
+                        conflicts.append({
+                            "fluid": fluid, "lot": lot, "meter_serial": serial,
+                            "reason": "conflicting_indexes",
+                            "date": at.astimezone(LOCAL_ZONE).isoformat(),
+                            "previous_index": prev, "current_index": val,
+                        })
                 else:
-                    item["indexes"][at] = val
+                    meter["indexes"][at] = val
+    # Reusing one serial across different fluids within the SAME lot is unsafe.
+    for (lot, serial), fluids in serial_fluids.items():
+        if len(fluids) > 1:
+            for fluid in fluids:
+                meters[(lot, fluid, serial)]["conflicts"] += 1
+                if len(conflicts) < MAX_DETAILS:
+                    conflicts.append({
+                        "fluid": fluid, "lot": lot, "meter_serial": serial,
+                        "reason": "fluid_changed_in_same_lot",
+                    })
     return meters, conflicts
+
+
+def _bucket(at: datetime) -> datetime:
+    """The last completed hourly bucket before the reported reading."""
+    return (at - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+
+
+def _new_summary() -> dict[str, Any]:
+    return {
+        "rows": [], "meters": 0, "observations": 0,
+        "gaps": 0, "decreases": 0, "conflicts": 0, "total": 0.0,
+        "first": None, "last": None,
+        "start_coverage_gap_days": None, "end_coverage_gap_days": None,
+        "gap_details": [], "decrease_details": [], "conflict_details": [],
+        "annual_consumption": {}, "annual_within_year": {},
+        "annual_daily_cadence": {}, "cross_year_intervals": 0,
+        "unallocated_consumption": 0.0, "importable_consumption": 0.0,
+        "importable_rows": 0, "uncertain_periods": 0,
+        "points": [],
+    }
+
+
+def _detail_list_append(lst: list[dict[str, Any]], val: dict[str, Any]) -> None:
+    if len(lst) < MAX_DETAILS:
+        lst.append(val)
 
 
 def build_history(
     payloads: list[dict[str, Any]], start: date, end: date,
     allowed_lots: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Construct one isolated cumulative series per fluid with diagnostics."""
-    meters, conflicts = combine_payloads(payloads, allowed_lots=allowed_lots)
-    output = {
-        fluid: {
-            "rows": [], "meters": 0, "observations": 0, "gaps": 0,
-            "decreases": 0, "conflicts": 0, "total": 0.0,
-            "first": None, "last": None,
-            "unit": "kWh" if fluid == "CET" else "m³",
-            "start_coverage_gap_days": None, "end_coverage_gap_days": None,
-            "gap_details": [], "decrease_details": [], "conflict_details": [],
-            "annual_consumption": {}, "cross_year_intervals": 0,
-        }
-        for fluid in FLUIDS
-    }
-    for conflict in conflicts:
-        info = output[conflict["fluid"]]
-        info["conflicts"] += 1
-        if len(info["conflict_details"]) < MAX_DETAILS:
-            info["conflict_details"].append(conflict)
+    """Produce legacy per-fluid previews plus isolated per-meter import plans.
 
-    increments: dict[str, dict[datetime, float]] = {
-        fluid: defaultdict(float) for fluid in FLUIDS
-    }
-    local_zone = ZoneInfo(TIMEZONE)
-
-    for serial, meter in meters.items():
-        fluid = meter["fluid"]
+    Per-meter import only includes daily-cadence deltas. All other observed
+    deltas are reported as unallocated and are never assigned to a fictitious
+    day, even with allow_gaps=True. One physical serial = one series.
+    """
+    meters, conflicts = combine_payloads(payloads, allowed_lots, start, end)
+    output: dict[str, Any] = {fluid: _new_summary() for fluid in FLUIDS}
+    per_point: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for key, meter in sorted(meters.items()):
+        lot, fluid, serial = key
         readings = sorted(meter["indexes"].items())
         if not readings:
             continue
-        info = output[fluid]
-        info["meters"] += 1
-        info["observations"] += len(readings)
-        for idx, (at, value) in enumerate(readings):
-            # Readings occur around local midnight; consumption is recorded in
-            # the final completed hour before the reading.
-            bucket = (at - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-            if idx == 0:
-                increments[fluid][bucket] += 0.0  # new physical meter baseline
-                continue
-            previous_at, previous_value = readings[idx - 1]
-            duration_days = round((at - previous_at).total_seconds() / 86400, 3)
+        parent = output[fluid]
+        parent["meters"] += 1
+        parent["observations"] += len(readings)
+        parent["conflicts"] += meter["conflicts"]
+        series = {
+            "lot": lot, "fluid": fluid, "serial": serial,
+            "retired": meter["retired"], "first": readings[0][0],
+            "last": readings[-1][0], "rows": [], "anchor": None,
+            "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
+            "total": 0.0, "importable": 0.0, "unallocated": 0.0,
+            "annual_within_year": defaultdict(float),
+            "annual_daily": defaultdict(float),
+            "annual_by_end": defaultdict(float),
+        }
+        # This is *not* a replacement chain; the group identifies only the
+        # same dwelling and fluid and is not used to combine two series.
+        per_point[(lot, fluid)].append(series)
+        peak = readings[0][1]
+        last_valid_time, last_valid_index = readings[0]
+        previous_observed_index = readings[0][1]
+        for at, value in readings[1:]:
+            prev_at, prev_value = last_valid_time, last_valid_index
+            span_hours = (at - prev_at).total_seconds() / 3600
+            duration_days = round(span_hours / 24, 3)
             detail = {
-                "meter_serial": serial,
-                "from": previous_at.astimezone(local_zone).isoformat(),
-                "to": at.astimezone(local_zone).isoformat(),
-                "previous_index": previous_value,
-                "current_index": value,
+                "lot": lot, "meter_serial": serial,
+                "from": prev_at.astimezone(LOCAL_ZONE).isoformat(),
+                "to": at.astimezone(LOCAL_ZONE).isoformat(),
+                "previous_index": prev_value, "current_index": value,
             }
-            if value < previous_value:
-                info["decreases"] += 1
-                if len(info["decrease_details"]) < MAX_DETAILS:
-                    info["decrease_details"].append({**detail, "difference": round(value - previous_value, 6)})
-                # No synthetic reset: import of this fluid must be refused.
+            if value < peak:
+                # A below-peak observation does not necessarily represent a
+                # *new* decrease: count only actual downward source steps.
+                if value < previous_observed_index:
+                    series["decreases"] += 1
+                    parent["decreases"] += 1
+                    _detail_list_append(parent["decrease_details"], {
+                        **detail, "difference": round(value - previous_observed_index, 6),
+                    })
+                previous_observed_index = value
+                # Keep high-water mark and its timestamp until recovery.
                 continue
-            if duration_days > 3:
-                info["gaps"] += 1
-                if len(info["gap_details"]) < MAX_DETAILS:
-                    info["gap_details"].append({**detail, "duration_days": duration_days})
-            if previous_at.astimezone(local_zone).year != at.astimezone(local_zone).year:
-                info["cross_year_intervals"] += 1
-            increments[fluid][bucket] += value - previous_value
+            delta = value - peak
+            if duration_days > LONG_GAP_DAYS:
+                series["gaps"] += 1
+                parent["gaps"] += 1
+                _detail_list_append(parent["gap_details"], {
+                    **detail, "duration_days": duration_days,
+                })
+            if prev_at.astimezone(LOCAL_ZONE).year != at.astimezone(LOCAL_ZONE).year:
+                parent["cross_year_intervals"] += 1
+            year = str(_bucket(at).astimezone(LOCAL_ZONE).year)
+            series["total"] += delta
+            series["annual_by_end"][year] += delta
+            if prev_at.astimezone(LOCAL_ZONE).year == at.astimezone(LOCAL_ZONE).year:
+                series["annual_within_year"][str(at.astimezone(LOCAL_ZONE).year)] += delta
+            if 1 <= span_hours <= MAX_DAILY_INTERVAL_HOURS:
+                if series["anchor"] is None:
+                    series["anchor"] = {
+                        "reading_at": prev_at.isoformat(),
+                        "index": prev_value,
+                    }
+                    series["rows"].append({
+                        "start": _bucket(prev_at), "state": 0.0, "sum": 0.0,
+                    })
+                series["importable"] += delta
+                series["annual_daily"][year] += delta
+                series["rows"].append({
+                    "start": _bucket(at),
+                    "state": round(series["importable"], 6),
+                    "sum": round(series["importable"], 6),
+                })
+            else:
+                series["unallocated"] += delta
+                parent["uncertain_periods"] += 1
+            peak = value
+            previous_observed_index = value
+            last_valid_time, last_valid_index = at, value
+        parent["total"] += series["total"]
+        parent["importable_consumption"] += series["importable"]
+        parent["unallocated_consumption"] += series["unallocated"]
+        parent["importable_rows"] += len(series["rows"])
+        for k, v in series["annual_by_end"].items():
+            parent.setdefault("_annual_end", defaultdict(float))[k] += v
+        for k, v in series["annual_within_year"].items():
+            parent.setdefault("_annual_within", defaultdict(float))[k] += v
+        for k, v in series["annual_daily"].items():
+            parent.setdefault("_annual_daily", defaultdict(float))[k] += v
 
-    for fluid, info in output.items():
-        cumulative = 0.0
-        annual: dict[str, float] = defaultdict(float)
-        for at, value in sorted(increments[fluid].items()):
-            cumulative += value
-            year = str(at.astimezone(local_zone).year)
-            annual[year] += value
-            info["rows"].append({
-                "start": at, "state": round(cumulative, 6), "sum": round(cumulative, 6)
-            })
-        info["total"] = round(cumulative, 6)
-        info["annual_consumption"] = {year: round(val, 6) for year, val in sorted(annual.items())}
-        if info["rows"]:
-            first = info["rows"][0]["start"].astimezone(local_zone)
-            last = info["rows"][-1]["start"].astimezone(local_zone)
-            info["first"] = first.isoformat()
-            info["last"] = last.isoformat()
+    for c in conflicts:
+        _detail_list_append(output[c["fluid"]]["conflict_details"], c)
+
+    point_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for (lot, fluid), entries in sorted(per_point.items()):
+        chron = sorted(entries, key=lambda e: (e["first"], e["serial"]))
+        overlapping = []
+        potential_changes = []
+        for old, new in zip(chron, chron[1:]):
+            record = {
+                "from_serial": old["serial"], "to_serial": new["serial"],
+                "old_last": old["last"].astimezone(LOCAL_ZONE).isoformat(),
+                "new_first": new["first"].astimezone(LOCAL_ZONE).isoformat(),
+            }
+            # Overlapping index observation ranges are ambiguous: even
+            # non-overlapping ones are only *possible*, not proven successors.
+            if new["first"] <= old["last"]:
+                overlapping.append(record)
+            else:
+                potential_changes.append(record)
+        if overlapping:
+            potential_changes = []  # No chain suggestion in an ambiguous group.
+        point_index[fluid].append({
+            "lot": lot, "fluid": fluid,
+            "meters": len(entries),
+            "meter_serials": [e["serial"] for e in chron],
+            "possible_successive_replacements_unconfirmed": potential_changes[:MAX_DETAILS],
+            "overlapping_or_parallel_meters": overlapping[:MAX_DETAILS],
+            "automatic_merge": False,
+            "observed_consumption": round(sum(e["total"] for e in entries), 6),
+            "importable_daily_consumption": round(sum(e["importable"] for e in entries), 6),
+        })
+
+    for fluid in FLUIDS:
+        info = output[fluid]
+        info["points"] = point_index.get(fluid, [])[:MAX_DETAILS]
+        info["total"] = round(info["total"], 6)
+        info["importable_consumption"] = round(info["importable_consumption"], 6)
+        info["unallocated_consumption"] = round(info["unallocated_consumption"], 6)
+        for internal, public in (
+            ("_annual_end", "annual_consumption"),
+            ("_annual_within", "annual_within_year"),
+            ("_annual_daily", "annual_daily_cadence"),
+        ):
+            info[public] = {
+                y: round(v, 6)
+                for y, v in sorted(info.pop(internal, {}).items())
+            }
+        fs = [e for entries in per_point.values() for e in entries if e["fluid"] == fluid]
+        if fs:
+            # Original reading coverage only: long gaps may exist in between.
+            first = min(e["first"] for e in fs).astimezone(LOCAL_ZONE)
+            last = max(e["last"] for e in fs).astimezone(LOCAL_ZONE)
+            info["first"] = _bucket(first).astimezone(LOCAL_ZONE).isoformat()
+            info["last"] = _bucket(last).astimezone(LOCAL_ZONE).isoformat()
             info["start_coverage_gap_days"] = max(0, (first.date() - start).days)
-            info["end_coverage_gap_days"] = max(0, (end - last.date()).days - 1)
+            info["end_coverage_gap_days"] = max(0, (end - last.date()).days)
+            # Backward compatibility: aggregate display-only rows when there
+            # is just ONE apartment. The service MUST never import these rows.
+            if len({e["lot"] for e in fs}) == 1:
+                aggregate: dict[datetime, float] = defaultdict(float)
+                for e in fs:
+                    # Preview rows are daily-safe only, never legacy gaps.
+                    prev = 0.0
+                    for row in e["rows"]:
+                        delta = row["sum"] - prev
+                        aggregate[row["start"]] += delta
+                        prev = row["sum"]
+                total = 0.0
+                for at, delta in sorted(aggregate.items()):
+                    total += delta
+                    info["rows"].append({"start": at, "state": round(total, 6), "sum": round(total, 6)})
+    # Explicitly keep the import data outside the per-fluid summaries.
+    output["__physical_meters__"] = {
+        (m["lot"], m["fluid"], m["serial"]): m
+        for entries in per_point.values() for m in entries
+    }
     return output
 
 
 def external_statistic_id(account_key: str, fluid: str, start: date) -> str:
-    """External series are isolated from live sensor statistic IDs."""
+    """Legacy b1/b2 external ID, retained only to avoid silent migrations."""
     digest = sha256(account_key.encode("utf-8")).hexdigest()[:16]
     return f"trybatec:history_{digest}_{fluid.lower()}_{start:%Y%m%d}"
 
 
+def physical_statistic_id(account_key: str, lot: str, fluid: str, serial: str) -> str:
+    """v3 opaque stable ID: no personally identifying lot/serial or start date."""
+    if fluid not in FLUIDS or not lot or not serial:
+        raise ValueError("Invalid physical meter identity")
+    digest = sha256(f"{account_key}\0{lot}\0{fluid}\0{serial}".encode("utf-8")).hexdigest()[:24]
+    return f"trybatec:history_v3_{fluid.lower()}_{digest}"
+
+
 def summarize_preview(history: dict[str, dict[str, Any]], include_heating: bool = True) -> dict[str, Any]:
-    """Show details only in the authenticated action response, not logs."""
-    summary: dict[str, Any] = {}
-    for fluid, info in history.items():
+    """No raw portal payload or credentials in logs; metadata in local UI only."""
+    result: dict[str, Any] = {}
+    for fluid in FLUIDS:
         if fluid == "CET" and not include_heating:
             continue
-        summary[fluid] = {
-            "meters": info["meters"],
-            "observations": info["observations"],
+        info = history[fluid]
+        result[fluid] = {
+            "meters": info["meters"], "observations": info["observations"],
             "statistic_hours": len(info["rows"]),
             "observed_consumption": info["total"],
             "unit": "unverified (heat meter)" if fluid == "CET" else "m³",
@@ -198,14 +376,19 @@ def summarize_preview(history: dict[str, dict[str, Any]], include_heating: bool 
             "gap_details": info["gap_details"],
             "index_decreases": info["decreases"],
             "index_decrease_details": info["decrease_details"],
-            "conflicts": info["conflicts"],
-            "conflict_details": info["conflict_details"],
+            "conflicts": info["conflicts"], "conflict_details": info["conflict_details"],
             "days_missing_at_start": info["start_coverage_gap_days"],
             "days_missing_at_end": info["end_coverage_gap_days"],
-            "first_statistic": info["first"],
-            "last_statistic": info["last"],
+            "first_statistic": info["first"], "last_statistic": info["last"],
             "yearly_consumption_by_end_reading": info["annual_consumption"],
+            "yearly_consumption_within_same_year": info["annual_within_year"],
+            "yearly_daily_cadence_only": info["annual_daily_cadence"],
             "intervals_crossing_year_boundary": info["cross_year_intervals"],
+            "unallocated_consumption": info["unallocated_consumption"],
+            "importable_daily_consumption": info["importable_consumption"],
+            "importable_statistic_rows": info["importable_rows"],
+            "uncertain_intervals": info["uncertain_periods"],
+            "consumption_points": info["points"],
             "details_truncated_at": MAX_DETAILS,
         }
-    return summary
+    return result

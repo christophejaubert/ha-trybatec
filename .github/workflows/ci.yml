@@ -22,8 +22,30 @@ jobs:
         run: python -m pip install pytest aiohttp
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
-      - name: Test parsing, history and API client
+      - name: Test parsing, multi-customer history, service security, and API client
         run: python -m pytest -q
+      - name: Validate manifest and public release privacy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          manifest = json.loads(Path('custom_components/trybatec/manifest.json').read_text())
+          assert manifest['version'] == '0.2.0b3' and manifest['domain'] == 'trybatec'
+          published = [Path('README.md'), Path('RELEASE_NOTES_BETA.md')]
+          published += list(Path('custom_components/trybatec').rglob('*.py'))
+          published += list(Path('tests').glob('test_*.py'))
+          import re
+          private_patterns = (
+              re.compile(r'\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b'),
+              re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
+              re.compile(r'\b(?:eyJ[A-Za-z0-9_\-]{24,}\.){2}[A-Za-z0-9_\-]{10,}\b'),
+          )
+          for file in published:
+              contents = file.read_text()
+              for pattern in private_patterns:
+                  assert not pattern.search(contents), f'Potential secret in {file}'
+
+          PY
       - name: Check brand asset dimensions
         run: |
           python - <<'PY'
@@ -59,17 +81,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify beta version before publishing
         run: |
-          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b2"'
+          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b3"'
       - name: Create experimental GitHub pre-release if missing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view '0.2.0b2' > /dev/null 2>&1; then
-            echo 'The 0.2.0b2 release exists; leaving it unchanged.'
+          if gh release view '0.2.0b3' > /dev/null 2>&1; then
+            echo 'The 0.2.0b3 release exists; leaving it unchanged.'
           else
-            gh release create '0.2.0b2' \
+            gh release create '0.2.0b3' \
               --target "$GITHUB_SHA" \
               --prerelease \
-              --title 'Trybatec 0.2.0b2 — Historical diagnostics and branding' \
+              --title 'Trybatec 0.2.0b3 — Multi-customer history safeguards' \
               --notes-file RELEASE_NOTES_BETA.md
           fi

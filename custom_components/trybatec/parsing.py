@@ -35,6 +35,28 @@ def parse_timestamp(value: Any) -> datetime | None:
     return dt.astimezone(ZoneInfo(TIMEZONE))
 
 
+def known_lots(payload: dict[str, Any]) -> set[str]:
+    """Collect all lot scopes, including reused serials hidden by legacy keys.
+
+    The historical importer must never rely on a serial-keyed meter dict for
+    apartment authorization. It must consider every scoped portal row.
+    """
+    result: set[str] = set()
+    for line in payload.get("lines", []):
+        if not isinstance(line, dict):
+            continue
+        if (
+            isinstance(line.get("compteur"), str)
+            and line["compteur"].strip()
+            and line.get("fluide") in FLUIDS
+            and line.get("lot") is not None
+        ):
+            lot = str(line["lot"]).strip()
+            if lot:
+                result.add(lot)
+    return result
+
+
 def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Normalize server lines, keyed by stable meter serial number."""
     parsed: dict[str, dict[str, Any]] = {}

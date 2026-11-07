@@ -1,12 +1,14 @@
-"""Opt-in historical preview and statistics import services.
+"""Administrative preview and explicit opt-in historical recorder imports.
 
-The preview never writes recorder statistics. The import requires explicit
-consent, supports independent fluids, and fails closed on anomalies.
+V3 isolates physical meters and only imports safe near-daily increments. Sparse
+observations are preserved in previews without inventing daily allocation.
+Imports cannot change an established cumulative origin or delete a series.
 """
 from __future__ import annotations
 
 import asyncio
 from datetime import date
+from hashlib import sha256
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -20,12 +22,13 @@ from homeassistant.components.recorder.models import StatisticMeanType
 from homeassistant.components.recorder.statistics import async_add_external_statistics
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, FLUIDS, TIMEZONE
+from .const import CONF_DEAL_ID, DOMAIN, FLUIDS, TIMEZONE
 from .history import (
-    MAX_HISTORY_DAYS, build_history, external_statistic_id,
-    history_windows, summarize_preview,
+    MAX_HISTORY_DAYS, build_history, history_windows, physical_statistic_id,
+    summarize_preview,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +45,7 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional("include_heating", default=False): bool,
         vol.Optional("confirm_heating_kwh", default=False): bool,
         vol.Optional("allow_gaps", default=False): bool,
+        vol.Optional("skip_anomalous_meters", default=False): bool,
         vol.Optional("confirm", default=False): bool,
     },
     extra=vol.PREVENT_EXTRA,
@@ -49,16 +53,16 @@ SERVICE_SCHEMA = vol.Schema(
 
 
 def _chosen_fluids(data: dict[str, Any]) -> list[str]:
-    selected = [
-        fluid for fluid, flag in (
+    chosen = [
+        fluid for fluid, field in (
             ("EF", "include_cold_water"),
             ("ECS", "include_hot_water"),
             ("CET", "include_heating"),
-        ) if data.get(flag, flag != "include_heating") is True
+        ) if data.get(field, field != "include_heating") is True
     ]
-    if not selected:
+    if not chosen:
         raise ServiceValidationError("Choose at least one fluid for import")
-    return selected
+    return chosen
 
 
 def _dates(data: dict[str, Any]) -> tuple[date, date]:
@@ -85,6 +89,16 @@ def _coordinator(hass: HomeAssistant, data: dict[str, Any]):
     return next(iter(loaded.values()))
 
 
+async def _require_admin(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Raw meter history and recorder writes are administrator-only actions."""
+    user_id = getattr(getattr(call, "context", None), "user_id", None)
+    if not user_id:
+        raise ServiceValidationError("Trybatec history actions require an authenticated administrator")
+    user = await hass.auth.async_get_user(user_id)
+    if user is None or not user.is_admin:
+        raise ServiceValidationError("Trybatec history actions require an administrator")
+
+
 async def _load(hass: HomeAssistant, call: ServiceCall):
     coordinator = _coordinator(hass, call.data)
     start, end = _dates(call.data)
@@ -97,26 +111,110 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
         payloads: list[dict[str, Any]] = []
         for i, (begin, finish) in enumerate(windows):
             payloads.append(await coordinator.client.indexes(
-                coordinator.entry.data["deal_id"], begin, finish
+                coordinator.entry.data[CONF_DEAL_ID], begin, finish,
             ))
             if i < len(windows) - 1:
                 await asyncio.sleep(0.2)
-    allowed_lots = {
+    allowed_lots = set(coordinator.data.get("lots") or ()) or {
         str(meter["lot"]).strip()
         for meter in coordinator.data["meters"].values()
         if meter.get("lot")
     }
     if not allowed_lots:
-        raise ServiceValidationError("No dwelling lot identifiers to filter history safely")
+        raise ServiceValidationError("No verified dwelling lot identifiers to filter history")
     history = build_history(payloads, start, end, allowed_lots=allowed_lots)
     return coordinator, start, end, history, len(windows)
 
 
+def prepare_import_plan(
+    history: dict[str, Any], account_key: str, selected: list[str],
+    *, allow_gaps: bool = False, skip_anomalous_meters: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Pure preflight: no database writes, skip absent fluids safely.
+
+    An explicit allow_gaps flag authorizes *partial* daily history, never
+    assigning sparse period deltas to arbitrary dates.
+    """
+    plan: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    meters = history["__physical_meters__"]
+    for (lot, fluid, serial), data in sorted(meters.items()):
+        if fluid not in selected:
+            continue
+        if data["conflicts"] or data["decreases"]:
+            if not skip_anomalous_meters:
+                raise ValueError(
+                    "Selected meter has conflicting or decreasing indexes; "
+                    "review preview or choose skip_anomalous_meters"
+                )
+            skipped.append({
+                "fluid": fluid, "lot": lot, "meter_serial": serial,
+                "reason": "conflicts_or_decreases",
+            })
+            continue
+        if (data["gaps"] or data["unallocated"] > 0) and not allow_gaps:
+            raise ValueError(
+                "Selected meter has sparse or unknown-duration consumption; "
+                "set allow_gaps for partial daily-only import"
+            )
+        if not data["rows"] or data["anchor"] is None or len(data["rows"]) < 2:
+            skipped.append({
+                "fluid": fluid, "lot": lot, "meter_serial": serial,
+                "reason": "no_daily_cadence_intervals",
+            })
+            continue
+        stat_id = physical_statistic_id(account_key, lot, fluid, serial)
+        plan.append({
+            "statistic_id": stat_id,
+            "fluid": fluid, "lot": lot, "serial": serial,
+            "rows": data["rows"], "anchor": data["anchor"],
+            "observed_consumption": round(data["total"], 6),
+            "importable_consumption": round(data["importable"], 6),
+            "excluded_sparse_consumption": round(data["unallocated"], 6),
+        })
+    for fluid in selected:
+        if not any(k[1] == fluid for k in meters):
+            skipped.append({"fluid": fluid, "reason": "fluid_not_present"})
+    return plan, skipped
+
+
+def validate_existing_origins(
+    stored: dict[str, Any] | None, plan: list[dict[str, Any]], end: date,
+) -> dict[str, Any]:
+    """Require a consistent first daily baseline for stable v3 series IDs.
+
+    Re-imports using a different date interval are allowed *only* if the same
+    physical origin is retained and all previously imported end dates are covered.
+    """
+    if stored is None:
+        series: dict[str, Any] = {}
+    elif not isinstance(stored, dict) or not isinstance(stored.get("series"), dict):
+        raise ValueError("History origin storage invalid; refusing import")
+    else:
+        series = dict(stored["series"])
+    for item in plan:
+        stat_id = item["statistic_id"]
+        previous = series.get(stat_id)
+        anchor = item["anchor"]
+        if previous is not None:
+            if (
+                not isinstance(previous, dict)
+                or previous.get("anchor") != anchor
+                or end.isoformat() < str(previous.get("last_end", "9999-12-31"))
+            ):
+                raise ValueError(
+                    "History origin or query range changed for an existing series; "
+                    "import cancelled to avoid corrupting cumulative statistics"
+                )
+        series[stat_id] = {"anchor": anchor, "last_end": end.isoformat()}
+    return {"series": series}
+
+
 async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
-    """Read Trybatec history; show errors and dates, never mutate recorder."""
+    """Preview is read-only and exposes meter details only to the administrator."""
+    await _require_admin(hass, call)
     try:
-        _coordinator(hass, call.data)
-        coordinator, start, end, data, requests = await _load(hass, call)
+        _, start, end, history, requests = await _load(hass, call)
     except ServiceValidationError:
         raise
     except Exception as exc:
@@ -126,68 +224,108 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "api_requests": requests,
-        "statistics": summarize_preview(data),
+        "statistics": summarize_preview(history),
         "warning": (
-            "The annual totals attribute cross-year gaps to the ending observation; "
-            "missing readings are not interpolated and heating units are unverified"
+            "Sparse or retrospectively recorded index dates are not verified "
+            "measurement dates. Only near-daily intervals are importable. "
+            "Different physical meters are never automatically joined; "
+            "heating units remain unverified."
         ),
     }
 
 
 async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
-    """Queue independent external statistics after individual-fluid validation."""
+    """Queue physical-meter external statistics after protected preflight."""
+    await _require_admin(hass, call)
     if call.data.get("confirm") is not True:
         raise ServiceValidationError("Import refused: set confirm=true after backup and preview")
     if "recorder" not in hass.config.components:
         raise ServiceValidationError("Home Assistant recorder integration is not loaded")
     chosen = _chosen_fluids(call.data)
-    if "CET" in chosen and not call.data.get("confirm_heating_kwh"):
-        raise ServiceValidationError("Heating import requires confirmed kWh (not allocation units)")
-    try:
-        coordinator, start, end, data, requests = await _load(hass, call)
-    except ServiceValidationError:
-        raise
-    except Exception as exc:
-        _LOGGER.warning("Trybatec history import fetch failed: %s", type(exc).__name__)
-        raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
-    if any(data[f]["conflicts"] or data[f]["decreases"] for f in chosen):
-        raise ServiceValidationError("Import refused: selected fluid has conflicting or decreasing indexes")
-    if not call.data.get("allow_gaps") and any(data[f]["gaps"] for f in chosen):
-        raise ServiceValidationError("Import refused: selected fluid has gaps > 3 days")
-    if not any(data[f]["rows"] for f in chosen):
-        raise ServiceValidationError("No readings found for the selected fluids")
+    coordinator = _coordinator(hass, call.data)
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        try:
+            coordinator, start, end, data, requests = await _load(hass, call)
+        except ServiceValidationError:
+            raise
+        except Exception as exc:
+            _LOGGER.warning("Trybatec history import fetch failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
+        # Accounts without heating must not fail just because CET is absent.
+        if "CET" in chosen and data["CET"]["meters"] and not call.data.get("confirm_heating_kwh"):
+            raise ServiceValidationError("Heating import requires verified kWh, not allocation units")
+        account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
+        try:
+            plan, skipped = prepare_import_plan(
+                data, account_key, chosen,
+                allow_gaps=bool(call.data.get("allow_gaps", False)),
+                skip_anomalous_meters=bool(call.data.get("skip_anomalous_meters", False)),
+            )
+        except ValueError as exc:
+            raise ServiceValidationError(str(exc)) from exc
+        if not plan:
+            raise ServiceValidationError(
+                "Nothing safely importable: selected fluids contain no unambiguous daily intervals"
+            )
 
-    account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
-    queued: dict[str, dict[str, Any]] = {}
-    for fluid in chosen:
-        rows = data[fluid]["rows"]
-        if len(rows) < 2:
-            continue
-        stat_id = external_statistic_id(account_key, fluid, start)
-        metadata = {
-            "statistic_id": stat_id,
-            "source": DOMAIN,
-            "name": f"Trybatec historical {FLUIDS[fluid]}",
-            "unit_of_measurement": "kWh" if fluid == "CET" else "m³",
-            "unit_class": "energy" if fluid == "CET" else "volume",
-            "mean_type": StatisticMeanType.NONE,
-            "has_sum": True,
+        # One store per account, not per period. No personal identifiers in filename.
+        storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
+        store: Store = Store(hass, 1, f"{DOMAIN}.history_v3_{storage_key}")
+        try:
+            old = await store.async_load()
+            new = validate_existing_origins(old, plan, end)
+        except ValueError as exc:
+            raise ServiceValidationError(str(exc)) from exc
+        except Exception as exc:
+            _LOGGER.warning("Trybatec v3 history origin check failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Unable to verify stored historical origins") from exc
+
+        # Save origins before queuing recorder writes: if persistence fails,
+        # no recorder write is made. Writes are still asynchronous/not atomic.
+        try:
+            await store.async_save(new)
+        except Exception as exc:
+            _LOGGER.warning("Trybatec v3 history origin save failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Cannot safely persist history origins") from exc
+
+        queued: list[dict[str, Any]] = []
+        for item in plan:
+            stat_id, fluid = item["statistic_id"], item["fluid"]
+            metadata = {
+                "statistic_id": stat_id,
+                "source": DOMAIN,
+                "name": f"Trybatec historical {FLUIDS[fluid]} ({stat_id[-8:]})",
+                "unit_of_measurement": "kWh" if fluid == "CET" else "m³",
+                "unit_class": "energy" if fluid == "CET" else "volume",
+                "mean_type": StatisticMeanType.NONE,
+                "has_sum": True,
+            }
+            async_add_external_statistics(hass, metadata, item["rows"])
+            queued.append({
+                "statistic_id": stat_id, "fluid": fluid,
+                "lot": item["lot"], "meter_serial": item["serial"],
+                "rows_queued": len(item["rows"]),
+                "importable_consumption": item["importable_consumption"],
+                "unallocated_sparse_consumption": item["excluded_sparse_consumption"],
+            })
+        _LOGGER.info("Trybatec v3 queued %d isolated history series", len(queued))
+        return {
+            "status": "queued_in_recorder_not_yet_confirmed_persisted",
+            "mode": "daily_cadence_only_per_physical_meter",
+            "start_date": start.isoformat(), "end_date": end.isoformat(),
+            "api_requests": requests, "series": queued, "skipped": skipped,
+            "warnings": (
+                "Sparse historical changes were excluded (not interpolated). "
+                "Each meter has its own statistics; legacy b1/b2 statistics "
+                "remain separate. No automatic replacement-chain merging."
+            ),
         }
-        async_add_external_statistics(hass, metadata, rows)
-        queued[fluid] = {"statistic_id": stat_id, "rows_queued": len(rows)}
-    if not queued:
-        raise ServiceValidationError("Not enough readings to import for selected fluids")
-    _LOGGER.info("Trybatec historical statistic series queued for: %s", list(queued))
-    return {
-        "status": "queued_in_recorder_not_yet_confirmed_persisted",
-        "start_date": start.isoformat(), "end_date": end.isoformat(),
-        "api_requests": requests, "series": queued,
-        "warnings": {f: summarize_preview(data)[f] for f in chosen},
-    }
 
 
 def register_history_actions(hass: HomeAssistant) -> None:
-    """Register once at setup; there is never an automatic import."""
+    """Register only manual history actions; no automatic recorder changes."""
     async def preview(call: ServiceCall) -> dict[str, Any]:
         return await async_preview_history(hass, call)
 

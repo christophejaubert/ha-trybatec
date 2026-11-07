@@ -1,6 +1,6 @@
 preview_history:
   name: Preview historical readings
-  description: Read historical index readings, anomalies, dates and yearly estimates without changing recorder.
+  description: Administrator-only. Inspect readings grouped by lot, fluid and physical meter; sparse history is never made up. Does not change recorder.
   fields:
     entry_id:
       description: Optional when only one account is installed.
@@ -17,7 +17,7 @@ preview_history:
         text: {}
 import_history:
   name: Import historical statistics (experimental)
-  description: Requires backup and explicit consent; each fluid can be imported independently.
+  description: Administrator-only, experimental. Backup and confirm first. Only near-daily increments are imported per physical meter; older sparse differences remain unallocated.
   fields:
     entry_id:
       selector:
@@ -48,7 +48,12 @@ import_history:
       selector:
         boolean: {}
     allow_gaps:
-      description: Accept gaps longer than three days without interpolation.
+      description: Allow a PARTIAL import of daily-cadence intervals only. Sparse historical differences remain excluded, never interpolated.
+      default: false
+      selector:
+        boolean: {}
+    skip_anomalous_meters:
+      description: Skip entire physical meters with conflicting or decreasing indexes. Other selected meters can be imported safely.
       default: false
       selector:
         boolean: {}

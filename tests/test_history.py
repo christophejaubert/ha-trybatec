@@ -71,7 +71,8 @@ def test_decreasing_index_identified_with_original_index_values_and_time():
     ])]}
     h = build_history([p], date(2026, 11, 1), date(2026, 11, 4))
     assert h["EF"]["decreases"] == 1
-    assert h["EF"]["total"] == 1.0
+    # The v3 high-water mark never treats recovery below the previous peak as usage.
+    assert h["EF"]["total"] == 0.0
     d = summarize_preview(h)["EF"]["index_decrease_details"][0]
     assert d["meter_serial"] == "SIMULATED-1"
     assert d["previous_index"] == 10.0
@@ -104,7 +105,7 @@ def test_conflicts_are_scoped_to_the_affected_fluid():
         {"lines": [line("A", "EF", [(point, 11.0)]), line("B", "ECS", [(point, 1.0)])]},
     ]
     m, conflicts = combine_payloads(payloads)
-    assert conflicts and len(m["A"]["indexes"]) == 1
+    assert conflicts and len(m[("TEST-LOT", "EF", "A")]["indexes"]) == 1
     h = build_history(payloads, date(2026, 1, 1), date(2026, 1, 2))
     assert h["EF"]["conflicts"] == 1
     assert h["ECS"]["conflicts"] == 0

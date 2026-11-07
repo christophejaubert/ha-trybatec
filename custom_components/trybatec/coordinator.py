@@ -20,7 +20,7 @@ from .api import (
     TrybatecDataError,
 )
 from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
-from .parsing import parse_lines, summarize_annual
+from .parsing import known_lots, parse_lines, summarize_annual
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +52,10 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not meters:
                 raise TrybatecDataError("No recognized meter rows in response")
             annual = summarize_annual(payload, period_start=start, period_end=end)
-            return {"meters": meters, "annual": annual, "year": today.year, "date": today.isoformat()}
+            return {
+                "meters": meters, "lots": known_lots(payload),
+                "annual": annual, "year": today.year, "date": today.isoformat(),
+            }
         except TrybatecAuthError as exc:
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
         except (TrybatecConnectionError, TrybatecDataError) as exc:

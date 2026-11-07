@@ -1,14 +1,5 @@
 # Security policy
 
-**No guaranteed security maintenance.** This experimental community project
-is provided as is. The repository owner does not commit to reviewing or fixing
-reported vulnerabilities, issuing security releases or meeting response times.
-Do not rely on this integration for safety-critical monitoring.
-
-**Aucune maintenance de sécurité garantie.** Le propriétaire du dépôt ne
-s'engage pas à corriger les vulnérabilités, à publier des mises à jour ni à
-répondre aux signalements dans un délai donné.
-
 This integration communicates directly from the user's Home Assistant host to
 `https://portail.trybatec.fr` using HTTPS. It does not use a third-party proxy.
 
@@ -20,6 +11,24 @@ This integration communicates directly from the user's Home Assistant host to
   Protect backups and limit access to administrators.
 - The API endpoints are undocumented. Verify service terms and test limited
   request frequency before using this integration publicly.
-- Vulnerability reports: if GitHub private vulnerability reporting is enabled,
-  use it rather than a public issue. Submission does **not** guarantee review,
-  a reply or a fix.
+- Vulnerability reports: contact the repository maintainer privately using
+  a GitHub security advisory **after** the repository is published.
+
+## Historical recorder access (0.2.0b3+)
+
+Historical preview and import actions require an **authenticated Home Assistant
+administrator**. Automated or unauthenticated contexts are refused by design.
+Only the explicitly confirmed import may write to recorder or the integration's
+`.storage` origin ledger. Historical data are filtered by known dwelling lots,
+and all external statistic identifiers hash the account, lot and serial.
+
+The importer places strict limits on incoming Trybatec rows and observations;
+conflicting values, meter overlaps and unknown reading dates must never be
+silently treated as exact daily consumption. Long intervals are not interpolated.
+A failed origin consistency check stops import before any recorder write.
+
+History previews and service responses may expose meter serials and dwelling
+lot references to the current HA administrator: **do not post these publicly**.
+Persistent origin records and the portal password are included in HA backups.
+Do not enable public HA access without authentication, and secure backup files.
+Legacy b1/b2 statistics are not automatically removed or converted.
