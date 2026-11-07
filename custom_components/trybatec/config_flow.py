@@ -143,16 +143,34 @@ class TrybatecOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
 
+    def _known_meter_units(self, coordinator) -> dict[str, dict]:
+        """Current plus cached historical (including replaced) physical meters."""
+        overrides = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
+        meters = {
+            meter_key(m["lot"], m["fluid"], m["serial"]): m
+            for m in coordinator.data.get("meters", {}).values()
+        }
+        cache = getattr(coordinator, "_history_review_cache", None)
+        if cache:
+            payloads, start, end, lots = cache
+            history = build_history(payloads, start, end, allowed_lots=lots)
+            for (lot, fluid, serial), item in history["__physical_meters__"].items():
+                key = meter_key(lot, fluid, serial)
+                if key not in meters:
+                    source = item.get("portal_unit")
+                    meters[key] = {
+                        "lot": lot, "fluid": fluid, "serial": serial,
+                        "deposed": item["retired"], "portal_unit": source,
+                        "verified_unit": resolve_meter_unit(lot, fluid, serial, source, overrides),
+                    }
+        return meters
+
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Select one physical meter; never silently reuse a unit from another."""
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="history_preview_required")
-        meters = coordinator.data.get("meters", {})
-        mapping = {
-            meter_key(m["lot"], m["fluid"], m["serial"]): m
-            for m in meters.values() if not m["deposed"]
-        }
+        mapping = self._known_meter_units(coordinator)
         if not mapping:
             return self.async_abort(reason="no_readings_to_review")
         if user_input is not None:
@@ -178,10 +196,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self.async_abort(reason="history_preview_required")
-        selected = next((
-            m for m in coordinator.data.get("meters", {}).values()
-            if meter_key(m["lot"], m["fluid"], m["serial"]) == self._selected_meter_unit_key
-        ), None)
+        selected = self._known_meter_units(coordinator).get(self._selected_meter_unit_key)
         if selected is None:
             return self.async_abort(reason="history_preview_required")
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
