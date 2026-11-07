@@ -280,61 +280,102 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         except Exception as exc:
             _LOGGER.warning("Trybatec history import fetch failed: %s", type(exc).__name__)
             raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
-        # Accounts without heating must not fail just because CET is absent.
-        heat_unit = getattr(coordinator.entry, "options", {}).get(CONF_HEATING_UNIT, "unverified")
-        if "CET" in chosen and data["CET"]["meters"] and (heat_unit == "unverified" or not call.data.get("confirm_heating_kwh")):
-            raise ServiceValidationError("Heating import requires verified energy units and explicit confirmation")
+        # Every physical meter must carry an explicit unit, from a recognized
+        # portal field or a user-confirmed scoped override. Global heating
+        # assumptions from b5 are deliberately not inherited.
+        if "CET" in chosen and data["CET"]["meters"] and not call.data.get("confirm_heating_kwh"):
+            raise ServiceValidationError("Heating import requires explicit confirmation")
         account_key = coordinator.entry.unique_id or coordinator.entry.entry_id
         if call.data.get("include_accounting") and not call.data.get("confirm_accounting"):
             raise ServiceValidationError("Manual accounting allocations need confirm_accounting=true")
         try:
-            plan, skipped = compose_plan(
+            raw_plan, skipped = compose_plan(
                 data, account_key, chosen,
                 allow_gaps=bool(call.data.get("allow_gaps", False)),
                 skip_conflicts=bool(call.data.get("skip_anomalous_meters", False)),
                 include_accounting=bool(call.data.get("include_accounting", False)),
             )
+            overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
+            plan = []
+            for item in raw_plan:
+                source = data["__physical_meters__"][(item["lot"], item["fluid"], item["serial"])]
+                source_unit = resolve_meter_unit(
+                    item["lot"], item["fluid"], item["serial"], source.get("portal_unit"), overrides
+                )
+                if source_unit is None:
+                    skipped.append({
+                        "lot": item["lot"], "fluid": item["fluid"],
+                        "meter_serial": item["serial"], "reason": "unit_unverified",
+                    })
+                    continue
+                factor = unit_factor(item["fluid"], source_unit)
+                rows = [
+                    {**row, "state": round(row["state"] * factor, 6),
+                     "sum": round(row["sum"] * factor, 6)}
+                    for row in item["rows"]
+                ]
+                # b6 uses a separate v5 namespace. This prevents accidental
+                # reuse of b5 series that may have a different source scale.
+                id_suffix = source_unit.lower().replace("³", "3")
+                logical = item["logical_id"].replace("history_v4_", "history_v5_") + "_" + id_suffix
+                plan.append({
+                    **item, "logical_id": logical, "rows": rows,
+                    "quantity": round(item["quantity"] * factor, 6),
+                    "source_unit": source_unit, "normalized_unit": normalized_unit(item["fluid"]),
+                })
         except ValueError as exc:
             raise ServiceValidationError(str(exc)) from exc
         if not plan:
-            raise ServiceValidationError("No eligible measured or manually attributed intervals")
+            raise ServiceValidationError("No eligible intervals with verified per-meter units")
 
-        # The v4 namespace does not modify any existing b1/b2/v3 statistics.
         storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
-        store: Store = Store(hass, 1, f"{DOMAIN}.history_v4_{storage_key}")
+        store: Store = Store(hass, 1, f"{DOMAIN}.history_v5_{storage_key}")
         try:
             stored = await store.async_load()
+            if stored and stored.get("pending") and not call.data.get("retry_pending"):
+                raise ValueError(
+                    "Recorder import pending verification; run trybatec.verify_history first"
+                )
             updated, approved = reconcile_plan(
                 stored, plan, confirm_revision=bool(call.data.get("confirm_revision", False)),
+            )
+            updated = stage_pending(
+                updated if not stored else {**updated, "pending": stored.get("pending", {})},
+                approved, allow_identical_retry=bool(call.data.get("retry_pending", False)),
             )
         except ValueError as exc:
             raise ServiceValidationError(str(exc)) from exc
         except Exception as exc:
-            _LOGGER.warning("Trybatec v4 ledger read failed: %s", type(exc).__name__)
+            _LOGGER.warning("Trybatec b6 ledger read failed: %s", type(exc).__name__)
             raise ServiceValidationError("Cannot verify existing history ledger") from exc
         try:
+            # Persist intent first. A failed or interrupted queue leaves a
+            # pending marker; it never masquerades as Recorder success.
             await store.async_save(updated)
         except Exception as exc:
-            _LOGGER.warning("Trybatec v4 ledger write failed: %s", type(exc).__name__)
-            raise ServiceValidationError("Cannot persist v4 history ledger") from exc
+            _LOGGER.warning("Trybatec b6 ledger write failed: %s", type(exc).__name__)
+            raise ServiceValidationError("Cannot persist b6 history ledger") from exc
 
         queued: list[dict[str, Any]] = []
         for item in approved:
             stat_id, fluid = item["statistic_id"], item["fluid"]
-            rows = item["rows"]
-            if fluid == "CET":
-                factor = {"kWh": 1.0, "MWh": 1000.0, "GJ": 1000.0 / 3.6}[heat_unit]
-                rows = [{**row, "state": round(row["state"] * factor, 6), "sum": round(row["sum"] * factor, 6)} for row in rows]
+            rows = item["rows"]  # Already normalized and snapshotted before staging.
             metadata = {
                 "statistic_id": stat_id,
                 "source": DOMAIN,
                 "name": f"Trybatec {item['kind']} {FLUIDS[fluid]} ({stat_id[-8:]})",
-                "unit_of_measurement": "kWh" if fluid == "CET" else "m³",
+                "unit_of_measurement": item["normalized_unit"],
                 "unit_class": "energy" if fluid == "CET" else "volume",
                 "mean_type": StatisticMeanType.NONE,
                 "has_sum": True,
             }
-            async_add_external_statistics(hass, metadata, rows)
+            try:
+                async_add_external_statistics(hass, metadata, rows)
+            except Exception as exc:
+                _LOGGER.error("Trybatec b6 queueing failed; pending ledger retained (%s)", type(exc).__name__)
+                raise ServiceValidationError(
+                    "Recorder queueing failed; pending import must be verified or retried explicitly"
+                ) from exc
             queued.append({
                 "statistic_id": stat_id, "kind": item["kind"], "fluid": fluid,
                 "lot": item["lot"], "meter_serial": item["serial"],
@@ -344,15 +385,16 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
             })
         _LOGGER.info("Trybatec v4 queued %d isolated history series", len(queued))
         return {
-            "status": "queued_in_recorder_not_yet_confirmed_persisted",
-            "mode": "v4_daily_and_explicit_accounting_per_physical_meter",
+            "status": "pending_recorder_verification",
+            "mode": "v5_verified_units_pending_recorder_confirmation",
             "start_date": start.isoformat(), "end_date": end.isoformat(),
             "api_requests": requests, "series": queued, "skipped": skipped,
             "warnings": (
                 "Unreviewed sparse periods were not assigned to days. "
                 "Accounting allocations are separate from measured daily use. "
-                "Existing b1/b2/v3 series are untouched; revised v4 generations "
-                "must replace their old series manually in the Energy dashboard."
+                "Older b1-b5 statistics remain untouched; never use old and "
+                "new generations in the Energy dashboard simultaneously. "
+                "Run trybatec.verify_history after Recorder has processed queued rows."
             ),
         }
 
