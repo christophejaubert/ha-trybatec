@@ -21,6 +21,13 @@ not the functional Home Assistant integration. Workflow source:
   `baseline-self`, `candidate-self`, `baseline-to-candidate`.
   These also check the user's accounting correction, re-synchronization and
   invalidation after a supplier-side correction. No production HA access.
+- **Recorder import E2E:** the same CI-owned contract runs on **both** the
+  published baseline and the exact candidate SHA, in separate isolated Home
+  Assistant environments with an actual SQLite Recorder backend. It checks
+  preview-only, explicit import confirmation, queued/pending ledger, recorded
+  hourly sums, duplicate-safe retry, successful verification, queue failure
+  and rejection of a source meter with an unverified unit. All vendor data
+  are synthetic. Neither the user's account nor production HA is accessed.
 
 ### Which source code does the persistence matrix test?
 
@@ -36,14 +43,22 @@ one of these resolved SHAs. There are **no `b6`, `b7` or feature-branch names
 in the matrix**. If there is no earlier released version, or a reference cannot
 be resolved, the tests fail rather than claiming a successful migration.
 
-The `decision-persistence-gate` status is green **only if** both reference
-resolution and the entire three-case matrix succeed. Failure, cancellation or
-skipping of a required matrix job does not yield a green gate. The version label
-stays stable for future releases.
+The `recorder-e2e` job uses the same resolved immutable SHAs and executes
+`integration_tests/recorder_pipeline_spec.py` for both `baseline` and
+`candidate`. Its matrix is blocking: both versions must pass. The historical
+b6-only checkout and mutable test environment were removed.
 
-These tests do not prove full HA service-driven historical imports, recovery from
-a deliberately interrupted Recorder write, or correctness against the real
-Trybatec API. Those remain separate functional regression coverage requirements.
+The `decision-persistence-gate` status is green **only if** reference
+resolution, all three process-restart persistence cases **and both Recorder
+E2E cases** succeed. Failure, cancellation or skipping of a required matrix
+job does not yield a green gate. Its status name remains stable for future
+releases and is already required by the `main` ruleset.
+
+The E2E tests now cover the real HA importer and verifier through an isolated
+SQLite Recorder (for both baseline and candidate). They do **not** prove
+recovery from a physical process crash during a Recorder write, exhaustive
+vendor-specific payloads or correctness against the real Trybatec API. Those
+remain separate functional regression coverage requirements.
 
 ## Reproducibility versus forward compatibility
 
@@ -90,7 +105,7 @@ Verified **active** on 2026-11-08. It targets the default branch `main`,
 requires a PR, resolved review conversations, up-to-date checks, squash merges,
 and blocks branch deletions and force pushes. Bypass list is empty.
 
-The eight currently required GitHub Actions status names are:
+The nine currently required GitHub Actions status names are:
 
 1. `pure-tests (Python 3.13)`
 2. `pure-tests (Python 3.14)`
@@ -100,15 +115,13 @@ The eight currently required GitHub Actions status names are:
 6. `gitleaks`
 7. `ha-runtime-and-storage`
 8. `latest-homeassistant-import`
+9. `decision-persistence-gate`
 
-**Administrator action still required:** add `decision-persistence-gate` as
-a **ninth required check**, source **GitHub Actions**, in
-[Settings → Rules → Protect main - CI/CD](https://github.com/christophejaubert/ha-trybatec/settings/rules).
-Do **not** require three individual matrix names, which are intentionally
-version-independent but may change when cases are added; require the stable gate
-instead. The GitHub connector used for code changes does not expose an admin
-operation to modify this ruleset. Before adding the check, ensure its job has
-completed on the updated PR so GitHub offers it.
+The ninth required check was confirmed active in the GitHub ruleset on
+2026-11-08. It now covers both the three process-restart migration scenarios
+and the two full Recorder E2E cases through mandatory job dependencies.
+**No additional GitHub administrative change is required** for this new
+E2E matrix.
 
 Do not remove Hassfest or bypass the branch rules to make a failing integration
 appear releasable. Code/manifest corrections belong in the functional PR.
@@ -134,5 +147,5 @@ an installed Home Assistant instance.
 - Introduce complete transitive Python lockfiles with hashes per interpreter.
 - Add Actionlint and comprehensive workflow-level security checks.
 - Add coverage thresholds after addressing existing test debt.
-- Extend isolated service-level Recorder and interruption tests.
+- Extend interrupted Recorder-write/crash recovery tests beyond the new baseline/candidate E2E service tests.
 - Keep the stable `decision-persistence-gate` mandatory when expanding matrix.
