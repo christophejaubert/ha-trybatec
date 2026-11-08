@@ -109,7 +109,7 @@ def test_rename_out_of_protected_directory_remains_protected(monkeypatch):
 
 
 def test_security_workflow_is_from_protected_base_only():
-    path = GUARD.parents[1] / ".github/workflows/trusted-workflow-integrity.yml"
+    path = GUARD.parents[2] / ".github/workflows/trusted-workflow-integrity.yml"
     content = path.read_text(encoding="utf-8")
     assert "pull_request_target:" in content
     assert "ref: main" in content
