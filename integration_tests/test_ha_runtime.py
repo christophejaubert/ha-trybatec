@@ -198,7 +198,7 @@ async def test_invalid_existing_unit_options_do_not_break_polling(hass, monkeypa
 
 
 @pytest.mark.parametrize(
-    "menu_step", ("history_overview", "history_meters", "history_review")
+    "menu_step", ("history_overview", "history_meters_menu", "history_review_menu")
 )
 async def test_missing_history_preview_is_real_navigable_options_flow(
     hass, monkeypatch, menu_step
@@ -208,9 +208,19 @@ async def test_missing_history_preview_is_real_navigable_options_flow(
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     assert initial["type"] == "menu"
     flow_id = initial["flow_id"]
-    missing = await hass.config_entries.options.async_configure(
+    selected = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": menu_step}
     )
+    if menu_step.endswith("_menu"):
+        assert selected["type"] == "menu"
+        assert "init" in selected["menu_options"]
+        target = menu_step.removesuffix("_menu")
+        assert target in selected["menu_options"]
+        missing = await hass.config_entries.options.async_configure(
+            flow_id, {"next_step_id": target}
+        )
+    else:
+        missing = selected
     assert missing["type"] == "menu"
     assert missing["step_id"] == "history_preview_missing"
     assert missing["menu_options"] == ["init"]
