@@ -44,10 +44,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         previous = coordinator._applied_options
         current = dict(entry.options)
         keys = set(previous) | set(current)
+        def normalized(options: dict, key: str):
+            value = options.get(key)
+            return (value or {}) if key in (CONF_METER_UNITS, CONF_DEVICE_UUIDS) else value
+
         changed = {
-            key for key in keys
-            if (previous.get(key) or {} if key in (CONF_METER_UNITS, CONF_DEVICE_UUIDS) else previous.get(key))
-            != (current.get(key) or {} if key in (CONF_METER_UNITS, CONF_DEVICE_UUIDS) else current.get(key))
+            key for key in keys if normalized(previous, key) != normalized(current, key)
         }
         # The options wizard includes an empty device UUID dict when saving
         # a unit. This is equivalent to the previously absent option.
