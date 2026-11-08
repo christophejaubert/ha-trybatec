@@ -165,9 +165,16 @@ async def test_confirming_one_meter_unit_keeps_integration_loaded_without_portal
         state for state in hass.states.async_all("sensor")
         if state.attributes.get("lot") == "MOCK-LOT"
     ]
-    assert len(meters) == 1
-    assert float(meters[0].state) == pytest.approx(15.0)
-    assert meters[0].attributes["unit_verified"] is True
+    # A previously unverified sensor has a distinct stable unique ID. It
+    # remains unavailable while a newly verified version is added, without
+    # changing historical statistics or invoking the portal.
+    verified = [m for m in meters if m.attributes.get("unit_verified") is True]
+    assert len(verified) == 1
+    assert float(verified[0].state) == pytest.approx(15.0)
+    assert verified[0].attributes["unit_of_measurement"] == "m³"
+    unverified = [m for m in meters if m.attributes.get("unit_verified") is False]
+    assert len(unverified) == 1
+    assert unverified[0].state in ("unknown", "unavailable")
 
 
 async def test_preexisting_manual_unit_is_accepted_at_startup(hass, monkeypatch):
