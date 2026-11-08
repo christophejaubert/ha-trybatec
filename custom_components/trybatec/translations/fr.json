@@ -44,7 +44,7 @@
       },
       "history_review": {
         "title": "Choisir un relevé à examiner",
-        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "data": {
           "reading": "Relevé"
         }
@@ -52,8 +52,13 @@
       "history_decision": {
         "title": "Décision sur le relevé",
         "description": "Le relevé Trybatec source reste inchangé. La décision est conservée localement.",
-        "data": {
-          "choice": "Décision"
+        "menu_options": {
+          "history_decision_accept": "Accepter le relevé (confirmation requise)",
+          "history_decision_correct": "Corriger le relevé (confirmation requise)",
+          "history_decision_reject": "Exclure le relevé (confirmation requise)",
+          "history_decision_postpone": "Reporter le traitement (confirmation requise)",
+          "history_review": "← Retour à la liste des relevés",
+          "init": "← Retour au menu principal"
         }
       },
       "history_correction": {
@@ -94,7 +99,7 @@
       },
       "history_overview": {
         "title": "Aperçu de l’historique",
-        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "history_start_review": "Examiner les relevés",
           "init": "← Retour au menu principal"
@@ -102,7 +107,7 @@
       },
       "history_empty": {
         "title": "Aucun relevé à réviser",
-        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\n\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.",
+        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\n\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
@@ -110,8 +115,10 @@
       "history_meter_detail": {
         "title": "Détail du compteur",
         "description": "**{meter}** · Lot {lot} · {status}\n\n- **Premier relevé :** {first}\n- **Dernier relevé :** {last}\n- **Périodes lacunaires :** {gaps}\n- **Baisses d’index :** {decreases}\n- **Conflits :** {conflicts}\n- **Unité de l’index API :** {unit}\n\nLes relevés bruts ne sont pas modifiés. Les compteurs successifs restent distincts.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
-        "data": {
-          "navigation": "Navigation"
+        "menu_options": {
+          "history_meters": "← Retour à la liste des compteurs",
+          "history_start_review": "Examiner les relevés",
+          "init": "← Retour au menu principal"
         }
       },
       "history_start_review": {
@@ -119,21 +126,21 @@
       },
       "history_meters": {
         "title": "Détails des compteurs",
-        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "data": {
           "meter_detail": "Compteur physique"
         }
       },
       "history_unavailable": {
         "title": "Intégration Trybatec indisponible",
-        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.",
+        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
       },
       "history_preview_missing": {
         "title": "Prévisualisation historique requise",
-        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\n\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\n\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).",
+        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\n\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\n\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
