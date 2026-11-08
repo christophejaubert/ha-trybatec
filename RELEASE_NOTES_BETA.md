@@ -1,7 +1,7 @@
 # 0.2.0b7 — Historical diagnostics, cost estimates and import safeguards
 
-**Experimental pre-release candidate — not yet published.**
-This document is a release draft, not approval for production historical import.
+**Experimental pre-release.**
+Publication of this beta does not approve production historical import, change Energy settings or modify any Home Assistant installation.
 
 ### Changes from b6
 
