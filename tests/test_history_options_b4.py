@@ -223,7 +223,10 @@ def test_meter_unit_save_and_return_to_list_and_main_menu(ui):
         assert first["step_id"] == "meter_units"
         assert first["data_schema"][next(iter(first["data_schema"]))].config.mode == "list"
         form = await flow.async_step_meter_units({"meter": key})
-        assert form["step_id"] == "meter_unit"
+        assert form["step_id"] == "meter_unit_menu"
+        assert form["type"] == "menu"
+        assert "init" in form["menu_options"]
+        form = await flow.async_step_meter_unit()
         unit_selector = next(v for k,v in form["data_schema"].items() if k.k == "unit")
         assert unit_selector.config.mode == "list"
         saved = await flow.async_step_meter_unit({
@@ -234,6 +237,8 @@ def test_meter_unit_save_and_return_to_list_and_main_menu(ui):
         labels = next(iter(saved["data_schema"].values())).config.options
         assert any("Manually confirmed" in x["label"] and "m³" in x["label"] for x in labels)
         new_form = await flow.async_step_meter_units({"meter": key})
+        assert new_form["type"] == "menu"
+        new_form = await flow.async_step_meter_unit()
         unit_field = next(k for k in new_form["data_schema"] if k.k=="unit")
         assert unit_field.default == "m³"
         to_menu = await flow.async_step_meter_unit({
@@ -536,7 +541,7 @@ def test_all_locales_have_diagnostic_labels_and_real_history_paragraphs():
     root = Path("custom_components/trybatec")
     for file in (root / "strings.json", root / "translations/en.json", root / "translations/fr.json"):
         steps = json.loads(file.read_text(encoding="utf-8"))["options"]["step"]
-        assert "diagnostics" in steps["init"]["menu_options"]
+        assert "diagnostics_menu" in steps["init"]["menu_options"]
         assert "{logs_url}" in steps["diagnostics"]["description"]
         assert "{selection_origin}" in steps["meter_unit"]["description"]
         for name in ("history_unavailable", "history_preview_missing", "history_empty"):
@@ -608,8 +613,7 @@ def test_all_choice_selectors_use_explicit_radio_list_mode(ui):
     }}
     async def run():
         for render, keys in [
-            (flow.async_step_diagnostics, ("log_level", "after_submit")),
-            (flow.async_step_settings, ("after_submit",)),
+            (flow.async_step_diagnostics, ("log_level",)),
             (flow.async_step_meter_units, ("meter",)),
             (flow.async_step_history_review, ("reading",)),
         ]:
@@ -619,21 +623,28 @@ def test_all_choice_selectors_use_explicit_radio_list_mode(ui):
                 assert fields[key].config.mode == "list", (render.__name__, key)
         key = ui.meter_key("LOT", "CET", "FAKE")
         form = await flow.async_step_meter_units({"meter": key})
+        assert form["step_id"] == "meter_unit_menu"
+        form = await flow.async_step_meter_unit()
         fields = {k.k: v for k,v in form["data_schema"].items()}
         assert fields["unit"].config.mode == "list"
-        assert fields["after_submit"].config.mode == "list"
+        assert "after_submit" not in fields
         await flow.async_step_history_review({"reading": "a" * 32})
         decision = await flow.async_step_history_decision()
         assert decision["type"] == "menu"
         assert "init" in decision["menu_options"]
         assert "history_decision_correct" in decision["menu_options"]
         correction = await flow.async_step_history_decision_correct()
+        assert correction["type"] == "menu"
+        assert "init" in correction["menu_options"]
+        correction = await flow.async_step_history_correction()
         fields = {k.k: v for k,v in correction["data_schema"].items()}
         assert fields["mode"].config.mode == "list"
-        assert fields["after_submit"].config.mode == "list"
+        assert "after_submit" not in fields
         confirm = await flow.async_step_history_decision_accept()
-        fields = {k.k: v for k,v in confirm["data_schema"].items()}
-        assert fields["after_submit"].config.mode == "list"
+        assert confirm["type"] == "menu"
+        assert "history_confirm" in confirm["menu_options"]
+        confirm_form = await flow.async_step_history_confirm()
+        assert "after_submit" not in {k.k for k in confirm_form["data_schema"]}
     asyncio.run(run())
 
 
@@ -649,7 +660,7 @@ def test_native_menu_handlers_need_no_second_submit(ui, monkeypatch):
             "history_review", "init",
         ]
         direct = await flow.async_step_history_decision_reject()
-        assert direct["step_id"] == "history_confirm"
+        assert direct["step_id"] == "history_confirm_menu"
         assert flow._pending_review == {"action": "reject"}
         back = await flow.async_step_init()
         assert back["type"] == "menu"
