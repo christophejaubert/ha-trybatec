@@ -1,3 +1,44 @@
+# 0.2.0b7 — Historical diagnostics, cost estimates and import safeguards
+
+**Experimental pre-release candidate — not yet published.**
+This document is a release draft, not approval for production historical import.
+
+### Changes from b6
+
+- Read-only diagnostics for sparse intervals, declining/conflicting indexes,
+  overlapping or replaced physical meters, and unverified source units.
+- Read-only annual historical cost estimates in EUR with physical-meter
+  isolation and separate, explicitly authorized accounting allocations.
+- Explicit water index conversion (L and m³ to m³), thermal conversion
+  (kWh, MWh and GJ to kWh), and refusal of missing, conflicting or incompatible
+  source units. Chart display units do not certify raw meter index units.
+- Fix annual energy/water YTD estimate sensor state classes: no misleading
+  `measurement` statistics for annually resetting or revisable estimates.
+- Protect `retry_pending`: immutable source and approved plan fingerprints
+  prevent requeueing if the vendor supplies changed source readings or
+  import parameters. Unfingerprinted pre-existing pending entries require
+  verification rather than blind retry.
+- Harden Recorder readback: mismatched, missing and ambiguous duplicate
+  hourly buckets cannot be marked verified. An import returns a pending state
+  until explicit `verify_history` confirms every expected statistic.
+- Expanded synthetic unit, Recorder SQLite, HA process-restart and
+  multi-meter interruption tests. No test interacts with a real vendor account.
+
+### Migration / cautions
+
+- Back up Home Assistant configuration, Recorder and `.storage` before any
+  attempted import; verify access to restoration material and keys.
+- Existing b5/b6 statistics are not deleted or migrated automatically.
+  Do not use two generations of the same usage simultaneously in Energy.
+- Confirm each real meter's index unit and review each abnormal historical
+  reading before accepting an import. Manual confirmation is required.
+- Simulated failure tests do not establish transaction-level crash recovery
+  inside the Recorder SQLite thread. Costs remain estimates rather than
+  approved building charges.
+- Publication requires explicit authorization and passing all release gates.
+
+---
+
 # 0.2.0b6 — Per-meter units, Recorder verification and historical preflight
 
 Experimental pre-release. Back up Home Assistant, including Recorder and .storage, before import.

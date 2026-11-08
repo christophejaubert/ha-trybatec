@@ -326,3 +326,460 @@ def test_b7_cost_and_diagnostic_actions_are_admin_only_read_only(services, monke
         assert diagnosis["meters_total"] == 1
         assert diagnosis["details"][0]["verified_source_unit"] == "m³"
     asyncio.run(run())
+
+
+
+def test_b7_source_fingerprint_detects_index_time_with_same_hourly_bucket():
+    """A changed vendor timestamp must not be considered an identical retry."""
+    from custom_components.trybatec.history_v4 import compose_plan
+
+    def history_at(minute):
+        return build_history([{"lines": [{
+            "compteur": "FAKE-SERIAL", "fluide": "EF", "lot": "FAKE-LOT",
+            "depose": False, "indexUnit": "m3",
+            "indexes": [
+                {"date": "2026-01-01T00:00:00+01:00", "value": 10.0},
+                {"date": "2026-01-02T00:00:00+01:00", "value": 11.0},
+                {"date": f"2026-01-03T00:{minute:02d}:00+01:00", "value": 12.0},
+            ],
+        }]}], date(2026, 1, 1), date(2026, 1, 6))
+
+    first = history_at(0)
+    changed = history_at(10)
+    first_plan, _ = compose_plan(
+        first, "synthetic-account", ["EF"],
+        allow_gaps=False, skip_conflicts=False, include_accounting=False,
+    )
+    changed_plan, _ = compose_plan(
+        changed, "synthetic-account", ["EF"],
+        allow_gaps=False, skip_conflicts=False, include_accounting=False,
+    )
+    assert first_plan[0]["rows"] == changed_plan[0]["rows"]
+    assert (
+        first["__physical_meters__"][("FAKE-LOT", "EF", "FAKE-SERIAL")]["source_fingerprint"]
+        != changed["__physical_meters__"][("FAKE-LOT", "EF", "FAKE-SERIAL")]["source_fingerprint"]
+    )
+
+
+def test_b7_pending_retry_rejects_changed_source_before_recorder_write(
+    services, monkeypatch
+):
+    """Catch append, value, timestamp and option changes, including same series ID."""
+    from copy import deepcopy
+
+    def synthetic_history(points):
+        return build_history([{"lines": [{
+            "compteur": "FAKE-SERIAL", "lot": "FAKE-LOT",
+            "fluide": "EF", "depose": False, "indexUnit": "m3",
+            "indexes": [
+                {"date": date_text, "value": value}
+                for date_text, value in points
+            ],
+        }]}], date(2026, 1, 1), date(2026, 1, 9))
+
+    base_points = [
+        ("2026-01-01T00:00:00+01:00", 10.0),
+        ("2026-01-02T00:00:00+01:00", 11.0),
+        ("2026-01-03T00:00:00+01:00", 12.0),
+    ]
+    current = {"history": synthetic_history(base_points)}
+    coordinator = SimpleNamespace(entry=SimpleNamespace(
+        entry_id="CI-SYNTHETIC-ENTRY", unique_id="CI-SYNTHETIC-ACCOUNT",
+        options={},
+    ))
+
+    async def fake_load(*_args):
+        return coordinator, date(2026, 1, 1), date(2026, 1, 9), current["history"], 1
+
+    monkeypatch.setattr(services, "_load", fake_load)
+    monkeypatch.setattr(services, "_coordinator", lambda *args: coordinator)
+
+    database = {"value": None, "save_count": 0}
+    queued = []
+
+    class FakeStore:
+        def __init__(self, hass, version, key):
+            assert version == 1 and "CI-SYNTHETIC-ENTRY" not in key
+
+        async def async_load(self):
+            return deepcopy(database["value"])
+
+        async def async_save(self, value):
+            database["save_count"] += 1
+            database["value"] = deepcopy(value)
+
+    monkeypatch.setattr(services, "Store", FakeStore)
+    monkeypatch.setattr(
+        services, "async_add_external_statistics",
+        lambda hass, meta, rows: queued.append((meta, deepcopy(rows))),
+    )
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda user_id: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+    )
+    def call(**kwargs):
+        return SimpleNamespace(
+            context=SimpleNamespace(user_id="admin"),
+            data={
+                "confirm": True, "include_cold_water": True,
+                "include_hot_water": False, "include_heating": False,
+                **kwargs,
+            },
+        )
+
+    async def check():
+        first = await services.async_import_history(hass, call())
+        assert first["status"] == "pending_recorder_verification"
+        assert len(queued) == 1
+        initial_db = deepcopy(database["value"])
+        assert len(initial_db["pending"]) == 1
+        assert len(initial_db["pending_fingerprint"]) == 64
+
+        same = await services.async_import_history(hass, call(retry_pending=True))
+        assert same["status"] == "pending_recorder_verification"
+        assert len(queued) == 2
+        assert database["value"] == initial_db
+        original_save_count = database["save_count"]
+
+        changes = [
+            synthetic_history(base_points + [
+                ("2026-01-04T00:00:00+01:00", 13.0)
+            ]),  # Newly appended index preserves original statistic ID.
+            synthetic_history(base_points[:-1] + [
+                ("2026-01-03T00:00:00+01:00", 12.5)
+            ]),
+            synthetic_history(base_points[:-1] + [
+                ("2026-01-03T00:10:00+01:00", 12.0)
+            ]),  # Different source timestamp but SAME hourly bucket/sums.
+        ]
+        for altered in changes:
+            current["history"] = altered
+            with pytest.raises(
+                services.ServiceValidationError,
+                match="source data or approved plan changed",
+            ):
+                await services.async_import_history(hass, call(retry_pending=True))
+            assert len(queued) == 2
+            assert database["save_count"] == original_save_count
+            assert database["value"] == initial_db
+
+        current["history"] = synthetic_history(base_points)
+        with pytest.raises(
+            services.ServiceValidationError,
+            match="source data or approved plan changed",
+        ):
+            await services.async_import_history(
+                hass, call(retry_pending=True, allow_gaps=True)
+            )
+        assert len(queued) == 2
+        assert database["value"] == initial_db
+
+        # A b6 ledger has no trustworthy fingerprint. Fail closed rather than
+        # silently retrying it, but keep its pending record available to verify.
+        database["value"] = {
+            key: value for key, value in initial_db.items()
+            if key != "pending_fingerprint"
+        }
+        with pytest.raises(
+            services.ServiceValidationError, match="predates fingerprint protection",
+        ):
+            await services.async_import_history(hass, call(retry_pending=True))
+        assert len(queued) == 2
+        assert database["save_count"] == original_save_count
+
+        # With no pending work, retry_pending may not start a new import.
+        database["value"] = {**initial_db, "pending": {}}
+        with pytest.raises(
+            services.ServiceValidationError, match="No pending Recorder import",
+        ):
+            await services.async_import_history(hass, call(retry_pending=True))
+        assert len(queued) == 2
+        assert database["save_count"] == original_save_count
+
+    asyncio.run(check())
+
+
+
+@pytest.mark.parametrize("interruption", [
+    "before_ledger", "before_first_queue", "during_second_queue",
+    "after_all_queues",
+])
+def test_b7_multimeter_interruption_recovery_with_isolated_persistent_ledger(
+    services, monkeypatch, interruption
+):
+    """Model restart with a fresh coordinator and a durable, reloaded ledger.
+
+    These are deterministic service fault-injection tests; a separate CI
+    integration test checks the same behavior using actual SQLite Recorder.
+    """
+    from copy import deepcopy
+
+    history = scenario(
+        ("LOT-A", "A-COLD", "EF", False, [
+            ("2026-01-01", 10), ("2026-01-02", 12), ("2026-01-03", 15),
+        ]),
+        ("LOT-A", "B-HOT", "ECS", False, [
+            ("2026-01-01", 20), ("2026-01-02", 21), ("2026-01-03", 23),
+        ]),
+        ("LOT-B", "C-COLD", "EF", False, [
+            ("2026-01-01", 5), ("2026-01-02", 7), ("2026-01-03", 10),
+        ]),
+    )
+    assert len(history["__physical_meters__"]) == 3
+    coordinator = {"current": None}
+
+    def restarted_coordinator():
+        coordinator["current"] = SimpleNamespace(
+            entry=SimpleNamespace(
+                entry_id="CI-INTERRUPT-ACCOUNT",
+                unique_id="CI-INTERRUPT-ACCOUNT",
+                options={},
+            ),
+        )
+
+    restarted_coordinator()
+
+    async def source(*_):
+        return (
+            coordinator["current"], date(2026, 1, 1), date(2026, 1, 5),
+            history, 1,
+        )
+
+    monkeypatch.setattr(services, "_coordinator", lambda *_: coordinator["current"])
+    monkeypatch.setattr(services, "_load", source)
+
+    durable = {"ledger": None, "saves": 0, "fail_save": False}
+    db = {}
+    queue = {"count": 0, "fail_at": None, "fail_after": False}
+
+    class DurableStore:
+        def __init__(self, hass, version, key):
+            assert version == 1 and "CI-INTERRUPT-ACCOUNT" not in key
+
+        async def async_load(self):
+            return deepcopy(durable["ledger"])
+
+        async def async_save(self, record):
+            if durable["fail_save"]:
+                raise OSError("Injected failure before durable pending ledger")
+            durable["ledger"] = deepcopy(record)
+            durable["saves"] += 1
+
+    def queued_recorder(hass, metadata, rows):
+        queue["count"] += 1
+        if queue["fail_at"] == queue["count"] and not queue["fail_after"]:
+            raise RuntimeError("Injected crash before queue")
+        series = metadata["statistic_id"]
+        for item in rows:
+            stamp = item["start"].isoformat()
+            key = (series, stamp)
+            value = item["sum"]
+            assert key not in db or db[key] == value
+            db[key] = value
+        if queue["fail_at"] == queue["count"] and queue["fail_after"]:
+            raise RuntimeError("Injected crash after queue")
+
+    async def read_recorder(_domain, action, params, **_kwargs):
+        assert _domain == "recorder" and action == "get_statistics"
+        ids = set(params["statistic_ids"])
+        return {"statistics": {
+            series: [
+                {"start": at, "sum": value}
+                for (stored_series, at), value in sorted(db.items())
+                if stored_series == series
+            ] for series in ids
+        }}
+
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(services.dt_util, "utcnow", lambda: datetime.now(timezone.utc), raising=False)
+    monkeypatch.setattr(services, "Store", DurableStore)
+    monkeypatch.setattr(services, "async_add_external_statistics", queued_recorder)
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda uid: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+        services=SimpleNamespace(async_call=read_recorder),
+    )
+
+    def action(**kwargs):
+        return SimpleNamespace(
+            context=SimpleNamespace(user_id="admin"),
+            data={
+                "confirm": True, "include_cold_water": True,
+                "include_hot_water": True, "include_heating": False,
+                **kwargs,
+            },
+        )
+
+    async def exercise():
+        if interruption == "before_ledger":
+            durable["fail_save"] = True
+        elif interruption == "before_first_queue":
+            queue["fail_at"] = 1
+        elif interruption == "during_second_queue":
+            queue["fail_at"] = 2
+        elif interruption == "after_all_queues":
+            queue["fail_at"] = 3
+            queue["fail_after"] = True
+
+        with pytest.raises(services.ServiceValidationError):
+            await services.async_import_history(hass, action())
+
+        if interruption == "before_ledger":
+            assert durable["ledger"] is None and db == {}
+        else:
+            assert len(durable["ledger"]["pending"]) == 3
+            assert len(durable["ledger"]["pending_fingerprint"]) == 64
+
+        # Fresh integration coordinator after a simulated crash. Only the
+        # durable journal and recorded buckets survive; all locks are new.
+        restarted_coordinator()
+        durable["fail_save"] = False
+        queue["count"], queue["fail_at"], queue["fail_after"] = 0, None, False
+
+        if durable["ledger"] is None:
+            first = await services.async_import_history(hass, action())
+            assert len(first["series"]) == 3
+        else:
+            partial = await services.async_verify_history(hass, action())
+            if interruption == "before_first_queue":
+                assert len(partial["verified"]) == 0
+                assert len(partial["pending"]) == 3
+                retried = await services.async_import_history(
+                    hass, action(retry_pending=True),
+                )
+                assert len(retried["series"]) == 3
+            elif interruption == "during_second_queue":
+                assert len(partial["verified"]) == 1
+                assert len(partial["pending"]) == 2
+                retried = await services.async_import_history(
+                    hass, action(retry_pending=True),
+                )
+                assert len(retried["series"]) == 2
+            else:
+                assert partial["status"] == "verified"
+                assert len(partial["verified"]) == 3
+                with pytest.raises(
+                    services.ServiceValidationError, match="No pending",
+                ):
+                    await services.async_import_history(
+                        hass, action(retry_pending=True),
+                    )
+        final = await services.async_verify_history(hass, action())
+        assert final["status"] == "verified"
+        assert final["pending"] == []
+        assert durable["ledger"]["pending"] == {}
+        assert len(durable["ledger"]["series"]) == 3
+        assert len(db) == 9  # Three hourly buckets for each physical meter.
+        assert len({series for series, _stamp in db}) == 3
+        assert sum(db.values()) == pytest.approx(18.0)
+        # A repeated verification must be inert and preserve all records.
+        unchanged = deepcopy(db)
+        again = await services.async_verify_history(hass, action())
+        assert again["status"] == "verified" and again["verified"] == []
+        assert db == unchanged
+
+    asyncio.run(exercise())
+
+
+
+@pytest.mark.parametrize("fault", ["missing", "wrong_sum", "duplicate", "invalid_response"])
+def test_b7_recorder_partial_verification_keeps_unconfirmed_series_pending(
+    services, monkeypatch, fault
+):
+    """Never mark an entire two-meter import verified from a partial HA read."""
+    from copy import deepcopy
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    snapshot = [
+        [base.isoformat(), 0.0],
+        [(base + timedelta(days=1)).isoformat(), 1.5],
+        [(base + timedelta(days=2)).isoformat(), 3.0],
+    ]
+    ids = [
+        "trybatec:history_v5_ef_daily_CI-METER-A",
+        "trybatec:history_v5_ef_daily_CI-METER-B",
+    ]
+    original = {
+        "version": 1,
+        "series": {
+            key: {"statistic_id": key, "snapshot": deepcopy(snapshot)}
+            for key in ids
+        },
+        "pending": {key: key for key in ids},
+    }
+    disk = {"content": deepcopy(original), "writes": 0}
+
+    class FakeStore:
+        def __init__(self, *args):
+            pass
+
+        async def async_load(self):
+            return deepcopy(disk["content"])
+
+        async def async_save(self, ledger):
+            disk["writes"] += 1
+            disk["content"] = deepcopy(ledger)
+
+    async def stats(domain, action, payload, **kwargs):
+        assert (domain, action) == ("recorder", "get_statistics")
+        assert kwargs == {"blocking": True, "return_response": True}
+        sid = payload["statistic_ids"][0]
+        expected = [{"start": stamp, "sum": amount} for stamp, amount in snapshot]
+        if sid == ids[1]:
+            if fault == "missing":
+                expected = expected[:-1]
+            elif fault == "wrong_sum":
+                expected[1]["sum"] += 100
+            elif fault == "duplicate":
+                expected.append({**expected[1], "sum": 500})
+            else:
+                return {"unexpected": {}}
+        return {"statistics": {sid: expected}}
+
+    monkeypatch.setattr(services, "Store", FakeStore)
+    monkeypatch.setattr(
+        services, "_coordinator",
+        lambda *_: SimpleNamespace(entry=SimpleNamespace(entry_id="CI-ACCOUNT")),
+    )
+    monkeypatch.setattr(
+        services.dt_util, "utcnow",
+        lambda: datetime.now(timezone.utc), raising=False,
+    )
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda uid: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+        services=SimpleNamespace(async_call=stats),
+    )
+    call = SimpleNamespace(context=SimpleNamespace(user_id="admin"), data={})
+
+    async def exercise():
+        if fault == "invalid_response":
+            with pytest.raises(
+                services.ServiceValidationError,
+                match="Recorder verification service returned invalid data",
+            ):
+                await services.async_verify_history(hass, call)
+            assert disk["content"] == original
+            assert disk["writes"] == 0
+            return
+
+        state = await services.async_verify_history(hass, call)
+        assert state["status"] == "pending_recorder_verification"
+        assert len(state["verified"]) == 1
+        assert state["verified"][0]["statistic_id"] == ids[0]
+        assert len(state["pending"]) == 1
+        assert state["pending"][0]["statistic_id"] == ids[1]
+        assert state["pending"][0]["missing_or_mismatched_rows"] == 1
+        assert disk["content"]["pending"] == {ids[1]: ids[1]}
+        assert disk["content"]["series"][ids[1]] == original["series"][ids[1]]
+        assert disk["writes"] == 1
+
+    asyncio.run(exercise())
