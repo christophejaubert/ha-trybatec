@@ -125,6 +125,22 @@ class TrybatecOptionsFlow(OptionsFlow):
         """Instance-relative Home Assistant route; never embed a user's URL."""
         return "/config/developer-tools/action"
 
+    @staticmethod
+    def _logs_url() -> str:
+        """Instance-relative logs route; do not use external links."""
+        return "/config/logs?search=trybatec"
+
+    def _history_notice(self, step_id: str) -> ConfigFlowResult:
+        """Show an actionable menu, never a generic non-navigable abort dialog."""
+        return self.async_show_menu(
+            step_id=step_id,
+            menu_options=["init"],
+            description_placeholders={
+                "actions_url": self._actions_url(),
+                "logs_url": self._logs_url(),
+            },
+        )
+
     def _nav_text(self, french: str, english: str) -> str:
         """Use Home Assistant's UI language for navigation choices."""
         language = getattr(getattr(self.hass, "config", None), "language", "en")
@@ -204,14 +220,14 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_unavailable")
         mapping = self._known_meter_units(coordinator)
         if not mapping:
-            return self.async_abort(reason="no_readings_to_review")
+            return self._history_notice("history_unavailable")
         if user_input is not None:
             chosen = user_input.get("meter")
             if chosen not in mapping:
-                return self.async_abort(reason="history_preview_required")
+                return self._history_notice("history_preview_missing")
             self._selected_meter_unit_key = chosen
             return await self.async_step_meter_unit()
         display_label = self._nav_text("graphique", "chart")
@@ -243,10 +259,10 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self.async_step_meter_units()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_unavailable")
         selected = self._known_meter_units(coordinator).get(self._selected_meter_unit_key)
         if selected is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_preview_missing")
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         current_unit = current.get(self._selected_meter_unit_key, "unverified")
         device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
@@ -304,13 +320,10 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_unavailable")
         cache = getattr(coordinator, "_history_review_cache", None)
         if cache is None:
-            return self.async_show_menu(
-                step_id="history_empty", menu_options=["init"],
-                description_placeholders={"actions_url": self._actions_url()},
-            )
+            return self._history_notice("history_preview_missing")
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
@@ -352,13 +365,10 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self._go_to_main_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_unavailable")
         cache = getattr(coordinator, "_history_review_cache", None)
         if cache is None:
-            return self.async_show_menu(
-                step_id="history_empty", menu_options=["init"],
-                description_placeholders={"actions_url": self._actions_url()},
-            )
+            return self._history_notice("history_preview_missing")
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
@@ -381,7 +391,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         if user_input is not None:
             selected = user_input.get("meter_detail")
             if selected not in meter_choices:
-                return self.async_abort(reason="history_preview_required")
+                return self._history_notice("history_preview_missing")
             self._selected_history_meter_key = selected
             return await self.async_step_history_meter_detail()
         return self.async_show_form(
@@ -466,28 +476,17 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self._go_to_main_menu()
         candidates = self._review_list()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
-        if not candidates and coordinator is not None and not hasattr(coordinator, "_history_review_cache"):
-            # Fetch source readings only when opening a review without an active cache.
-            from types import SimpleNamespace
-            from .history_services import _load
-            try:
-                await _load(self.hass, SimpleNamespace(data={"entry_id": self.config_entry.entry_id}))
-            except Exception:
-                return self.async_show_menu(
-                    step_id="history_empty", menu_options=["init"],
-                    description_placeholders={"actions_url": self._actions_url()},
-                )
-            candidates = self._review_list()
+        if coordinator is None:
+            return self._history_notice("history_unavailable")
         if not candidates:
-            return self.async_show_menu(
-                step_id="history_empty", menu_options=["init"],
-                    description_placeholders={"actions_url": self._actions_url()},
-            )
+            if getattr(coordinator, "_history_review_cache", None) is None:
+                return self._history_notice("history_preview_missing")
+            return self._history_notice("history_empty")
         by_id = {item["key"]: item for item in candidates}
         if user_input is not None:
             chosen = by_id.get(user_input.get("reading"))
             if chosen is None:
-                return self.async_abort(reason="history_preview_required")
+                return self._history_notice("history_preview_missing")
             self._selected_reading = chosen
             return await self.async_step_history_decision()
         selections = {
@@ -512,7 +511,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         if self._selected_reading is None or self._selected_reading["key"] not in {
             c["key"] for c in self._review_list()
         }:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_preview_missing")
         coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
         # One writer at a time: an admin must not alter review decisions while
         # a historical recorder import is underway for the same account.
@@ -536,7 +535,7 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     async def async_step_history_decision(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self._selected_reading is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_preview_missing")
         if user_input is not None:
             choice = user_input["choice"]
             if choice == RETURN_TO_MENU:
@@ -573,7 +572,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             self._pending_review = None
             return await self.async_step_history_decision()
         if self._selected_reading is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_preview_missing")
         errors = {}
         if user_input is not None:
             try:
@@ -626,7 +625,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             self._pending_review = None
             return await self.async_step_history_decision()
         if self._selected_reading is None or self._pending_review is None:
-            return self.async_abort(reason="history_preview_required")
+            return self._history_notice("history_preview_missing")
         if user_input is not None and user_input.get("confirm") is True:
             approved = dict(self._pending_review)
             if approved.pop("requires_out_of_period_confirmation", False):
