@@ -248,47 +248,57 @@ jobs:
   decision-persistence-gate:
     name: decision-persistence-gate
     if: ${{ always() }}
-    needs: [resolve-test-refs, decision-persistence-process-restart]
+    needs: [resolve-test-refs, decision-persistence-process-restart, recorder-e2e]
     runs-on: ubuntu-latest
     steps:
-      - name: Block any failed or skipped persistence case
+      - name: Block failed or skipped persistence and Recorder E2E matrix cases
         env:
           REFS: ${{ needs.resolve-test-refs.result }}
           PERSISTENCE: ${{ needs.decision-persistence-process-restart.result }}
+          RECORDER_E2E: ${{ needs.recorder-e2e.result }}
         run: |
           echo "Reference resolution: $REFS"
           echo "Three persistence cases: $PERSISTENCE"
-          if [[ "$REFS" != "success" || "$PERSISTENCE" != "success" ]]; then
-            echo "One or more required persistence checks failed or were skipped." >&2
+          echo "Both Recorder E2E cases: $RECORDER_E2E"
+          if [[ "$REFS" != "success" || "$PERSISTENCE" != "success" || "$RECORDER_E2E" != "success" ]]; then
+            echo "At least one required persistence or Recorder E2E case failed or was skipped." >&2
             exit 1
           fi
 
-  b6-recorder-e2e:
-    name: b6-recorder-end-to-end
+  recorder-e2e:
+    name: recorder-e2e (${{ matrix.target }})
+    needs: resolve-test-refs
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [baseline, candidate]
     steps:
-      - name: Checkout CI harness
+      - name: Checkout CI harness at immutable candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ needs.resolve-test-refs.outputs.candidate_sha }}
           path: ci-harness
-      - name: Checkout immutable b6 release
+      - name: Checkout integration under test at immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: 0.2.0b6
-          path: tested-b6
+          ref: ${{ matrix.target == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
+          path: tested-integration
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.14"
-      - name: Install isolated HA Recorder fixture
-        run: python -m pip install --upgrade pytest-homeassistant-custom-component
-      - name: Execute b6 importer and verifier against SQLite
-        working-directory: tested-b6
+          python-version: "3.14.10"
+      - name: Install pinned, isolated HA Recorder fixtures
+        run: |
+          python -m pip install -r ci-harness/.github/ci/requirements-ha-runtime.txt
+          python -m pip check
+      - name: Exercise historical preview, import, Recorder SQLite, retry and verification
+        working-directory: tested-integration
         env:
-          PYTHONPATH: ${{ github.workspace }}/tested-b6
-        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/b6_recorder_pipeline_spec.py
+          PYTHONPATH: ${{ github.workspace }}/tested-integration
+        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/recorder_pipeline_spec.py
 
   latest-homeassistant-import:
     runs-on: ubuntu-latest
@@ -314,7 +324,7 @@ jobs:
   draft-release:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
-    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, b6-recorder-e2e, latest-homeassistant-import]
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
