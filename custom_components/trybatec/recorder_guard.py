@@ -5,7 +5,9 @@ until every expected hourly bucket is observable in Recorder.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from hashlib import sha256
+import json
 from math import isclose, isfinite
 from typing import Any
 
@@ -26,6 +28,7 @@ def stage_pending(ledger: dict[str, Any], approved: list[dict[str, Any]],
 def verified_snapshot(snapshot: list[list], rows: list[dict[str, Any]]) -> tuple[bool, int]:
     """Check *all* expected UTC buckets and sums, not just the final row."""
     actual: dict[datetime, float] = {}
+    invalid_or_duplicate: set[datetime] = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -34,13 +37,19 @@ def verified_snapshot(snapshot: list[list], rows: list[dict[str, Any]]) -> tuple
             amount = float(row["sum"])
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
-        if timestamp.tzinfo is not None and isfinite(amount):
-            actual[timestamp.astimezone(timezone.utc)] = amount
+        if timestamp.tzinfo is not None:
+            bucket = timestamp.astimezone(timezone.utc)
+            if bucket in actual or not isfinite(amount):
+                # Duplicate or invalid returned statistics cannot establish a
+                # single authoritative Recorder sum for the expected bucket.
+                invalid_or_duplicate.add(bucket)
+            else:
+                actual[bucket] = amount
     missing = 0
     for stamp, raw_sum in snapshot:
         at = datetime.fromisoformat(stamp).astimezone(timezone.utc)
         stored_sum = actual.get(at)
-        if stored_sum is None or not isclose(stored_sum, raw_sum, rel_tol=1e-7, abs_tol=2e-6):
+        if at in invalid_or_duplicate or stored_sum is None or not isclose(stored_sum, raw_sum, rel_tol=1e-7, abs_tol=2e-6):
             missing += 1
     return missing == 0, missing
 
@@ -59,3 +68,83 @@ def expected_windows(snapshot: list[list], *, days: int = 90):
         finish = min(cursor + timedelta(days=days), end)
         yield cursor, finish
         cursor = finish
+
+
+def fingerprint_import_plan(
+    history: dict[str, Any],
+    plan: list[dict[str, Any]],
+    chosen: list[str],
+    start: date,
+    end: date,
+    options: dict[str, Any],
+    skipped: list[dict[str, Any]],
+) -> str:
+    """Hash the full approved input for an exact, fail-closed pending retry.
+
+    The fingerprint covers the original source indexes *before* any review
+    decision, all selected physical meters, the generated hourly state/sum
+    rows, conversion units, review allocations, dates and import options.
+    Only the digest, never raw vendor data or personal identifiers, is stored.
+    """
+    physical = []
+    for (lot, fluid, serial), meter in sorted(
+        history["__physical_meters__"].items()
+    ):
+        if fluid not in chosen:
+            continue
+        source_digest = meter.get("source_fingerprint")
+        if (
+            not isinstance(source_digest, str)
+            or len(source_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in source_digest)
+        ):
+            raise ValueError("Missing immutable source fingerprint; import refused")
+        allocations = [
+            [allocation["at"].isoformat(), allocation["quantity"],
+             allocation["source_key"]]
+            for allocation in meter["accounting_allocations"]
+        ]
+        physical.append({
+            "lot": lot, "fluid": fluid, "serial": serial,
+            "source_fingerprint": source_digest,
+            "accounting_allocations": sorted(allocations),
+        })
+
+    normalized_plan = []
+    seen = set()
+    for item in sorted(plan, key=lambda candidate: candidate["logical_id"]):
+        logical = item["logical_id"]
+        if logical in seen:
+            raise ValueError("Duplicate historical series identity; import refused")
+        seen.add(logical)
+        normalized_plan.append({
+            "logical_id": logical,
+            "kind": item["kind"], "lot": item["lot"],
+            "fluid": item["fluid"], "serial": item["serial"],
+            "source_unit": item["source_unit"],
+            "normalized_unit": item["normalized_unit"],
+            "quantity": item["quantity"],
+            "rows": [
+                [row["start"].isoformat(), row["state"], row["sum"]]
+                for row in item["rows"]
+            ],
+        })
+    flags = (
+        "allow_gaps", "skip_anomalous_meters", "include_accounting",
+        "confirm_accounting", "confirm_heating_kwh", "confirm_revision",
+    )
+    contract = {
+        "version": 1,
+        "dates": [start.isoformat(), end.isoformat()],
+        "fluids": sorted(chosen),
+        "options": {flag: options.get(flag) is True for flag in flags},
+        "source_meters": physical,
+        "approved_plan": normalized_plan,
+        "skipped": sorted(skipped, key=lambda value: json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )),
+    }
+    encoded = json.dumps(
+        contract, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()

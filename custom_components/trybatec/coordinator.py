@@ -19,7 +19,7 @@ from .api import (
     TrybatecConnectionError,
     TrybatecDataError,
 )
-from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, CONF_METER_UNITS, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, CONF_METER_UNITS, CONF_DEVICE_UUIDS, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
 from .units import resolve_meter_unit, validate_meter_units
 from .parsing import known_lots, parse_lines, summarize_annual
 
@@ -49,6 +49,10 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             payload = await self.client.indexes(
                 self.entry.data[CONF_DEAL_ID], start=start, end=end
             )
+            await self.client.enrich_meter_units(
+                [payload], self.entry.data[CONF_DEAL_ID],
+                device_uuids=self.entry.options.get(CONF_DEVICE_UUIDS, {}),
+            )
             meters = parse_lines(payload)
             if not meters:
                 raise TrybatecDataError("No recognized meter rows in response")
@@ -64,5 +68,5 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         except TrybatecAuthError as exc:
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
-        except (TrybatecConnectionError, TrybatecDataError) as exc:
+        except (TrybatecConnectionError, TrybatecDataError, ValueError, TypeError, OverflowError) as exc:
             raise UpdateFailed("Unable to update Trybatec meter indexes") from exc
