@@ -592,6 +592,9 @@ def test_b7_multimeter_interruption_recovery_with_isolated_persistent_ledger(
             ] for series in ids
         }}
 
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(services.dt_util, "utcnow", lambda: datetime.now(timezone.utc), raising=False)
     monkeypatch.setattr(services, "Store", DurableStore)
     monkeypatch.setattr(services, "async_add_external_statistics", queued_recorder)
     hass = SimpleNamespace(
@@ -635,6 +638,7 @@ def test_b7_multimeter_interruption_recovery_with_isolated_persistent_ledger(
         # Fresh integration coordinator after a simulated crash. Only the
         # durable journal and recorded buckets survive; all locks are new.
         restarted_coordinator()
+        durable["fail_save"] = False
         queue["count"], queue["fail_at"], queue["fail_after"] = 0, None, False
 
         if durable["ledger"] is None:
