@@ -22,28 +22,34 @@ permissions:
 
 jobs:
   pure-tests:
-    name: pure-tests (Python ${{ matrix.python-version }})
+    name: pure-tests (Python ${{ matrix.python_label }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13", "3.14"]
+        include:
+          - python_label: "3.13"
+            python_version: "3.13.18"
+          - python_label: "3.14"
+            python_version: "3.14.10"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python_version }}
       - name: Install pure Python test dependencies
-        run: python -m pip install pytest pytest-cov aiohttp
+        run: |
+          python -m pip install -r .github/ci/requirements-pure.txt
+          python -m pip check
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
       - name: Test parsing, multi-customer history, service security, and API client
         run: |
           python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml tests
       - name: Upload coverage report
-        if: matrix.python-version == '3.14'
+        if: matrix.python_label == '3.14'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: trybatec-coverage
@@ -93,9 +99,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.14"
+          python-version: "3.14.10"
       - name: Install Ruff
-        run: python -m pip install ruff
+        run: |
+          python -m pip install -r .github/ci/requirements-lint.txt
+          python -m pip check
       - name: Enforce high-confidence lint errors
         run: ruff check --output-format=github --select E9,F63,F7,F82 custom_components/trybatec tests
       - name: Report general lint debt (not blocking initially)
@@ -151,52 +159,81 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.14"
+          python-version: "3.14.10"
       - name: Install Home Assistant test framework
-        run: python -m pip install --upgrade pytest-homeassistant-custom-component
+        run: |
+          python -m pip install -r .github/ci/requirements-ha-runtime.txt
+          python -m pip check
       - name: Test entities, services and persistent decisions on isolated Home Assistant
         run: python -m pytest -q -o asyncio_mode=auto integration_tests
 
+  resolve-test-refs:
+    name: resolve-test-refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      candidate_sha: ${{ steps.select.outputs.candidate_sha }}
+      baseline_sha: ${{ steps.select.outputs.baseline_sha }}
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Resolve previous published version and immutable commit refs
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/ci/resolve_refs.py
+
   decision-persistence-process-restart:
     name: decision-persistence (${{ matrix.case }})
+    needs: resolve-test-refs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          - case: b6-to-b6
-            writer_ref: 0.2.0b6
-            reader_ref: 0.2.0b6
-          - case: b7-to-b7
-            writer_ref: feature/0.2.0b7
-            reader_ref: feature/0.2.0b7
-          - case: b6-to-b7
-            writer_ref: 0.2.0b6
-            reader_ref: feature/0.2.0b7
+          - case: baseline-self
+            writer_kind: baseline
+            reader_kind: baseline
+          - case: candidate-self
+            writer_kind: candidate
+            reader_kind: candidate
+          - case: baseline-to-candidate
+            writer_kind: baseline
+            reader_kind: candidate
     steps:
-      - name: Checkout CI harness (not the version under test)
+      - name: Checkout CI harness at exact candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          ref: ${{ needs.resolve-test-refs.outputs.candidate_sha }}
           path: ci-harness
-      - name: Checkout writer integration
+      - name: Checkout writer integration by immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ matrix.writer_ref }}
+          ref: ${{ matrix.writer_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
           path: tested-writer
-      - name: Checkout reader integration
+      - name: Checkout reader integration by immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ matrix.reader_ref }}
+          ref: ${{ matrix.reader_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
           path: tested-reader
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.14"
-      - name: Install real Home Assistant Core (no fixture storage mocking)
-        run: python -m pip install 'homeassistant==2026.11.0'
+          python-version: "3.14.10"
+      - name: Install pinned Home Assistant Core for physical storage tests
+        run: |
+          python -m pip install 'homeassistant==2026.11.0'
+          python -m pip check
       - name: Process 1 - start HA and persist synthetic review decision
         working-directory: tested-writer
         env:
@@ -207,6 +244,24 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/tested-reader
         run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+
+  decision-persistence-gate:
+    name: decision-persistence-gate
+    if: ${{ always() }}
+    needs: [resolve-test-refs, decision-persistence-process-restart]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block any failed or skipped persistence case
+        env:
+          REFS: ${{ needs.resolve-test-refs.result }}
+          PERSISTENCE: ${{ needs.decision-persistence-process-restart.result }}
+        run: |
+          echo "Reference resolution: $REFS"
+          echo "Three persistence cases: $PERSISTENCE"
+          if [[ "$REFS" != "success" || "$PERSISTENCE" != "success" ]]; then
+            echo "One or more required persistence checks failed or were skipped." >&2
+            exit 1
+          fi
 
   latest-homeassistant-import:
     runs-on: ubuntu-latest
@@ -232,7 +287,7 @@ jobs:
   draft-release:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
-    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-process-restart, latest-homeassistant-import]
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
