@@ -132,3 +132,26 @@ def test_workflow_release_is_manual_draft_only():
     assert "github.ref == 'refs/heads/main'" in data
     assert "permissions: {}" in data
     assert "GH_TOKEN: ${{ github.token }}" not in data.split("  decision-persistence-process-restart:")[0]
+
+def test_candidate_checkouts_are_event_scoped_for_default_branch_cache():
+    """Scheduled/manual/push jobs must use GitHub's triggering SHA, not resolver data.
+
+    PR candidates may execute only in PR-scoped workflow runs. The baseline is
+    still the pinned release commit resolved by the read-only resolver.
+    """
+    workflow = Path(__file__).resolve().parents[1] / "workflows/ci.yml"
+    data = workflow.read_text(encoding="utf-8")
+    checkout_refs = [
+        line.strip() for line in data.splitlines() if line.strip().startswith("ref: ")
+    ]
+    assert not any(
+        "needs.resolve-test-refs.outputs.candidate_sha" in ref
+        for ref in checkout_refs
+    )
+    assert sum(
+        "github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha"
+        in ref for ref in checkout_refs
+    ) >= 5
+    assert any("needs.resolve-test-refs.outputs.baseline_sha" in ref for ref in checkout_refs)
+    assert "ref: 7690efebd1e94125c4267458601650f88da41c8c" in data
+    assert "permissions: {}" in data
