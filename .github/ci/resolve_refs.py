@@ -42,7 +42,7 @@ def github_api(path: str):
     if not REPO.fullmatch(repo):
         raise SystemExit("Invalid repository identifier")
     if not (
-        re.fullmatch(r"releases\\?per_page=100&page=[1-5]", path)
+        re.fullmatch(r"releases\?per_page=100&page=[1-5]", path)
         or re.fullmatch(r"git/ref/tags/[A-Za-z0-9_.-]+", path)
         or re.fullmatch(r"git/tags/[0-9a-f]{40}", path)
     ):
