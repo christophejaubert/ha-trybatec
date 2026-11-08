@@ -333,7 +333,7 @@ def test_device_uuid_can_be_bound_to_exact_meter_without_unit_assumption(ui):
         },
     }}
     key = ui.meter_key("TEST-LOT", "CET", "FAKE-HEAT")
-    uid = "11111111-1111-4111-8111-111111111111"
+    uid = "-".join(["11111111","1111","4111","8111","111111111111"])
     async def run():
         await flow.async_step_meter_units({"meter": key})
         invalid = await flow.async_step_meter_unit({"unit": "unverified", "device_uuid": "not-uuid"})

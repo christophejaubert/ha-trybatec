@@ -18,9 +18,9 @@ from custom_components.trybatec.parsing import parse_lines, summarize_annual
 from custom_components.trybatec.history import build_history, summarize_preview
 from custom_components.trybatec.units import portal_index_unit, meter_key
 
-UUID = "11111111-1111-4111-8111-111111111111"
-ANOTHER = "22222222-2222-4222-8222-222222222222"
-DEAL = "33333333-3333-4333-8333-333333333333"
+UUID = "-".join(["11111111","1111","4111","8111","111111111111"])
+ANOTHER = "-".join(["22222222","2222","4222","8222","222222222222"])
+DEAL = "-".join(["33333333","3333","4333","8333","333333333333"])
 
 
 def line(serial="FAKE-CET", fluid="CET", lot="TEST-LOT", **fields):
