@@ -33,12 +33,12 @@
       "init": {
         "title": "Trybatec options",
         "menu_options": {
-          "settings_menu": "Settings",
-          "history_review_menu": "Review historical readings",
-          "meter_units_menu": "Verify meter units",
+          "settings": "Settings",
+          "history_review": "Review historical readings",
+          "meter_units": "Verify meter units",
           "history_overview": "History overview",
-          "history_meters_menu": "Meter details",
-          "diagnostics_menu": "Diagnostics and logging"
+          "history_meters": "Meter details",
+          "diagnostics": "Diagnostics and logging"
         }
       },
       "history_review": {
@@ -146,69 +146,6 @@
         "description": "Choose the Trybatec log severity. This level applies to all Trybatec hubs in the Home Assistant instance. WARNING is recommended normally; DEBUG is for temporary troubleshooting. Raw portal responses, passwords and tokens must never be logged.\n\n[Open Trybatec logs]({logs_url})\n\nChoose the logging level. 'Save and return to main menu' applies the selected level before navigating.",
         "data": {
           "log_level": "Logging level"
-        }
-      },
-      "settings_menu": {
-        "title": "Settings",
-        "menu_options": {
-          "settings": "Edit settings",
-          "init": "← Back to main menu"
-        }
-      },
-      "diagnostics_menu": {
-        "title": "Diagnostics and logging",
-        "menu_options": {
-          "diagnostics": "Edit log level",
-          "init": "← Back to main menu"
-        }
-      },
-      "meter_units_menu": {
-        "title": "Meter units",
-        "menu_options": {
-          "meter_units": "Select a meter",
-          "init": "← Back to main menu"
-        }
-      },
-      "meter_unit_menu": {
-        "title": "Meter options",
-        "menu_options": {
-          "meter_unit": "Edit unit or UUID",
-          "meter_units": "← Back to meter list",
-          "init": "← Back to main menu"
-        }
-      },
-      "history_meters_menu": {
-        "title": "Meter history",
-        "menu_options": {
-          "history_meters": "Select a meter to inspect",
-          "init": "← Back to main menu"
-        }
-      },
-      "history_review_menu": {
-        "title": "Historical review",
-        "menu_options": {
-          "history_review": "Select a reading to review",
-          "init": "← Back to main menu"
-        }
-      },
-      "history_correction_menu": {
-        "title": "Correct a reading",
-        "description": "Draft corrections are not saved to history without final confirmation.",
-        "menu_options": {
-          "history_correction": "Edit correction",
-          "history_decision": "← Back to previous screen",
-          "init": "← Back to main menu"
-        }
-      },
-      "history_confirm_menu": {
-        "title": "Approve reading action",
-        "description": "Opening this menu never records a decision. Select Confirm, then explicitly approve on the following screen.",
-        "menu_options": {
-          "history_confirm": "Review and confirm decision",
-          "history_correction_menu": "← Back to correction",
-          "history_decision": "← Back to decision",
-          "history_review_menu": "← Back to readings without saving",
-          "init": "← Back to main menu"
         }
       }
     },
