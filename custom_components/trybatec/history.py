@@ -207,7 +207,6 @@ def build_history(
             ],
             "portal_unit": meter["portal_unit"],
             "unit_source": meter["unit_source"],
-            "source_fingerprint": raw_fingerprints[key],
             "retired": meter["retired"],
             "conflicts": [
                 conflict for conflict in conflicts
@@ -252,6 +251,7 @@ def build_history(
             "lot": lot, "fluid": fluid, "serial": serial,
             "retired": meter["retired"], "portal_unit": meter["portal_unit"],
             "unit_source": meter["unit_source"],
+            "source_fingerprint": raw_fingerprints[key],
             "portal_display_unit": meter["portal_display_unit"],
             "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],
