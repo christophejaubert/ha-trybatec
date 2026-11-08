@@ -1,0 +1,164 @@
+name: Publish approved experimental Trybatec prerelease
+
+# An explicit owner workflow_dispatch is required for each version and exact SHA.
+# Pushes, PRs, issue comments, tags and schedules can never trigger publication.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Manifest prerelease version, e.g. 0.2.0b10"
+        type: string
+        required: true
+      approved_sha:
+        description: "Explicitly approved 40-character main commit SHA"
+        type: string
+        required: true
+
+permissions: {}
+concurrency:
+  group: trybatec-experimental-publication
+  cancel-in-progress: false
+
+jobs:
+  publish-experimental:
+    name: Publish explicitly approved alpha, beta or RC
+    if: >-
+      github.repository == 'christophejaubert/ha-trybatec' &&
+      github.actor == 'christophejaubert' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: christophejaubert/ha-trybatec
+      VERSION: ${{ inputs.version }}
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+    steps:
+      - name: Checkout exact approved main revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate version, immutable SHA and matching release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          approved_sha = os.environ["APPROVED_SHA"]
+          prerelease = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:a|b|rc)[1-9]\d*"
+          if re.fullmatch(prerelease, version) is None:
+              raise SystemExit("Stable releases and invalid prerelease versions are forbidden")
+          if re.fullmatch(r"[a-f0-9]{40}", approved_sha) is None or approved_sha != os.environ["GITHUB_SHA"]:
+              raise SystemExit("Requested SHA must exactly match the workflow main revision")
+          manifest = json.loads(Path("custom_components/trybatec/manifest.json").read_text(encoding="utf-8"))
+          if manifest.get("domain") != "trybatec" or manifest.get("version") != version:
+              raise SystemExit("Manifest does not match requested prerelease version")
+          notes = Path("RELEASE_NOTES_BETA.md").read_text(encoding="utf-8").split("\n---\n", 1)[0].strip()
+          first = notes.splitlines()[0] if notes else ""
+          if not re.fullmatch(r"# " + re.escape(version) + r"(?:\s*[—-].*)?", first) or len(notes) < 80:
+              raise SystemExit("Release notes do not describe exactly this prerelease")
+          (Path(os.environ["RUNNER_TEMP"]) / "release-notes.md").write_text(notes + "\n", encoding="utf-8")
+          PY
+          [[ "$(git rev-parse HEAD)" == "$APPROVED_SHA" ]] || exit 1
+          [[ "$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')" == "$APPROVED_SHA" ]] || {
+            echo "main moved after approval" >&2
+            exit 1
+          }
+          if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Draft or release already exists; never replace it automatically" >&2
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag exists; never move it" >&2
+            exit 1
+          fi
+
+      - name: Verify active main protection and all exact-SHA CI jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/rulesets?includes_parents=true" > "$RUNNER_TEMP/rulesets.json"
+          gh api "repos/$REPO/actions/runs?head_sha=$APPROVED_SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          rules = json.loads((root / "rulesets.json").read_text(encoding="utf-8"))
+          if not any(r.get("name") == "Protect main - CI/CD" and r.get("enforcement") == "active" for r in rules):
+              raise SystemExit("Mandatory branch-protection ruleset missing or inactive")
+          runs = json.loads((root / "runs.json").read_text(encoding="utf-8")).get("workflow_runs", [])
+          valid = [r for r in runs if r.get("name") == "Compatibility and tests"
+                   and r.get("event") == "push" and r.get("head_branch") == "main"
+                   and r.get("head_sha") == os.environ["APPROVED_SHA"]
+                   and r.get("status") == "completed" and r.get("conclusion") == "success"]
+          if not valid:
+              raise SystemExit("No successful post-merge CI push on the exact approved commit")
+          (root / "ci-run-id").write_text(str(valid[0]["id"]), encoding="ascii")
+          PY
+          run_id="$(cat "$RUNNER_TEMP/ci-run-id")"
+          gh api "repos/$REPO/actions/runs/$run_id/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          jobs = json.loads((Path(os.environ["RUNNER_TEMP"]) / "jobs.json").read_text()).get("jobs", [])
+          passed = {j["name"] for j in jobs if j.get("status") == "completed" and j.get("conclusion") == "success"}
+          required = {
+              "pure-tests (Python 3.13)", "pure-tests (Python 3.14)",
+              "ruff-essential", "hassfest", "hacs", "gitleaks",
+              "ha-runtime-and-storage", "latest-homeassistant-import",
+              "resolve-test-refs", "decision-persistence (baseline-self)",
+              "decision-persistence (candidate-self)",
+              "decision-persistence (baseline-to-candidate)",
+              "recorder-e2e (baseline)", "recorder-e2e (candidate)",
+              "decision-persistence-gate",
+          }
+          if not required.issubset(passed):
+              raise SystemExit(f"Required CI jobs absent or failed: {sorted(required - passed)}")
+          PY
+
+      - name: Publish exactly one prerelease and verify its tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')" == "$APPROVED_SHA" ]] || exit 1
+          if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release now exists; refusing to overwrite" >&2
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag now exists; refusing to overwrite" >&2
+            exit 1
+          fi
+          gh release create "$VERSION" --repo "$REPO" --target "$APPROVED_SHA" --prerelease --title "Trybatec $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh api "repos/$REPO/releases/tags/$VERSION" > "$RUNNER_TEMP/published.json"
+          gh api "repos/$REPO/git/ref/tags/$VERSION" > "$RUNNER_TEMP/tag.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          release = json.loads((root / "published.json").read_text(encoding="utf-8"))
+          tag = json.loads((root / "tag.json").read_text(encoding="utf-8"))
+          if not (release["tag_name"] == os.environ["VERSION"]
+                  and release["draft"] is False and release["prerelease"] is True
+                  and release["target_commitish"] == os.environ["APPROVED_SHA"]
+                  and tag["object"]["sha"] == os.environ["APPROVED_SHA"]):
+              raise SystemExit("Publication or tag does not match the approved SHA")
+          print("Verified prerelease:", release["html_url"])
+          PY
