@@ -1,0 +1,2 @@
+# Reference Ruff version verified in successful GitHub Actions run 42479226587.
+ruff==0.17.4
