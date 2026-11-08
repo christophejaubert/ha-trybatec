@@ -4,6 +4,10 @@
   "after_dependencies": [
     "recorder"
   ],
+  "categories": [
+    "water.meters_leak_detection",
+    "energy.meters_monitoring"
+  ],
   "codeowners": [
     "@christophejaubert"
   ],
