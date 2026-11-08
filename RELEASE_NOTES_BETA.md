@@ -8,6 +8,7 @@
 - A failed initial portal fetch remains a retryable setup failure, rather than silently accepting unverified data. The sanitized exception category is logged without vendor payloads or credentials.
 - Historical-review navigation no longer terminates in a bare error dialog when the integration is unavailable, the preview is missing after a restart, or the selection has expired. Each state has a clear explanation, a return-to-menu option and direct in-app links to Developer Tools → Actions and/or Trybatec logs.
 - An actual preview with no flagged readings is explicitly distinguished from a missing preview; persisted review decisions remain unchanged.
+- Annual monetary estimates no longer declare the unsupported Home Assistant MEASUREMENT state class; entity IDs remain unchanged.
 - Additional synthetic Home Assistant runtime and UI regression tests cover options-save lifecycle, restart with confirmed units, invalid existing overrides and navigation.
 
 **Limits:** The underlying cause of the user's live Trybatec API failure has not been confirmed without HA traceback. Vendor API connectivity and response format remain outside CI coverage. No real vendor data or production Recorder is used in these tests.
