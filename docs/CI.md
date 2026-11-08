@@ -1,100 +1,138 @@
-# Continuous integration and manual releases
+# ha-trybatec CI/CD: quality gates, security and releases
 
-The workflow [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) is **version-independent**. Update the version only in `custom_components/trybatec/manifest.json`, not in the workflow.
+Scope: this document and CI harness change only the delivery/test infrastructure,
+not the functional Home Assistant integration. Workflow source:
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
-## When checks run
+## Entry points and required checks
 
-Checks run for every push, pull request, a daily compatibility check, and manual workflow runs. They include:
+- **Push / pull request:** run unit tests, HA integration tests, Recorder, persistence
+  regression, static analysis, Hassfest, HACS, secret scanning and compatibility checks.
+- **Scheduled daily:** run compatibility checks on the default branch.
+- **Manual workflow dispatch:** optionally prepare an **unpublished release draft**,
+  only from `main` and only after all mandatory jobs have succeeded.
+  A normal push, a PR or a scheduled job **never publishes a release**.
+- **Unit tests:** Python 3.13 and 3.14; coverage report uploaded but the minimum
+  coverage and full Ruff formatting are still advisory.
+- **Home Assistant runtime:** isolated test fixture, synthetic portal data,
+  real sensor/service behavior and a separate SQLite Recorder backend.
+- **Physical decision storage:** two independent HA Core/Python processes share
+  a throwaway `.storage` directory. Three scenarios are run:
+  `baseline-self`, `candidate-self`, `baseline-to-candidate`.
+  These also check the user's accounting correction, re-synchronization and
+  invalidation after a supplier-side correction. No production HA access.
 
-- Pytest on Python 3.13 and 3.14, with branch coverage reporting (no minimum threshold yet).
-- Python compilation, manifest validation, selected privacy patterns and image dimensions.
-- Ruff essential errors as blocking checks; broader lint and formatting reports are initially advisory.
-- Home Assistant Hassfest and HACS repository validation.
-- Gitleaks detection of accidentally committed secrets.
-- Import of integration modules with the latest available Home Assistant release.
-- A separate Home Assistant test runner (`ha-runtime-and-storage`) using `pytest-homeassistant-custom-component`: real integration setup, sensor states and unload, admin-only service authorization, configuration flow, and review-decision Store reads. Tests use synthetic vendor responses and do not perform external requests.
-- A real Home Assistant recorder test with an isolated SQLite database: round-trip of hourly external statistics, duplicate import retry, and bucket verification.
-- Real on-disk review-decision durability: a separate CI matrix (b6→b6,
-  b7→b7, b6→b7) starts two distinct Home Assistant Core/Python processes
-  using a shared temporary .storage directory. It validates an approved
-  synthetic accounting correction, original index fingerprint, justification,
-  re-synchronization and invalidation if the supplier changes the index.
-  No real account or personal Home Assistant instance is accessed.
+### Which source code does the persistence matrix test?
 
-Runtime tests exercise real Home Assistant code and a real, isolated Recorder statistics backend. They **do not** contact a live Trybatec account, alter a personal Home Assistant installation, or yet verify every historical import/repair path end-to-end. The Home Assistant test harness virtualizes the storage directory, so the decision Store test verifies save/read via Home Assistant APIs, not physical disk endurance across a process restart.
+The `resolve-test-refs` job checks out the **exact PR head SHA** on PR runs
+(`github.event.pull_request.head.sha`), or the triggering SHA for other
+events. It reads the version from this commit's `manifest.json`, then queries
+published GitHub releases and chooses the highest **strictly earlier** semantic
+version. It resolves that release tag, including annotated tags, to an immutable
+Git commit SHA. Drafts and nonmatching tags are ignored.
 
-## How to prepare a release
+Every writer, reader and harness checkout in the persistence tests is pinned to
+one of these resolved SHAs. There are **no `b6`, `b7` or feature-branch names
+in the matrix**. If there is no earlier released version, or a reference cannot
+be resolved, the tests fail rather than claiming a successful migration.
 
-1. Merge the approved changes into `main` after the required CI checks pass.
-2. Check that `custom_components/trybatec/manifest.json` contains the intended version.
-3. Go to **GitHub → Actions → Compatibility and tests → Run workflow** and select `main`.
-4. Choose `release_type=prerelease` for `X.Y.ZbN`, `aN` or `rcN`; choose `stable` for `X.Y.Z`.
-5. The workflow checks everything again and, only on success, **creates a draft release**. An existing tag or release cannot be overwritten.
-6. Review the release draft in GitHub, then **publish it manually**. No normal push, pull request or scheduled run publishes anything.
+The `decision-persistence-gate` status is green **only if** both reference
+resolution and the entire three-case matrix succeed. Failure, cancellation or
+skipping of a required matrix job does not yield a green gate. The version label
+stays stable for future releases.
 
-## Security of the pipeline
+These tests do not prove full HA service-driven historical imports, recovery from
+a deliberately interrupted Recorder write, or correctness against the real
+Trybatec API. Those remain separate functional regression coverage requirements.
 
-- GitHub Actions are pinned to verified full 40-character Git commit SHAs. This
-  prevents a moved major-version tag or branch from silently replacing a step.
-- GitHub's `GITHUB_TOKEN` receives `contents: read` by default. Only the
-  explicitly invoked release-draft job receives `contents: write`, which is
-  not available to regular push/PR tests. The draft is **not published**.
-- Checkout steps use `persist-credentials: false`, so later test commands
-  do not receive retained repository credentials.
-- Release-draft creation is serialized to avoid competing manual operations.
-- `.github/dependabot.yml` proposes weekly GitHub Actions dependency updates,
-  as PRs with checks, without auto-merge. Dependabot **only becomes operational
-  once its configuration is in the default branch (`main`)**.
-- These are SHA pins, not GitHub workflow dependency lockfiles. A full action
-  dependency lockfile would offer additional transitive-dependency guarantees.
+## Reproducibility versus forward compatibility
 
-## Protect `main` (repository administrator action)
+| Category | Reference / behavior |
+| --- | --- |
+| Python for unit tests | 3.13.18 and 3.14.10 (check labels remain 3.13 and 3.14) |
+| Python for isolated HA and persistence | 3.14.10 |
+| Pure-test direct packages | [`requirements-pure.txt`](.github/ci/requirements-pure.txt) |
+| Ruff | [`requirements-lint.txt`](.github/ci/requirements-lint.txt) |
+| HA runtime test framework | [`requirements-ha-runtime.txt`](.github/ci/requirements-ha-runtime.txt) |
+| Physical persistence HA Core | 2026.11.0 |
+| Latest-HA compatibility job | Intentionally installs the latest available HA and current Python 3.14 patch |
 
-As of 2026-11-08, `main` is **not protected** and no GitHub ruleset is configured.
-The ChatGPT GitHub connection can write repository files but has **no repository
-administration operation for setting branch protection**. An administrator must
-complete the following in the GitHub web interface:
+The three pinned requirement files are in [`.github/ci/`](.github/ci/).
+They lock **direct tools** based on versions already demonstrated to pass in
+GitHub Actions. The complete transitive Python dependency graph and
+`ubuntu-latest` image are **not locked**. Accordingly, the reference jobs are
+more reproducible, but not perfectly deterministic. Future hardening may generate
+hash-verified, transitive lockfiles per Python version and pin the runner image.
 
-1. Open `https://github.com/christophejaubert/ha-trybatec/settings/rules`.
-2. Select **New ruleset → New branch ruleset**.
-3. Use a descriptive name (for example `Protect main CI`), set enforcement to
-   **Active**, and target only the default branch `main`.
-4. Require a pull request before merging. Require resolution of conversations;
-   do not enable a mandatory independent reviewer if there is no other
-   eligible reviewer (the author cannot approve their own PR).
-5. Require successful status checks from GitHub Actions. Once the new workflow
-   is merged and check names have appeared, select:
-   - `pure-tests (Python 3.13)`
-   - `pure-tests (Python 3.14)`
-   - `ruff-essential`
-   - `hassfest`
-   - `hacs`
-   - `gitleaks`
-   - `ha-runtime-and-storage`
-   - `decision-persistence (b6-to-b6)`
-   - `decision-persistence (b7-to-b7)`
-   - `decision-persistence (b6-to-b7)`
-   - `latest-homeassistant-import`
-6. Block force pushes and deletions; prevent bypassing the checks under normal
-   operation. Decide whether requiring up-to-date branches is appropriate.
-7. Save the ruleset and confirm that `main` reports as protected.
+Dependabot proposes **weekly** pull requests for both GitHub Actions and Python
+tooling in `.github/ci`; it neither merges them nor publishes a release. The
+Dependabot configuration becomes effective only once merged into default
+branch `main`. Re-run checks on each update.
 
-**Important:** The current `feature/0.2.0b7` manifest fails Hassfest for
-missing Recorder dependency declaration. Do not mark this as passing, exclude
-Hassfest, or bypass branch protections. Resolve it separately in integration
-development before the full CI can pass. If the release workflow is installed
-on `main`, the controlled release remains accessible through the manual
-`workflow_dispatch`, without direct source pushes.
+For the forward-compatibility signal, `latest-homeassistant-import` deliberately
+does **not** pin the latest Home Assistant package or the Python 3.14 patch
+version; it checks module imports only, not the whole runtime test suite.
 
-Protecting `main` does not prevent correctly authorized creation of releases
-and tags. If stronger tag integrity is required, add a separate tag ruleset
-targeted at release-version tags after reviewing the required publishing identity.
+## GitHub Actions security
 
-## Follow-up improvements
+- All third-party and first-party actions are referenced by **full 40-character
+  commit SHAs**, not mutable major tags or default-branch names.
+- Global `GITHUB_TOKEN`: `contents: read`. Only the manual draft-release job
+  can request `contents: write`.
+- Every checkout uses `persist-credentials: false`.
+- Manual draft creation is serialized with a concurrency group.
+- The release job validates manifest/version type, refuses an existing tag or
+  release and never overwrites an earlier published artifact.
 
-- Extend real-HA tests to cover complete approved historical imports and interrupted Recorder writes. Two-process disk persistence and synthetic resynchronization are tested separately; a full HA service/UI reboot is outside their scope.
-- Resolve observed Home Assistant sensor warnings about annual estimate sensor device/state class combinations; avoid silently changing their statistics semantics.
-- Review the baseline code-coverage report before choosing a mandatory minimum.
-- Make Ruff's full lint rules blocking after resolving existing diagnostics.
-- Maintain a Python and Home Assistant compatibility matrix reflecting supported environments.
-- Pin third-party action commit SHAs as a further supply-chain hardening measure.
+## Ruleset: Protect main - CI/CD
+
+Verified **active** on 2026-11-08. It targets the default branch `main`,
+requires a PR, resolved review conversations, up-to-date checks, squash merges,
+and blocks branch deletions and force pushes. Bypass list is empty.
+
+The eight currently required GitHub Actions status names are:
+
+1. `pure-tests (Python 3.13)`
+2. `pure-tests (Python 3.14)`
+3. `ruff-essential`
+4. `hassfest`
+5. `hacs`
+6. `gitleaks`
+7. `ha-runtime-and-storage`
+8. `latest-homeassistant-import`
+
+**Administrator action still required:** add `decision-persistence-gate` as
+a **ninth required check**, source **GitHub Actions**, in
+[Settings → Rules → Protect main - CI/CD](https://github.com/christophejaubert/ha-trybatec/settings/rules).
+Do **not** require three individual matrix names, which are intentionally
+version-independent but may change when cases are added; require the stable gate
+instead. The GitHub connector used for code changes does not expose an admin
+operation to modify this ruleset. Before adding the check, ensure its job has
+completed on the updated PR so GitHub offers it.
+
+Do not remove Hassfest or bypass the branch rules to make a failing integration
+appear releasable. Code/manifest corrections belong in the functional PR.
+
+## Preparing and publishing releases
+
+1. Validate the functional version and merge authorized changes through PRs.
+2. Merge the updated delivery workflow into `main` using required checks.
+3. Set the intended version in `manifest.json` through the functional workflow.
+4. From **GitHub → Actions → Compatibility and tests → Run workflow**, select
+   `main`, then choose `release_type=prerelease` or `stable`.
+5. After all required tests pass, GitHub prepares **an unpublished draft**.
+6. Publication remains a **separate, explicitly authorized step**. The current
+   workflow does not publish releases automatically; an authorized publication
+   mechanism may be added separately without changing the branch ruleset.
+
+HACS/Marketplace update discovery depends on the version/tag and on publishing
+a release, not merely creating a draft. This workflow does not contact or change
+an installed Home Assistant instance.
+
+## Subsequent CI/CD improvements
+
+- Introduce complete transitive Python lockfiles with hashes per interpreter.
+- Add Actionlint and comprehensive workflow-level security checks.
+- Add coverage thresholds after addressing existing test debt.
+- Extend isolated service-level Recorder and interruption tests.
+- Keep the stable `decision-persistence-gate` mandatory when expanding matrix.
