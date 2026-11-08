@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Current experimental beta: 0.2.0b6** — verified per-meter units, pending Recorder verification, historical preview and isolated statistical generations. Back up Home Assistant before historical imports.
+**Source version on `main`: 0.2.0b7.** See [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for published versions. Version b7 remains experimental, and its publication does not authorize historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -88,8 +88,7 @@ New administrator-only read-only Home Assistant actions:
   do not queue or alter Recorder data. Previewing a ten-year period can issue
   many API requests; use an appropriately narrow date range.
 
-This branch will be updated after live b6 feedback. Publication, merging, and
-installation are not part of this development stage.
+Release publication, installation in Home Assistant and historical imports are separate operations. A published beta does not approve a production import or automatically migrate Energy dashboard statistics.
 
 ## Features
 

@@ -1,7 +1,6 @@
 # Trybatec b7 development and validation plan
 
-**Status:** Development only, branch `feature/0.2.0b7`. Do **not** merge
-to `main`, tag or publish before b6 field-test feedback is addressed.
+**Status:** b7 source was promoted to `main` after synthetic test validation. Publication is controlled separately from installation and real historical imports; the latter remain unauthorized pending field verification.
 
 ## Included features
 
@@ -56,6 +55,4 @@ Recorder à l'intérieur d'une transaction SQLite. La vérification des entités
 réelles, des versions/notes de release et de l'ergonomie sur l'instance cible
 doit précéder toute autorisation de migration en production.
 
-La préparation de la release requiert encore : revue des PR et critères
-restants de l'issue #6, fusion de la CI/CD sur la branche candidate,
-contrôles obligatoires sur `main`, brouillon manuel et publication explicite.
+La publication d'une version expérimentale exige une recette documentée de l'issue #6, les contrôles obligatoires réussis sur `main`, la revue d'un brouillon créé manuellement et une décision explicite de publication. Cette décision n'autorise pas les imports historiques réels.
