@@ -113,6 +113,8 @@ def normalize_unit(raw: Any) -> str | None:
 
 def portal_index_unit(line: dict[str, Any]) -> str | None:
     """None = field absent; unverified = unsupported; conflict = incompatible fields."""
+    if line.get("_device_unit_conflict") is True:
+        return "conflict"
     found = _unit_candidates(line)
     if not found:
         return None

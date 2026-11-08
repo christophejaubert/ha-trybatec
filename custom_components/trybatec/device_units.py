@@ -133,9 +133,24 @@ def merge_device_units(
                     missing += 1
                 continue
             device_uuid, unit = next(iter(matches))
-            # Intentionally do not override an explicit, incompatible index
-            # unit: portal_index_unit will detect the conflict and block import.
-            line["indexUnit"] = unit
+            # Never overwrite existing source fields. An incompatible device
+            # detail must make portal_index_unit return conflict; choose an
+            # unused recognized field to preserve both original values.
+            prior = portal_index_unit(line)
+            if prior is None:
+                line["indexUnit"] = unit
+            elif prior not in ("conflict", "unverified") and prior != unit:
+                for name in ("indexUnit", "unitOfMeasure", "uniteIndex",
+                             "meterUnit", "uniteMesure"):
+                    if name not in line:
+                        line[name] = unit
+                        break
+                else:
+                    line["_device_unit_conflict"] = True
+            elif prior == "unverified":
+                # Unknown vendor scale stays unverified even when the
+                # independently reported device unit looks plausible.
+                pass
             line["_device_unit_source"] = "validated_device_metadata"
             applied += 1
     return {"matched_lines": applied, "ambiguous_lines": ambiguous, "unmatched_lines": missing}
