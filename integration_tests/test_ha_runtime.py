@@ -291,7 +291,7 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
 
     returned = await hass.config_entries.options.async_configure(
         flow_id, {
-            "unit": "m³", "device_uuid": "", "after_submit": "meters",
+            "unit": "m³", "device_uuid": "",
         },
     )
     assert returned["type"] == "form" and returned["step_id"] == "meter_units"
@@ -314,12 +314,10 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     )
     assert unit_marker.default() == "m³"
 
-    menu = await hass.config_entries.options.async_configure(
-        flow_id, {
-            "unit": "m³", "device_uuid": "", "after_submit": "menu",
-        },
+    returned_again = await hass.config_entries.options.async_configure(
+        flow_id, {"unit": "m³", "device_uuid": ""},
     )
-    assert menu["type"] == "menu" and menu["step_id"] == "init"
+    assert returned_again["type"] == "form" and returned_again["step_id"] == "meter_units"
     assert entry.options[CONF_METER_UNITS][key] == "m³"
 
 
@@ -343,7 +341,7 @@ async def test_real_options_flow_saves_diagnostics_before_main_menu(
     count = len(calls)
     response = await hass.config_entries.options.async_configure(
         flow_id, {
-            "log_level": "DEBUG", "after_submit": "menu",
+            "log_level": "DEBUG",
         }
     )
     assert response["type"] == "menu" and response["step_id"] == "init"
