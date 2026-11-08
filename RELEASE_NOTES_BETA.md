@@ -1,7 +1,11 @@
-# 0.2.0b10 — Saved-unit consistency, radio choices, one-click navigation
+# 0.2.0b10 — Saved-unit consistency and native one-click navigation
 
 **Experimental candidate only.** The branch is a pull request; there is no b10 tag or release, no automatic installation and no changes to Home Assistant.
 
+- Standardize all read-only navigation on Home Assistant native click-to-open menus with explicit links to the preceding level and to the main menu. Settings, diagnostics, meter selection and historical review have dedicated navigation menus.
+- Remove the post-submit navigation radio field from editing and confirmation forms. Validate and save entered values before moving on; meter-unit changes return to the meter list by default. Selection radios remain only for actual data choices such as measurement units and source readings.
+- Before an historical decision is persisted, provide a separate one-click navigation menu for approval, safe return to the previous step, or exit without saving. The final confirmation checkbox and out-of-period approval remain mandatory.
+- Document the menu-versus-form UI contract for future screens in `docs/OPTIONS_UI_CONVENTIONS.md`.
 - Recompute each meter's displayed verified unit from the current persisted options. List labels put the real status first (manual/API confirmation or needs confirmation), instead of relying on a stale coordinator snapshot.
 - Choose units and meter/reading lists with explicit Home Assistant `SelectSelector(mode=list)`, which renders radio buttons even for more than five options. Keep selections separate from post-save navigation.
 - On editable forms, validate and save the chosen unit/UUID, logging threshold or settings before returning to the main menu or meter list. Invalid inputs never navigate as if the save succeeded.
