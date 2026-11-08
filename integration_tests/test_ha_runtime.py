@@ -214,7 +214,7 @@ async def test_missing_history_preview_is_real_navigable_options_flow(
     assert missing["type"] == "menu"
     assert missing["step_id"] == "history_preview_missing"
     assert missing["menu_options"] == ["init"]
-    assert missing["description_placeholders"]["actions_url"] == "/config/developer-tools/action"
+    assert missing["description_placeholders"]["actions_url"] == ("https://my.home-assistant.io/redirect/tools_perform_action/" "?service=trybatec.preview_history")
     returned = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "init"}
     )
