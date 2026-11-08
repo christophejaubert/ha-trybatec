@@ -794,7 +794,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                         decision["requires_out_of_period_confirmation"] = True
                 self._pending_review = decision
                 self._return_after_confirmation = route == "confirm_menu"
-                 return await self.async_step_history_confirm()
+                return await self.async_step_history_confirm()
             except (ValueError, KeyError, TypeError):
                 errors["base"] = "invalid_review_correction"
 
