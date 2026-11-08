@@ -173,7 +173,9 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         elif metric == "cost":
             self._attr_native_unit_of_measurement = "EUR"
             self._attr_device_class = SensorDeviceClass.MONETARY
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+            # Monetary year-to-date estimates are revisable; HA disallows
+            # MEASUREMENT for the MONETARY device class.
+            self._attr_state_class = None
         else:
             self._attr_native_unit_of_measurement = FLUID_RATE_UNITS[fluid]
             self._attr_state_class = SensorStateClass.MEASUREMENT
