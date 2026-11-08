@@ -32,3 +32,30 @@ to `main`, tag or publish before b6 field-test feedback is addressed.
 inputs, unavailable independent vendor invoice data, no automatic Recorder
 or Energy dashboard migration, no claim of complete interval coverage.
 The EUR results are estimates, not an approved statement of charges.
+
+
+## Recette fonctionnelle complémentaire — 8 novembre 2026
+
+Référence : [issue #6](https://github.com/christophejaubert/ha-trybatec/issues/6).
+Cette section représente l'état de tests synthétiques, **pas une autorisation
+d'import de données réelles** ni de publication.
+
+| Critère | État de preuve |
+| --- | --- |
+| Reprise sur source modifiée | PR #7 fusionnée : empreinte source/plan, refus avant enfilement |
+| Interruption de trois compteurs | PR #8 fusionnée : quatre pannes injectées sur Recorder SQLite réel après rechargement HA et quatre scénarios sur deux processus HA avec adaptateur SQLite durable |
+| Confirmation Recorder | Tests de sommes exactes, lignes manquantes, incohérentes, doublons, réponses invalides et validation partielle compteur par compteur ; chaque série non confirmée reste pending |
+| Unités d'index | Tests explicites m³, L, kWh, MWh, GJ ; unités contradictoires, non identifiées et incompatibles exclues |
+| Migration b6 → b7 | Tests CI de persistance et tests des identifiants des séries ; pas de changement automatique de sélection Energy |
+| Historique / antidatage | Tests synthétiques de corrections datées, validation des choix hors période et persistance de décisions lors d'un redémarrage de processus |
+
+**Limites non levées** : absence de vérification des unités sur les compteurs
+physiques de l'utilisateur, décisions sur les anomalies historiques réelles,
+restauration d'une sauvegarde non testée, pas de crash brutal du thread
+Recorder à l'intérieur d'une transaction SQLite. La vérification des entités
+réelles, des versions/notes de release et de l'ergonomie sur l'instance cible
+doit précéder toute autorisation de migration en production.
+
+La préparation de la release requiert encore : revue des PR et critères
+restants de l'issue #6, fusion de la CI/CD sur la branche candidate,
+contrôles obligatoires sur `main`, brouillon manuel et publication explicite.
