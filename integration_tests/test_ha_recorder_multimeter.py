@@ -246,4 +246,4 @@ async def test_historical_recovery_across_independent_ha_core_processes(
             f"{where} / {stage}: exit={process.returncode}\n"
             f"{out.decode(errors='replace')}\n{err.decode(errors='replace')}"
         )
-        assert stage.upper() in out.decode()
+        assert ("WRITE" if stage == "write" else "RESTART") in out.decode()
