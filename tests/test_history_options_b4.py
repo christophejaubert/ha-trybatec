@@ -117,14 +117,43 @@ def test_correction_with_accounting_date_and_dst_refusal(ui, monkeypatch):
     asyncio.run(run())
 
 
-def test_history_review_empty_offers_navigation_and_actions(ui):
+def test_history_review_without_preview_guides_to_actions(ui):
     flow, coordinator = new_ui(ui)
     coordinator._history_review_candidates = []
     result = asyncio.run(flow.async_step_history_review())
     assert result["type"] == "menu"
-    assert result["step_id"] == "history_empty"
+    assert result["step_id"] == "history_preview_missing"
     assert result["menu_options"] == ["init"]
     assert result["description_placeholders"]["actions_url"] == "/config/developer-tools/action"
+    assert result["description_placeholders"]["logs_url"] == "/config/logs?search=trybatec"
+
+
+def test_history_review_unavailable_has_recovery_navigation(ui):
+    flow, coordinator = new_ui(ui)
+    flow.hass.data["trybatec"].clear()
+    result = asyncio.run(flow.async_step_history_review())
+    assert result["type"] == "menu"
+    assert result["step_id"] == "history_unavailable"
+    assert result["menu_options"] == ["init"]
+    assert result["description_placeholders"]["logs_url"] == "/config/logs?search=trybatec"
+
+
+def test_history_review_no_anomaly_is_distinct_from_missing_preview(ui):
+    flow, coordinator = new_ui(ui)
+    coordinator._history_review_candidates = []
+    coordinator._history_review_cache = ([], date(2026, 1, 1), date(2026, 1, 2), None)
+    result = asyncio.run(flow.async_step_history_review())
+    assert result["type"] == "menu"
+    assert result["step_id"] == "history_empty"
+    assert result["menu_options"] == ["init"]
+
+
+def test_history_overview_missing_preview_does_not_abort(ui):
+    flow, _ = new_ui(ui)
+    result = asyncio.run(flow.async_step_history_overview())
+    assert result["type"] == "menu"
+    assert result["step_id"] == "history_preview_missing"
+    assert result["menu_options"] == ["init"]
 
 
 def test_options_settings_renders_settings_step(ui):
@@ -193,8 +222,11 @@ def test_action_link_is_defined_in_all_locales():
     base = Path("custom_components/trybatec")
     for path in (base / "strings.json", base / "translations/fr.json", base / "translations/en.json"):
         steps = json.loads(path.read_text())["options"]["step"]
-        for step in ("history_review", "history_overview", "history_empty"):
+        for step in ("history_review", "history_overview", "history_empty", "history_unavailable", "history_preview_missing"):
             assert "]({actions_url})" in steps[step]["description"]
+        for step in ("history_unavailable", "history_preview_missing"):
+            assert "]({logs_url})" in steps[step]["description"]
+            assert steps[step]["menu_options"]["init"]
         assert steps["history_empty"]["menu_options"]["init"]
 
 
