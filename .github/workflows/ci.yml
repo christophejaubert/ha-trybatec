@@ -227,19 +227,19 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ needs.resolve-test-refs.outputs.candidate_sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: ci-harness
       - name: Checkout writer integration by immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ matrix.writer_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
+          ref: ${{ matrix.writer_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
           path: tested-writer
       - name: Checkout reader integration by immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ matrix.reader_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
+          ref: ${{ matrix.reader_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
           path: tested-reader
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
@@ -294,13 +294,13 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ needs.resolve-test-refs.outputs.candidate_sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: ci-harness
       - name: Checkout integration under test at immutable SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ matrix.target == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || needs.resolve-test-refs.outputs.candidate_sha }}
+          ref: ${{ matrix.target == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
           path: tested-integration
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
