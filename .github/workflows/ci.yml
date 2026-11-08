@@ -24,6 +24,7 @@ jobs:
   pure-tests:
     name: pure-tests (Python ${{ matrix.python_label }})
     runs-on: ubuntu-latest
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +94,7 @@ jobs:
   lint:
     name: ruff-essential
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -152,6 +154,7 @@ jobs:
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
     runs-on: ubuntu-latest
+    permissions: {}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -204,6 +207,7 @@ jobs:
     name: decision-persistence (${{ matrix.case }})
     needs: resolve-test-refs
     runs-on: ubuntu-latest
+    permissions: {}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -279,6 +283,7 @@ jobs:
     name: recorder-e2e (${{ matrix.target }})
     needs: resolve-test-refs
     runs-on: ubuntu-latest
+    permissions: {}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -312,6 +317,7 @@ jobs:
 
   latest-homeassistant-import:
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
