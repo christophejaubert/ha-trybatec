@@ -322,3 +322,26 @@ def test_history_overview_single_click_navigation_never_saves(ui, monkeypatch):
         assert back["type"] == "menu" and back["step_id"] == "init"
         assert flow.config_entry.options == {"poll_minutes": 720}
     asyncio.run(run())
+
+
+def test_device_uuid_can_be_bound_to_exact_meter_without_unit_assumption(ui):
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {
+        "FAKE": {
+            "lot": "TEST-LOT", "fluid": "CET", "serial": "FAKE-HEAT",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+        },
+    }}
+    key = ui.meter_key("TEST-LOT", "CET", "FAKE-HEAT")
+    uid = "11111111-1111-4111-8111-111111111111"
+    async def run():
+        await flow.async_step_meter_units({"meter": key})
+        invalid = await flow.async_step_meter_unit({"unit": "unverified", "device_uuid": "not-uuid"})
+        assert invalid["errors"]["base"] == "invalid_device_uuid"
+        assert flow.config_entry.options == {"poll_minutes": 720}
+        saved = await flow.async_step_meter_unit({"unit": "unverified", "device_uuid": uid})
+        assert saved["type"] == "create_entry"
+        assert saved["data"]["device_uuids"] == {key: uid}
+        assert saved["data"]["meter_units"] == {}
+        assert saved["data"]["poll_minutes"] == 720
+    asyncio.run(run())

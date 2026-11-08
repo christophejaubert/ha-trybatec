@@ -86,9 +86,10 @@
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nSi l'API ne permet pas de retrouver automatiquement la fiche, indiquez ici son UUID extrait de la requête `device?id=…`. L'intégration récupérera le champ `unite` directement dans la fiche et vérifiera la correspondance lot/fluide/numéro de série. Laissez « Inconnue » pour l'unité tant que la fiche n'a pas été chargée.",
         "data": {
-          "unit": "Unité source confirmée"
+          "unit": "Unité source confirmée",
+          "device_uuid": "UUID de la fiche Trybatec (facultatif)"
         }
       },
       "history_overview": {
@@ -128,7 +129,8 @@
       "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple.",
       "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure).",
       "invalid_meter_unit": "Unité non prise en charge pour ce fluide.",
-      "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail."
+      "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail.",
+      "invalid_device_uuid": "UUID de compteur invalide. Renseignez l'identifiant de la fiche Trybatec (format UUID)."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",

@@ -27,7 +27,7 @@ from .api import TrybatecAuthError, TrybatecClient, TrybatecConnectionError, Try
 from .const import (
     CONF_DEAL_ID,
     CONF_POLL_MINUTES,
-    CONF_HEATING_UNIT, HEATING_UNITS, CONF_METER_UNITS,
+    CONF_HEATING_UNIT, HEATING_UNITS, CONF_METER_UNITS, CONF_DEVICE_UUIDS,
     CONF_TARIFFS,
     DEFAULT_POLL_MINUTES,
     DOMAIN,
@@ -35,6 +35,7 @@ from .const import (
 )
 from .parsing import validate_tariffs
 from .units import meter_key, portal_display_unit, resolve_meter_unit, validate_meter_units, _ALLOWED
+from .device_units import uuid_text
 from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
@@ -248,6 +249,8 @@ class TrybatecOptionsFlow(OptionsFlow):
             return self.async_abort(reason="history_preview_required")
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         current_unit = current.get(self._selected_meter_unit_key, "unverified")
+        device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
+        current_uuid = device_uuids.get(self._selected_meter_unit_key, "") if isinstance(device_uuids, dict) else ""
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
         allowed[RETURN_TO_METERS] = self._nav_text(
             "← Retour à la liste des compteurs", "← Back to meter list"
@@ -255,30 +258,45 @@ class TrybatecOptionsFlow(OptionsFlow):
         allowed[RETURN_TO_MENU] = self._nav_text(
             "← Retour au menu principal", "← Back to main menu"
         )
+        schema = vol.Schema({
+            vol.Required("unit", default=current_unit): vol.In(allowed),
+            vol.Optional("device_uuid", default=current_uuid): TextSelector(),
+        })
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
+            uuid_candidate = str(user_input.get("device_uuid") or "").strip()
             if candidate not in allowed:
-                return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"},
-                                            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}))
+                return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
+            if uuid_candidate and uuid_text(uuid_candidate) is None:
+                return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_device_uuid"}, data_schema=schema)
             if candidate != "unverified" and selected.get("portal_unit") in _ALLOWED[selected["fluid"]] and candidate != selected["portal_unit"]:
-                return self.async_show_form(step_id="meter_unit", errors={"base": "conflicting_meter_unit"},
-                                            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}))
+                return self.async_show_form(step_id="meter_unit", errors={"base": "conflicting_meter_unit"}, data_schema=schema)
             if candidate == "unverified":
                 current.pop(self._selected_meter_unit_key, None)
             else:
                 current[self._selected_meter_unit_key] = candidate
+            updated_uuids = dict(device_uuids) if isinstance(device_uuids, dict) else {}
+            if uuid_candidate:
+                updated_uuids[self._selected_meter_unit_key] = uuid_text(uuid_candidate)
+            else:
+                updated_uuids.pop(self._selected_meter_unit_key, None)
             return self.async_create_entry(
-                title="", data={**self.config_entry.options, CONF_METER_UNITS: current}
+                title="", data={
+                    **self.config_entry.options,
+                    CONF_METER_UNITS: current,
+                    CONF_DEVICE_UUIDS: updated_uuids,
+                }
             )
         return self.async_show_form(
             step_id="meter_unit",
-            data_schema=vol.Schema({vol.Required("unit", default=current_unit): vol.In(allowed)}),
+            data_schema=schema,
             description_placeholders={
                 "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
                 "portal_unit": str(selected.get("portal_unit") or self._nav_text("non détectée", "not detected")),
                 "display_unit": str(selected.get("portal_display_unit") or portal_display_unit(selected["fluid"]) or "—"),
             },
         )
+
 
     async def async_step_history_overview(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Two one-click menu actions, without a checkbox and a second submit."""

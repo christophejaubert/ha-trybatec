@@ -86,9 +86,10 @@
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.",
+        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nIf automatic directory discovery is unavailable, enter the UUID from the `device?id=…` request. The integration fetches `unite` from the matching device detail and verifies lot/fluid/serial. Leave source unit unknown until the detail is retrieved.",
         "data": {
-          "unit": "Confirmed source unit"
+          "unit": "Confirmed source unit",
+          "device_uuid": "Trybatec device UUID (optional)"
         }
       },
       "history_overview": {
@@ -128,7 +129,8 @@
       "invalid_tariffs": "Invalid tariff JSON. See the example.",
       "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change).",
       "invalid_meter_unit": "Unsupported unit for this fluid.",
-      "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value."
+      "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value.",
+      "invalid_device_uuid": "Invalid device UUID. Enter the Trybatec device-detail identifier."
     },
     "abort": {
       "history_preview_required": "First run a new history preview from Developer Tools → Actions.",

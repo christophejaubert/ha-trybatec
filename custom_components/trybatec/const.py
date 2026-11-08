@@ -8,6 +8,7 @@ CONF_TARIFFS = "annual_tariffs"
 CONF_POLL_MINUTES = "poll_minutes"
 CONF_HEATING_UNIT = "heating_unit"  # Legacy global setting; not trusted for new meter identities.
 CONF_METER_UNITS = "meter_units"
+CONF_DEVICE_UUIDS = "device_uuids"
 HEATING_UNITS = ("unverified", "kWh", "MWh", "GJ")
 DEFAULT_POLL_MINUTES = 720
 MIN_POLL_MINUTES = 60

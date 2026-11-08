@@ -27,6 +27,16 @@
 - The UI is still based on native Home Assistant options flows, **not** a full-page bulk history editor. The Recorder importer is still asynchronous and non-atomic. Source and accounting timestamps remain separate.
 
 
+### b7 — Métadonnées de compteur depuis Trybatec
+
+Une capture réelle de la fiche `device?id=UUID` confirme que l'API retourne les champs `serialNumber`, `fluidCode`, `lot` et **`unite: "KWh"`**. La b7 récupère cette réponse via l'authentification existante, vérifie l'UUID, le lot, le fluide, le numéro de série et, lorsqu'il est présent, le `dealUid`. Elle normalise par exemple `KWh` en `kWh`, et refuse toute identité, unité ou valeur contradictoire.
+
+Découverte de l'UUID : d'abord un UUID explicitement présent dans la ligne d'index ; sinon, tentative bornée via `GET /api/v1/devices?dealId=...` (route **exploratoire, non documentée et non confirmée**). Si cette liste n'existe pas ou ne permet pas une correspondance univoque, **Configurer → Vérifier les unités → Compteur** permet d'indiquer facultativement l'UUID vu sur le portail. La b7 interroge alors la route réellement observée `GET /api/v1/device?id=UUID` ; il n'est plus nécessaire de recopier l'unité de la fiche. Ne pas confondre cet identifiant UUID avec le `deviceId` numérique des consommations journalières.
+
+Les réponses de détail sont mises en cache uniquement en mémoire ; la tentative de répertoire est espacée de 12 heures et les appels sont bornés. Aucune fiche non associée au lot et au compteur demandé n'est utilisée. L'API n'étant pas documentée, la découverte entièrement automatique de tous les compteurs **reste à confirmer sur une installation réelle**.
+
+Les nouveaux champs d'unité des index sont utilisés par les capteurs temps réel, les estimations annuelles et les prévisualisations historiques. Une unité contradictoire ou non vérifiée continue de bloquer l'import plutôt que d'inventer une échelle. Aucun relevé ou historique Recorder n'est importé automatiquement.
+
 ### b7 — Traitement des unités source et diagnostics
 
 Le portail Trybatec affiche des unités de **consommation graphique** (notamment m³ et kWh). Ces unités ne prouvent pas que l'index brut fourni par l'API `/api/v1/indexes` utilise la même échelle.

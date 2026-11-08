@@ -96,12 +96,15 @@ def combine_payloads(
                 "indexes": {}, "retired": False, "conflicts": 0,
                 "conflict_times": set(), "fatal_conflicts": False,
                 "portal_unit": None,
+                "unit_source": None,
                 "portal_display_unit": portal_display_unit(fluid),
                 "index_unit_field_paths": set(),
             })
             serial_fluids[(lot, serial)].add(fluid)
             meter["retired"] |= line.get("depose") is True
             meter["index_unit_field_paths"].update(index_unit_field_paths(line))
+            if line.get("_device_unit_source") == "validated_device_metadata":
+                meter["unit_source"] = "validated_device_metadata"
             found_unit = portal_index_unit(line)
             if found_unit is not None:
                 existing_unit = meter["portal_unit"]
@@ -222,6 +225,7 @@ def build_history(
         series = {
             "lot": lot, "fluid": fluid, "serial": serial,
             "retired": meter["retired"], "portal_unit": meter["portal_unit"],
+            "unit_source": meter["unit_source"],
             "portal_display_unit": meter["portal_display_unit"],
             "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],

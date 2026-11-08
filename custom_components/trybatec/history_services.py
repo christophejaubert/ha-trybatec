@@ -257,6 +257,7 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
                 "portal_unit": meter.get("portal_unit"),
+                "device_unit_source": meter.get("unit_source"),
                 "portal_display_unit": meter.get("portal_display_unit"),
                 "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
                 "index_unit_status": (
