@@ -31,12 +31,28 @@ not the functional Home Assistant integration. Workflow source:
 
 ### Which source code does the persistence matrix test?
 
-The `resolve-test-refs` job checks out the **exact PR head SHA** on PR runs
+The `resolve-test-refs` job executes a trusted resolver from the audited
+immutable commit `5cc64e5e58842e2eba93e4c706e6a357188dd246`,
+NOT from the candidate PR. The job explicitly sets `permissions: {}`,
+supplies no `GH_TOKEN` or other secrets, and uses only anonymous HTTPS GET
+requests to a small allowlist of public GitHub release/tag endpoints.
+Unexpected endpoints, redirects and API failures fail closed.
+
+The candidate checkout uses the **exact PR head SHA** on PR runs
 (`github.event.pull_request.head.sha`), or the triggering SHA for other
-events. It reads the version from this commit's `manifest.json`, then queries
-published GitHub releases and chooses the highest **strictly earlier** semantic
-version. It resolves that release tag, including annotated tags, to an immutable
-Git commit SHA. Drafts and nonmatching tags are ignored.
+events. Its `manifest.json` is read as untrusted JSON, never executed.
+The resolver selects the highest **strictly earlier** published semantic
+release and resolves its tag (including annotated tags) to an immutable commit
+SHA. Drafts and invalid tags are ignored. Anonymous API limits may cause a
+safe CI failure; do not fix this by passing a token to candidate-controlled code.
+
+**Maintainer caveat:** the trusted SHA must remain retrievable as Git history
+during and after merges; preserve the `ci/generic-quality-gates-20261108`
+branch until this resolver is rebased onto a trusted retained reference.
+Never replace the SHA with a mutable PR branch or candidate SHA. This
+isolates the resolver executable, but a contributor who can alter the
+workflow itself can still weaken its checks; protect workflow changes via
+independent trusted review or a separately owned required workflow.
 
 Every writer, reader and harness checkout in the persistence tests is pinned to
 one of these resolved SHAs. There are **no `b6`, `b7` or feature-branch names
