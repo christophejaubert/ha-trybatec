@@ -26,9 +26,60 @@ Runtime tests exercise real Home Assistant code and a real, isolated Recorder st
 5. The workflow checks everything again and, only on success, **creates a draft release**. An existing tag or release cannot be overwritten.
 6. Review the release draft in GitHub, then **publish it manually**. No normal push, pull request or scheduled run publishes anything.
 
-## Main branch protection (manual GitHub setting)
+## Security of the pipeline
 
-In **Settings → Rules → Rulesets**, create a rule for `main` that requires pull requests and successful CI checks. Consider preventing direct pushes and including administrators in the rule. Repository administration settings are not changed by this PR.
+- GitHub Actions are pinned to verified full 40-character Git commit SHAs. This
+  prevents a moved major-version tag or branch from silently replacing a step.
+- GitHub's `GITHUB_TOKEN` receives `contents: read` by default. Only the
+  explicitly invoked release-draft job receives `contents: write`, which is
+  not available to regular push/PR tests. The draft is **not published**.
+- Checkout steps use `persist-credentials: false`, so later test commands
+  do not receive retained repository credentials.
+- Release-draft creation is serialized to avoid competing manual operations.
+- `.github/dependabot.yml` proposes weekly GitHub Actions dependency updates,
+  as PRs with checks, without auto-merge. Dependabot **only becomes operational
+  once its configuration is in the default branch (`main`)**.
+- These are SHA pins, not GitHub workflow dependency lockfiles. A full action
+  dependency lockfile would offer additional transitive-dependency guarantees.
+
+## Protect `main` (repository administrator action)
+
+As of 2026-11-08, `main` is **not protected** and no GitHub ruleset is configured.
+The ChatGPT GitHub connection can write repository files but has **no repository
+administration operation for setting branch protection**. An administrator must
+complete the following in the GitHub web interface:
+
+1. Open `https://github.com/christophejaubert/ha-trybatec/settings/rules`.
+2. Select **New ruleset → New branch ruleset**.
+3. Use a descriptive name (for example `Protect main CI`), set enforcement to
+   **Active**, and target only the default branch `main`.
+4. Require a pull request before merging. Require resolution of conversations;
+   do not enable a mandatory independent reviewer if there is no other
+   eligible reviewer (the author cannot approve their own PR).
+5. Require successful status checks from GitHub Actions. Once the new workflow
+   is merged and check names have appeared, select:
+   - `pure-tests (Python 3.13)`
+   - `pure-tests (Python 3.14)`
+   - `ruff-essential`
+   - `hassfest`
+   - `hacs`
+   - `gitleaks`
+   - `ha-runtime-and-storage`
+   - `latest-homeassistant-import`
+6. Block force pushes and deletions; prevent bypassing the checks under normal
+   operation. Decide whether requiring up-to-date branches is appropriate.
+7. Save the ruleset and confirm that `main` reports as protected.
+
+**Important:** The current `feature/0.2.0b7` manifest fails Hassfest for
+missing Recorder dependency declaration. Do not mark this as passing, exclude
+Hassfest, or bypass branch protections. Resolve it separately in integration
+development before the full CI can pass. If the release workflow is installed
+on `main`, the controlled release remains accessible through the manual
+`workflow_dispatch`, without direct source pushes.
+
+Protecting `main` does not prevent correctly authorized creation of releases
+and tags. If stronger tag integrity is required, add a separate tag ruleset
+targeted at release-version tags after reviewing the required publishing identity.
 
 ## Follow-up improvements
 
