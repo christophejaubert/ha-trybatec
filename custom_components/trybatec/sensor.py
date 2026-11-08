@@ -166,7 +166,10 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         if metric == "volume":
             self._attr_native_unit_of_measurement = normalized_unit(fluid)
             self._attr_device_class = SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+            # YTD estimates can be revised and reset each calendar year. Do
+            # not register misleading long-term recorder statistics, and avoid
+            # the invalid MEASUREMENT state class for energy/water sensors.
+            self._attr_state_class = None
         elif metric == "cost":
             self._attr_native_unit_of_measurement = "EUR"
             self._attr_device_class = SensorDeviceClass.MONETARY

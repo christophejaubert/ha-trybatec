@@ -47,6 +47,10 @@ Le portail Trybatec affiche des unités de **consommation graphique** (notamment
 - Cette modification ne déduit pas automatiquement l'échelle de l'index CET à partir du modèle SHARKY ou de l'intitulé `kWh` d'un graphique. Sans propriété API explicite ni vérification manuelle de l'échelle, les statistiques d'énergie demeurent indisponibles. Aucun import n'est réalisé automatiquement.
 - **Limite :** les noms exacts des champs de la réponse Trybatec restent non documentés. La présence d'une unité dans l'interface web ne garantit pas qu'elle existe dans les lignes retournées par l'endpoint d'index.
 
+### b7 — Compatibilité des estimations annuelles avec Home Assistant
+
+Les capteurs annuels EF/ECS (`water`) et CET (`energy`) qui présentent des consommations **estimées depuis le début de l'année** n'exposent plus `state_class: measurement`. Ils n'exposent volontairement **aucune state_class** : leurs valeurs sont susceptibles d'être révisées et de revenir à zéro au changement d'année, et ne doivent pas générer des statistiques Recorder de compteurs cumulés. Les capteurs d'**index physiques** vérifiés conservent `total_increasing` ; les séries d'import historique sont gérées séparément. Aucun identifiant d'entité n'est modifié par ce correctif.
+
 ### b7 — Aperçu historique simplifié (interface)
 
 L'écran principal de l'aperçu utilise un **menu à deux choix directs**, « Examiner les relevés » et « Retour au menu principal ». Il n'y a plus de case à cocher suivie d'un bouton de soumission. La consultation détaillée des compteurs est accessible séparément depuis **Configurer → Détails des compteurs**. Les choix de navigation ne modifient ni les options ni les données historiques.
