@@ -122,6 +122,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     _selected_meter_unit_key: str | None = None
     _selected_history_meter_key: str | None = None
     _return_after_confirmation: bool = False
+    _correction_draft: dict | None = None
 
     @staticmethod
     def _radio_choices(choices: dict[str, str]) -> SelectSelector:
@@ -223,6 +224,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._selected_reading = None
         self._pending_review = None
         self._return_after_confirmation = False
+        self._correction_draft = None
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -419,7 +421,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         })
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
-            uuid_candidate = str(user_input.get("device_uuid") or "").strip()
+            uuid_candidate = str(user_input.get("device_uuid", current_uuid) or "").strip()
             route = user_input.get("after_submit", "finish")
             if candidate not in allowed or route not in ("finish", "menu", "meters"):
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
@@ -649,7 +651,9 @@ class TrybatecOptionsFlow(OptionsFlow):
             description_placeholders={"actions_url": self._actions_url()},
         )
 
-    async def _save_review(self, decision: dict) -> ConfigFlowResult:
+    async def _save_review(
+        self, decision: dict, *, return_to_menu: bool = False
+    ) -> ConfigFlowResult:
         """Persist choices without modifying external statistics or source readings."""
         if self._selected_reading is None or self._selected_reading["key"] not in {
             c["key"] for c in self._review_list()
@@ -674,6 +678,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ]
         self._selected_reading = None
         self._pending_review = None
+        self._correction_draft = None
+        self._return_after_confirmation = False
+        if return_to_menu:
+            return await self._go_to_main_menu()
         return await self.async_step_history_review()
 
     async def async_step_history_decision(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -689,6 +697,8 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return await self.async_step_history_review()
             if choice == "correct":
                 return await self.async_step_history_correction()
+            self._correction_draft = None
+            self._return_after_confirmation = False
             self._pending_review = {"action": choice}
             return await self.async_step_history_confirm()
         return self.async_show_form(
@@ -707,75 +717,143 @@ class TrybatecOptionsFlow(OptionsFlow):
             })}),
         )
 
-    async def async_step_history_correction(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Date/time picker, clear type, written explanation; no silent rewriting."""
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("back_to_decision") is True:
-            self._pending_review = None
-            return await self.async_step_history_decision()
+    async def async_step_history_correction(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Keep draft fields while navigating; final history writes need confirmation."""
         if self._selected_reading is None:
             return self._history_notice("history_preview_missing")
         errors = {}
         if user_input is not None:
+            route = user_input.get("after_submit", "confirm")
+            self._correction_draft = {
+                key: user_input[key]
+                for key in ("mode", "date", "time", "reason")
+                if key in user_input
+            }
+            if route == "back":
+                # This is an in-flow draft only; never persist a historical
+                # decision before the dedicated confirmation step.
+                self._pending_review = None
+                return await self.async_step_history_decision()
             try:
-                local = datetime.fromisoformat(f'{user_input["date"]}T{user_input["time"]}')
+                if route not in ("confirm", "confirm_menu"):
+                    raise ValueError("Invalid navigation")
+                local = datetime.fromisoformat(
+                    f'{user_input["date"]}T{user_input["time"]}'
+                )
                 if local.tzinfo is not None:
                     raise ValueError("Date picker returned offset unexpectedly")
-                # A GUI time lacks an offset: refuse DST folds/gaps instead of guessing.
                 a = local.replace(tzinfo=ZONE, fold=0)
                 b = local.replace(tzinfo=ZONE, fold=1)
-                if a.utcoffset() != b.utcoffset() or a.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None) != local:
+                if (
+                    a.utcoffset() != b.utcoffset()
+                    or a.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None)
+                    != local
+                ):
                     raise ValueError("DST ambiguous or nonexistent local time")
                 reason = user_input.get("reason", "")
                 if not isinstance(reason, str) or not 8 <= len(reason.strip()) <= 500:
                     raise ValueError("A correction requires a reason of 8–500 characters")
                 decision = {
-                    "action": "correct", "mode": user_input["mode"],
-                    "timestamp": a.isoformat(), "reason": reason,
+                    "action": "correct",
+                    "mode": user_input["mode"],
+                    "timestamp": a.isoformat(),
+                    "reason": reason,
                 }
+                if decision["mode"] not in ("measurement", "accounting"):
+                    raise ValueError("Invalid correction type")
                 if decision["mode"] == "accounting":
                     previous = self._selected_reading.get("previous_date")
-                    if previous and not (datetime.fromisoformat(previous) < a <= datetime.fromisoformat(self._selected_reading["source_date"])):
+                    if previous and not (
+                        datetime.fromisoformat(previous)
+                        < a
+                        <= datetime.fromisoformat(self._selected_reading["source_date"])
+                    ):
                         decision["requires_out_of_period_confirmation"] = True
                 self._pending_review = decision
+                self._return_after_confirmation = route == "confirm_menu"
                 return await self.async_step_history_confirm()
-            except ValueError:
+            except (ValueError, KeyError, TypeError):
                 errors["base"] = "invalid_review_correction"
+
         original = datetime.fromisoformat(self._selected_reading["source_date"])
+        draft = self._correction_draft or {}
         return self.async_show_form(
             step_id="history_correction",
             errors=errors,
             data_schema=vol.Schema({
-                vol.Required("mode", default="accounting"): vol.In({
-                    "measurement": "Actual measurement date / Date réelle vérifiée",
-                    "accounting": "Accounting attribution only / Imputation comptable",
+                vol.Required("mode", default=draft.get("mode", "accounting")):
+                    self._radio_choices({
+                        "measurement": self._nav_text(
+                            "Date réelle vérifiée", "Verified measurement date"
+                        ),
+                        "accounting": self._nav_text(
+                            "Imputation comptable", "Accounting allocation"
+                        ),
+                    }),
+                vol.Required(
+                    "date", default=draft.get("date", original.date().isoformat())
+                ): DateSelector(),
+                vol.Required(
+                    "time", default=draft.get("time", original.strftime("%H:%M:%S"))
+                ): TimeSelector(),
+                vol.Optional("reason", default=draft.get("reason", "")): str,
+                vol.Required(
+                    "after_submit", default=(user_input or {}).get(
+                        "after_submit", "confirm"
+                    )
+                ): self._radio_choices({
+                    "confirm": self._nav_text(
+                        "Continuer vers la confirmation obligatoire",
+                        "Continue to mandatory confirmation",
+                    ),
+                    "confirm_menu": self._nav_text(
+                        "Confirmer puis revenir au menu principal",
+                        "Confirm, then return to main menu",
+                    ),
+                    "back": self._nav_text(
+                        "← Retour au choix de la décision (brouillon conservé)",
+                        "← Back to decision (draft retained)",
+                    ),
                 }),
-                vol.Required("date", default=original.date().isoformat()): DateSelector(),
-                vol.Required("time", default=original.strftime("%H:%M:%S")): TimeSelector(),
-                vol.Optional("reason"): str,
-                vol.Optional("back_to_decision", default=False): BooleanSelector(),
-                vol.Optional("return_to_menu", default=False): BooleanSelector(),
             }),
         )
 
 
-    async def async_step_history_confirm(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Require final user approval of the particular source reading action."""
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("back_to_decision") is True:
-            self._pending_review = None
-            return await self.async_step_history_decision()
+    async def async_step_history_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Only persist an explicitly approved reading; route after that write."""
         if self._selected_reading is None or self._pending_review is None:
             return self._history_notice("history_preview_missing")
-        if user_input is not None and user_input.get("confirm") is True:
-            approved = dict(self._pending_review)
-            if approved.pop("requires_out_of_period_confirmation", False):
-                if user_input.get("confirm_outside_period") is not True:
-                    return await self.async_step_history_confirm()
-                approved["out_of_period_confirmed"] = True
-            return await self._save_review(approved)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            destination = user_input.get(
+                "after_submit",
+                "menu" if self._return_after_confirmation else "review",
+            )
+            confirmed = user_input.get("confirm") is True
+            if destination == "back" and not confirmed:
+                self._pending_review = None
+                return await self.async_step_history_decision()
+            if destination not in ("review", "menu"):
+                errors["base"] = "invalid_confirmation_navigation"
+            elif not confirmed:
+                errors["base"] = "confirmation_required"
+            elif (
+                self._pending_review.get("requires_out_of_period_confirmation")
+                and user_input.get("confirm_outside_period") is not True
+            ):
+                errors["base"] = "confirmation_required"
+            else:
+                approved = dict(self._pending_review)
+                override = approved.pop("requires_out_of_period_confirmation", False)
+                if override:
+                    approved["out_of_period_confirmed"] = True
+                return await self._save_review(
+                    approved, return_to_menu=destination == "menu"
+                )
         item = self._selected_reading
         decision = self._pending_review
         label = (
@@ -784,23 +862,53 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
         estimated_delta = (
             item["index"] - item["previous_index"]
-            if item.get("previous_index") is not None and item["index"] >= item["previous_index"]
+            if item.get("previous_index") is not None
+            and item["index"] >= item["previous_index"]
             else None
         )
         override = bool(decision.get("requires_out_of_period_confirmation"))
         fields = {
             vol.Required("confirm", default=False): BooleanSelector(),
-            vol.Optional("back_to_decision", default=False): BooleanSelector(),
-            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+            vol.Required(
+                "after_submit",
+                default=(user_input or {}).get(
+                    "after_submit",
+                    "menu" if self._return_after_confirmation else "review",
+                ),
+            ): self._radio_choices({
+                "review": self._nav_text(
+                    "Après confirmation, revenir à la liste des relevés",
+                    "After approval, return to reading list",
+                ),
+                "menu": self._nav_text(
+                    "Après confirmation, revenir au menu principal",
+                    "After approval, return to main menu",
+                ),
+                "back": self._nav_text(
+                    "← Retour au choix de la décision sans enregistrer",
+                    "← Back to decision without saving",
+                ),
+            }),
         }
         if override:
-            fields[vol.Required("confirm_outside_period", default=False)] = BooleanSelector()
+            fields[vol.Required(
+                "confirm_outside_period", default=False
+            )] = BooleanSelector()
         return self.async_show_form(
             step_id="history_confirm",
+            errors=errors,
             description_placeholders={
                 "reading": label,
-                "interval_quantity": str(round(estimated_delta, 6)) if estimated_delta is not None else "not available",
-                "outside_interval_warning": ("WARNING: accounting period differs from source observation interval, this is not a measurement timestamp. Additional approval is mandatory." if override else ""),
+                "interval_quantity": (
+                    str(round(estimated_delta, 6))
+                    if estimated_delta is not None else "not available"
+                ),
+                "outside_interval_warning": (
+                    "WARNING: accounting period differs from source observation "
+                    "interval, this is not a measurement timestamp. Additional "
+                    "approval is mandatory."
+                    if override else ""
+                ),
                 "decision": decision["action"] + (
                     f' / {decision.get("mode", "")} / {decision.get("timestamp", "")}'
                     if decision["action"] == "correct" else ""
