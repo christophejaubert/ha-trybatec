@@ -12,8 +12,10 @@ Checks run for every push, pull request, a daily compatibility check, and manual
 - Home Assistant Hassfest and HACS repository validation.
 - Gitleaks detection of accidentally committed secrets.
 - Import of integration modules with the latest available Home Assistant release.
+- A separate Home Assistant test runner (`ha-runtime-and-storage`) using `pytest-homeassistant-custom-component`: real integration setup, sensor states and unload, admin-only service authorization, configuration flow, and review-decision Store reads. Tests use synthetic vendor responses and do not perform external requests.
+- A real Home Assistant recorder test with an isolated SQLite database: round-trip of hourly external statistics, duplicate import retry, and bucket verification.
 
-These checks **do not** reproduce a real Home Assistant system, Recorder persistence, actual sensors or a live Trybatec account. Functional and integration tests must be developed separately.
+Runtime tests exercise real Home Assistant code and a real, isolated Recorder statistics backend. They **do not** contact a live Trybatec account, alter a personal Home Assistant installation, or yet verify every historical import/repair path end-to-end. The Home Assistant test harness virtualizes the storage directory, so the decision Store test verifies save/read via Home Assistant APIs, not physical disk endurance across a process restart.
 
 ## How to prepare a release
 
@@ -30,7 +32,8 @@ In **Settings → Rules → Rulesets**, create a rule for `main` that requires p
 
 ## Follow-up improvements
 
-- Add integration tests for the configuration flow, sensors, services and Recorder.
+- Extend real-HA tests to cover complete approved historical imports, interrupted recorder writes, cross-restart storage durability, and resynchronization of corrected readings.
+- Resolve observed Home Assistant sensor warnings about annual estimate sensor device/state class combinations; avoid silently changing their statistics semantics.
 - Review the baseline code-coverage report before choosing a mandatory minimum.
 - Make Ruff's full lint rules blocking after resolving existing diagnostics.
 - Maintain a Python and Home Assistant compatibility matrix reflecting supported environments.
