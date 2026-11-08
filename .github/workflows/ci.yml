@@ -182,7 +182,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: 5cc64e5e58842e2eba93e4c706e6a357188dd246
+          ref: 7690efebd1e94125c4267458601650f88da41c8c
           path: ci-trusted
       - name: Checkout exact candidate commit as untrusted data
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
