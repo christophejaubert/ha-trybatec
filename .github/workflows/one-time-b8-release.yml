@@ -1,7 +1,6 @@
-name: One-time explicitly authorized Trybatec b8 prerelease
+name: One-time finalize authorized Trybatec b8 draft
 
-# This source is installed only after a protected PR and is activated solely
-# by the repository owner's exact release order on issue #6.
+# Exactly one owner-authored command on issue #6. No push/merge triggers.
 on:
   issue_comment:
     types: [created]
@@ -9,14 +8,14 @@ on:
 permissions: {}
 
 jobs:
-  publish-b8-once:
-    name: Verify and publish exactly 0.2.0b8
+  finalize-b8-draft:
+    name: Verify and publish existing 0.2.0b8 draft only
     if: >-
       github.repository == 'christophejaubert/ha-trybatec' &&
       github.event.issue.number == 6 &&
       github.event.issue.pull_request == null &&
       github.event.comment.user.login == 'christophejaubert' &&
-      github.event.comment.body == 'publish-approved-b8-20261108'
+      github.event.comment.body == 'finalize-approved-b8-20261108'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -28,71 +27,65 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: christophejaubert/ha-trybatec
-      BASE_SHA: e59db145d75b440dc15be9adb7b8baddf2ab5ea3
-      VERSION: 0.2.0b8
+      TARGET_SHA: 2c7c8f24a027b609acce1ef76a171aa88f57b39b
+      RELEASE_ID: "438422783"
+      VERSION: "0.2.0b8"
     steps:
-      - name: Checkout protected main only, without persisting credentials
+      - name: Checkout protected default branch only
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Check source scope, version, release state and exact successful CI
+      - name: Verify exact draft, source and post-merge CI
         shell: bash
         run: |
           set -euo pipefail
-          head="$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')"
-          [[ "$GITHUB_SHA" == "$head" ]] || { echo "Main advanced since release command" >&2; exit 1; }
-          [[ "$(git rev-parse HEAD)" == "$head" ]] || { echo "Checkout SHA mismatch" >&2; exit 1; }
-          gh api "repos/$REPO/compare/$BASE_SHA...$head" > "$RUNNER_TEMP/compare.json"
-          gh api "repos/$REPO/actions/runs?head_sha=$head&per_page=100" > "$RUNNER_TEMP/runs.json"
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            echo "b8 release already exists; refusing reuse" >&2
-            exit 1
-          fi
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')" == "$GITHUB_SHA" ]] || exit 1
+          gh api "repos/$REPO/compare/$TARGET_SHA...$GITHUB_SHA" > "$RUNNER_TEMP/diff.json"
+          gh api "repos/$REPO/releases/$RELEASE_ID" > "$RUNNER_TEMP/draft.json"
+          gh api "repos/$REPO/actions/runs?head_sha=$GITHUB_SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
           if gh api "repos/$REPO/git/ref/tags/$VERSION" >/dev/null 2>&1; then
-            echo "b8 tag already exists; refusing reuse" >&2
+            echo "Release tag already exists; refusing to republish" >&2
             exit 1
           fi
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          temp = Path(os.environ["RUNNER_TEMP"])
-          compare = json.loads((temp / "compare.json").read_text())
-          allowed = {
-            "RELEASE_NOTES_BETA.md",
-            "custom_components/trybatec/__init__.py",
-            "custom_components/trybatec/config_flow.py",
-            "custom_components/trybatec/coordinator.py",
-            "custom_components/trybatec/sensor.py",
-            "custom_components/trybatec/manifest.json",
-            "custom_components/trybatec/strings.json",
-            "custom_components/trybatec/translations/en.json",
-            "custom_components/trybatec/translations/fr.json",
-            "integration_tests/test_ha_runtime.py",
-            "tests/test_history_options_b4.py",
-            ".github/workflows/one-time-b8-release.yml",
-          }
-          actual = {f["filename"] for f in compare.get("files", [])}
-          assert compare.get("status") == "ahead" and compare.get("ahead_by") == 2, "Unexpected changes since b7"
-          assert actual == allowed, f"Unexpected b8 source scope: {actual ^ allowed}"
-          manifest = json.loads(Path("custom_components/trybatec/manifest.json").read_text())
-          assert manifest["domain"] == "trybatec" and manifest["version"] == "0.2.0b8"
-          runs = json.loads((temp / "runs.json").read_text())["workflow_runs"]
-          good = [r for r in runs if r.get("name") == "Compatibility and tests"
-                  and r.get("event") == "push" and r.get("head_sha") == os.environ["GITHUB_SHA"]
-                  and r.get("status") == "completed" and r.get("conclusion") == "success"]
-          assert good, "A successful post-merge push CI run is required"
-          (temp / "ci_run_id").write_text(str(good[0]["id"]))
-          notes = Path("RELEASE_NOTES_BETA.md").read_text(encoding="utf-8").split("\n---\n", 1)[0]
-          assert notes.startswith("# 0.2.0b8") and "does not authorize historical Recorder imports" in notes
-          (temp / "b8-notes.md").write_text(notes, encoding="utf-8")
+          temp=Path(os.environ["RUNNER_TEMP"])
+          diff=json.loads((temp/"diff.json").read_text())
+          assert diff.get("status")=="ahead" and diff.get("ahead_by")==1, "Main changed beyond one controlled workflow fix"
+          assert [f["filename"] for f in diff.get("files",[])]==[".github/workflows/one-time-b8-release.yml"], "Unexpected changes since b8 candidate"
+          manifest=json.loads(Path("custom_components/trybatec/manifest.json").read_text())
+          assert manifest["domain"]=="trybatec" and manifest["version"]==os.environ["VERSION"]
+          draft=json.loads((temp/"draft.json").read_text())
+          assert draft["id"]==438422783 and draft["tag_name"]==os.environ["VERSION"]
+          assert draft["draft"] is True and draft["prerelease"] is True
+          assert draft["target_commitish"]==os.environ["TARGET_SHA"]
+          assert draft["body"].startswith("# 0.2.0b8") and "does not authorize historical Recorder imports" in draft["body"]
+          runs=json.loads((temp/"runs.json").read_text())["workflow_runs"]
+          good=[r for r in runs if r.get("name")=="Compatibility and tests"
+                and r.get("event")=="push" and r.get("head_sha")==os.environ["GITHUB_SHA"]
+                and r.get("status")=="completed" and r.get("conclusion")=="success"]
+          assert good, "Successful post-merge CI on the current workflow-fix commit is required"
+          (temp/"ci_run_id").write_text(str(good[0]["id"]))
+          (temp/"publish.json").write_text(json.dumps({
+            "draft":False,"prerelease":True,
+            "target_commitish":os.environ["TARGET_SHA"]
+          }),encoding="utf-8")
           PY
+          # Verify both the original tested integration SHA and updated workflow SHA.
+          gh api "repos/$REPO/actions/runs/42507958953" > "$RUNNER_TEMP/original-run.json"
           run_id="$(cat "$RUNNER_TEMP/ci_run_id")"
           gh api "repos/$REPO/actions/runs/$run_id/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
           python3 - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
-          jobs=json.loads((Path(os.environ["RUNNER_TEMP"])/"jobs.json").read_text())["jobs"]
+          root=Path(os.environ["RUNNER_TEMP"])
+          original=json.loads((root/"original-run.json").read_text())
+          assert original["head_sha"]==os.environ["TARGET_SHA"]
+          assert original["event"]=="push" and original["status"]=="completed" and original["conclusion"]=="success"
+          jobs=json.loads((root/"jobs.json").read_text())["jobs"]
           required={
             "pure-tests (Python 3.13)", "pure-tests (Python 3.14)",
             "ruff-essential", "hassfest", "hacs", "gitleaks",
@@ -102,21 +95,26 @@ jobs:
             "recorder-e2e (baseline)", "recorder-e2e (candidate)",
             "decision-persistence-gate",
           }
-          success={j["name"] for j in jobs if j.get("status")=="completed" and j.get("conclusion")=="success"}
-          assert required.issubset(success), f"Post-merge mandatory checks failed: {required-success}"
+          succeeded={j["name"] for j in jobs if j.get("status")=="completed" and j.get("conclusion")=="success"}
+          assert required.issubset(succeeded), f"Missing CI controls: {required-succeeded}"
           PY
-      - name: Publish the one authorized b8 experimental release
+      - name: Publish only verified draft by immutable release ID
         shell: bash
         run: |
           set -euo pipefail
           [[ "$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')" == "$GITHUB_SHA" ]] || exit 1
-          gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease \
-            --title "Trybatec $VERSION — Unit confirmation and history UI recovery" \
-            --notes-file "$RUNNER_TEMP/b8-notes.md"
-          draft="$(gh api "repos/$REPO/releases/tags/$VERSION")"
-          echo "$draft" | jq -e --arg sha "$GITHUB_SHA" '.draft == true and .prerelease == true and .target_commitish == $sha' >/dev/null
-          gh release edit "$VERSION" --draft=false --prerelease
-          published="$(gh api "repos/$REPO/releases/tags/$VERSION")"
-          echo "$published" | jq -e --arg sha "$GITHUB_SHA" '.draft == false and .prerelease == true and .target_commitish == $sha' >/dev/null
-          gh api "repos/$REPO/git/ref/tags/$VERSION" --jq '.object.sha' | grep -Fx "$GITHUB_SHA"
-          echo "Published b8 on exact tested commit: $GITHUB_SHA"
+          gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \
+            --input "$RUNNER_TEMP/publish.json" > "$RUNNER_TEMP/published.json"
+          gh api "repos/$REPO/git/ref/tags/$VERSION" > "$RUNNER_TEMP/tag.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          release=json.loads((root/"published.json").read_text())
+          tag=json.loads((root/"tag.json").read_text())
+          assert release["id"]==438422783 and release["tag_name"]=="0.2.0b8"
+          assert release["draft"] is False and release["prerelease"] is True
+          assert release["target_commitish"]==os.environ["TARGET_SHA"]
+          assert tag["object"]["sha"]==os.environ["TARGET_SHA"]
+          print("Published b8:",release["html_url"])
+          PY
