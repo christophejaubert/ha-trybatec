@@ -154,7 +154,6 @@ async def test_confirming_one_meter_unit_keeps_integration_loaded_without_portal
     hass.config_entries.async_update_entry(
         entry,
         options={
-            "poll_minutes": 720,
             CONF_METER_UNITS: {key: "m³"},
             "device_uuids": {},
         },
