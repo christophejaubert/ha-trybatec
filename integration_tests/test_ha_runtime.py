@@ -242,3 +242,93 @@ async def test_log_level_option_applies_without_portal_poll_or_reload(
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert root.level == logging.NOTSET
+
+
+async def test_real_options_flow_saves_unit_before_return_to_meter_list(
+    hass, monkeypatch
+):
+    """Exercise the actual HA options manager, including the persistent options."""
+    from homeassistant.helpers.selector import SelectSelector, SelectSelectorMode
+
+    entry, calls = await configure_fake_account(hass, monkeypatch, None)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    first_calls = len(calls)
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = initial["flow_id"]
+    meters = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "meter_units"}
+    )
+    assert meters["step_id"] == "meter_units"
+    meter_selector = next(
+        value for marker, value in meters["data_schema"].schema.items()
+        if marker.schema == "meter"
+    )
+    assert isinstance(meter_selector, SelectSelector)
+    assert meter_selector.config["mode"] == SelectSelectorMode.LIST
+
+    details = await hass.config_entries.options.async_configure(
+        flow_id, {"meter": key}
+    )
+    assert details["step_id"] == "meter_unit"
+    unit_selector = next(
+        value for marker, value in details["data_schema"].schema.items()
+        if marker.schema == "unit"
+    )
+    assert isinstance(unit_selector, SelectSelector)
+    assert unit_selector.config["mode"] == SelectSelectorMode.LIST
+
+    returned = await hass.config_entries.options.async_configure(
+        flow_id, {
+            "unit": "m³", "device_uuid": "", "after_submit": "meters",
+        },
+    )
+    assert returned["type"] == "form" and returned["step_id"] == "meter_units"
+    assert entry.options[CONF_METER_UNITS][key] == "m³"
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert len(calls) == first_calls, "Unit save must not poll Trybatec API"
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["verified_unit"] == "m³"
+
+    again = await hass.config_entries.options.async_configure(
+        flow_id, {"meter": key}
+    )
+    unit_marker = next(
+        marker for marker in again["data_schema"].schema
+        if marker.schema == "unit"
+    )
+    assert unit_marker.default() == "m³"
+
+    menu = await hass.config_entries.options.async_configure(
+        flow_id, {
+            "unit": "m³", "device_uuid": "", "after_submit": "menu",
+        },
+    )
+    assert menu["type"] == "menu" and menu["step_id"] == "init"
+    assert entry.options[CONF_METER_UNITS][key] == "m³"
+
+
+async def test_real_options_flow_saves_diagnostics_before_main_menu(
+    hass, monkeypatch
+):
+    """The logging level is persisted before navigation and no reload occurs."""
+    entry, calls = await configure_fake_account(hass, monkeypatch, None)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = initial["flow_id"]
+    form = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "diagnostics"}
+    )
+    assert form["step_id"] == "diagnostics"
+    count = len(calls)
+    response = await hass.config_entries.options.async_configure(
+        flow_id, {
+            "log_level": "DEBUG", "after_submit": "menu",
+        }
+    )
+    assert response["type"] == "menu" and response["step_id"] == "init"
+    assert entry.options["log_level"] == "DEBUG"
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert len(calls) == count
+    assert logging.getLogger("custom_components.trybatec").level == logging.DEBUG
