@@ -47,7 +47,7 @@ jobs:
         run: python -m compileall -q custom_components/trybatec
       - name: Test parsing, multi-customer history, service security, and API client
         run: |
-          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml tests
+          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml tests .github/ci/test_resolve_refs.py
       - name: Upload coverage report
         if: matrix.python_label == '3.14'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
