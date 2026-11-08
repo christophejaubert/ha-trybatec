@@ -15,7 +15,7 @@ jobs:
       github.event.issue.number == 6 &&
       github.event.issue.pull_request == null &&
       github.event.comment.user.login == 'christophejaubert' &&
-      github.event.comment.body == 'finalize-approved-b8-20261108'
+      github.event.comment.body == 'finalize-authorized-b8-draft-20261108'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -54,7 +54,7 @@ jobs:
           from pathlib import Path
           temp=Path(os.environ["RUNNER_TEMP"])
           diff=json.loads((temp/"diff.json").read_text())
-          assert diff.get("status")=="ahead" and diff.get("ahead_by")==1, "Main changed beyond one controlled workflow fix"
+          assert diff.get("status")=="ahead" and diff.get("ahead_by")==2, "Unexpected commits since validated b8"
           assert [f["filename"] for f in diff.get("files",[])]==[".github/workflows/one-time-b8-release.yml"], "Unexpected changes since b8 candidate"
           manifest=json.loads(Path("custom_components/trybatec/manifest.json").read_text())
           assert manifest["domain"]=="trybatec" and manifest["version"]==os.environ["VERSION"]
@@ -70,8 +70,7 @@ jobs:
           assert good, "Successful post-merge CI on the current workflow-fix commit is required"
           (temp/"ci_run_id").write_text(str(good[0]["id"]))
           (temp/"publish.json").write_text(json.dumps({
-            "draft":False,"prerelease":True,
-            "target_commitish":os.environ["TARGET_SHA"]
+            "draft":False,"prerelease":True
           }),encoding="utf-8")
           PY
           # Verify both the original tested integration SHA and updated workflow SHA.
