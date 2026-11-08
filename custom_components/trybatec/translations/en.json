@@ -27,19 +27,18 @@
         "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.\n\nValues are validated and saved before returning to the menu. To discard changes, close the dialog using ×.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)",
-          "after_submit": "After validation"
+          "annual_tariffs": "Annual tariffs (JSON, optional)"
         }
       },
       "init": {
         "title": "Trybatec options",
         "menu_options": {
-          "settings": "Settings",
-          "history_review": "Review historical readings",
-          "meter_units": "Verify meter units",
-          "history_overview": "Historical preview overview",
-          "history_meters": "Physical meter details",
-          "diagnostics": "Diagnostics and logging"
+          "settings_menu": "Settings",
+          "history_review_menu": "Review historical readings",
+          "meter_units_menu": "Verify meter units",
+          "history_overview": "History overview",
+          "history_meters_menu": "Meter details",
+          "diagnostics_menu": "Diagnostics and logging"
         }
       },
       "history_review": {
@@ -68,8 +67,7 @@
           "mode": "Correction type",
           "date": "Date",
           "time": "Time",
-          "reason": "Required justification",
-          "after_submit": "After validation"
+          "reason": "Required justification"
         }
       },
       "history_confirm": {
@@ -77,8 +75,7 @@
         "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}\n\nA decision is saved only after explicit confirmation, including any additional approval required for out-of-period accounting attribution. Then choose where to navigate.",
         "data": {
           "confirm": "I confirm this decision",
-          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval",
-          "after_submit": "After validation"
+          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval"
         }
       },
       "meter_units": {
@@ -93,8 +90,7 @@
         "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nPreselected unit provenance: {selection_origin}. The chart unit is only a reference unless the API explicitly supplies the raw index unit.\n\nIf you do not have the Trybatec device UUID, leave that field empty. If the real raw index unit has not been verified, select « Unknown » in the unit list. Do not confirm an index unit from the chart alone **unless you are certain which unit to use**.\n\nSelect a unit, optionally enter a device UUID, then choose whether to finish, return to the meter list, or return to the main menu. The changes are saved before navigating.",
         "data": {
           "unit": "Confirmed source unit",
-          "device_uuid": "Trybatec device UUID (optional)",
-          "after_submit": "After validation"
+          "device_uuid": "Trybatec device UUID (optional)"
         }
       },
       "history_overview": {
@@ -149,8 +145,70 @@
         "title": "Diagnostics and logging",
         "description": "Choose the Trybatec log severity. This level applies to all Trybatec hubs in the Home Assistant instance. WARNING is recommended normally; DEBUG is for temporary troubleshooting. Raw portal responses, passwords and tokens must never be logged.\n\n[Open Trybatec logs]({logs_url})\n\nChoose the logging level. 'Save and return to main menu' applies the selected level before navigating.",
         "data": {
-          "log_level": "Logging level",
-          "after_submit": "After validation"
+          "log_level": "Logging level"
+        }
+      },
+      "settings_menu": {
+        "title": "Settings",
+        "menu_options": {
+          "settings": "Edit settings",
+          "init": "← Back to main menu"
+        }
+      },
+      "diagnostics_menu": {
+        "title": "Diagnostics and logging",
+        "menu_options": {
+          "diagnostics": "Edit log level",
+          "init": "← Back to main menu"
+        }
+      },
+      "meter_units_menu": {
+        "title": "Meter units",
+        "menu_options": {
+          "meter_units": "Select a meter",
+          "init": "← Back to main menu"
+        }
+      },
+      "meter_unit_menu": {
+        "title": "Meter options",
+        "menu_options": {
+          "meter_unit": "Edit unit or UUID",
+          "meter_units": "← Back to meter list",
+          "init": "← Back to main menu"
+        }
+      },
+      "history_meters_menu": {
+        "title": "Meter history",
+        "menu_options": {
+          "history_meters": "Select a meter to inspect",
+          "init": "← Back to main menu"
+        }
+      },
+      "history_review_menu": {
+        "title": "Historical review",
+        "menu_options": {
+          "history_review": "Select a reading to review",
+          "init": "← Back to main menu"
+        }
+      },
+      "history_correction_menu": {
+        "title": "Correct a reading",
+        "description": "Draft corrections are not saved to history without final confirmation.",
+        "menu_options": {
+          "history_correction": "Edit correction",
+          "history_decision": "← Back to previous screen",
+          "init": "← Back to main menu"
+        }
+      },
+      "history_confirm_menu": {
+        "title": "Approve reading action",
+        "description": "Opening this menu never records a decision. Select Confirm, then explicitly approve on the following screen.",
+        "menu_options": {
+          "history_confirm": "Review and confirm decision",
+          "history_correction_menu": "← Back to correction",
+          "history_decision": "← Back to decision",
+          "history_review_menu": "← Back to readings without saving",
+          "init": "← Back to main menu"
         }
       }
     },
