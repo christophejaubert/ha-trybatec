@@ -172,3 +172,22 @@ def test_scoped_uuid_option_never_grants_a_different_meter_unit():
     result = asyncio.run(client.enrich_meter_units([payload], DEAL, device_uuids=option))
     assert result["matched_lines"] == 0
     assert "indexUnit" not in payload["lines"][0]
+
+
+def test_optional_directory_denial_does_not_break_main_indexes():
+    payload = {"lines": [line()]}
+    session = Session([Reply(403, {"message": "permission denied"})])
+    client = TrybatecClient(session, "user", "password")
+    result = asyncio.run(client.enrich_meter_units([payload], DEAL))
+    assert result["unmatched_lines"] == 1
+    assert payload["lines"][0].get("indexUnit") is None
+    assert len(session.urls) == 1
+
+
+def test_optional_detail_denial_does_not_invalidate_main_api_token():
+    payload = {"lines": [line(deviceUuid=UUID)]}
+    session = Session([Reply(404, {}), Reply(403, {"message": "not authorized"})])
+    client = TrybatecClient(session, "user", "password")
+    result = asyncio.run(client.enrich_meter_units([payload], DEAL))
+    assert result["unmatched_lines"] == 1
+    assert client._token == "TEST-ONLY"

@@ -184,12 +184,20 @@ class TrybatecClient:
                     headers={"Authorization": f"Bearer {self._token}"},
                     timeout=aiohttp.ClientTimeout(total=20),
                 ) as response:
-                    if response.status in (401, 403):
+                    if response.status == 403:
+                        # The optional directory/detail may be forbidden even
+                        # when the /indexes permission is valid. Do not force
+                        # a full integration re-authentication.
+                        return None
+                    if response.status == 401:
                         if unauthorized:
-                            raise TrybatecAuthError("Trybatec device metadata authorization rejected")
+                            return None
                         unauthorized = True
                         self._token = None
-                        await self.authenticate()
+                        try:
+                            await self.authenticate()
+                        except TrybatecError:
+                            return None
                         continue
                     if response.status in (404, 405):
                         return None
