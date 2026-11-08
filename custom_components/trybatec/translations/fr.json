@@ -24,27 +24,26 @@
     "step": {
       "settings": {
         "title": "Options Trybatec",
-        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.",
+        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.\n\nValidez pour enregistrer. La navigation s’effectue dans les menus cliquables ; fermer avec × abandonne la saisie.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
-          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
-          "return_to_menu": "Revenir au menu principal"
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
         }
       },
       "init": {
         "title": "Options Trybatec",
         "menu_options": {
-          "settings": "Réglages",
-          "history_review": "Réviser les relevés historiques",
-          "meter_units": "Vérifier les unités des compteurs",
+          "settings_menu": "Réglages",
+          "history_review_menu": "Réviser les relevés historiques",
+          "meter_units_menu": "Vérifier les unités des compteurs",
           "history_overview": "Synthèse graphique de l’historique",
-          "history_meters": "Détails des compteurs",
-          "diagnostics": "Diagnostics et journalisation"
+          "history_meters_menu": "Détails des compteurs",
+          "diagnostics_menu": "Diagnostics et journalisation"
         }
       },
       "history_review": {
         "title": "Choisir un relevé à examiner",
-        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "data": {
           "reading": "Relevé"
         }
@@ -52,42 +51,43 @@
       "history_decision": {
         "title": "Décision sur le relevé",
         "description": "Le relevé Trybatec source reste inchangé. La décision est conservée localement.",
-        "data": {
-          "choice": "Décision"
+        "menu_options": {
+          "history_decision_accept": "Accepter le relevé (confirmation requise)",
+          "history_decision_correct": "Corriger le relevé (confirmation requise)",
+          "history_decision_reject": "Exclure le relevé (confirmation requise)",
+          "history_decision_postpone": "Reporter le traitement (confirmation requise)",
+          "history_review": "← Retour à la liste des relevés",
+          "init": "← Retour au menu principal"
         }
       },
       "history_correction": {
         "title": "Corriger ou imputer un relevé",
-        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.",
+        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.\n\nLa correction saisie est un brouillon tant que la confirmation obligatoire n'a pas été validée. Après validation des champs, un menu vous permet de confirmer ou de revenir en arrière sans enregistrer.",
         "data": {
           "mode": "Type de correction",
           "date": "Date",
           "time": "Heure",
-          "reason": "Justification obligatoire",
-          "back_to_decision": "Revenir au choix de la décision",
-          "return_to_menu": "Revenir au menu principal"
+          "reason": "Justification obligatoire"
         }
       },
       "history_confirm": {
         "title": "Confirmer le traitement du relevé",
-        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}",
+        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}\n\nLa décision n'est enregistrée que si la case de confirmation est cochée, avec l'accord supplémentaire requis en cas de date comptable hors période. La navigation sans enregistrement se fait sur le menu précédent.",
         "data": {
           "confirm": "Je confirme cette décision",
-          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés",
-          "back_to_decision": "Revenir au choix de la décision",
-          "return_to_menu": "Revenir au menu principal"
+          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
         }
       },
       "meter_units": {
         "title": "Choisir le compteur",
-        "description": "Trybatec affiche des unités dans ses graphiques (m³ ou kWh), mais cela ne garantit pas l’unité des index transmis par l’API. Sélectionnez un compteur pour comparer la référence graphique et l’unité source explicitement détectée. Une unité inconnue reste à confirmer avant tout import.",
+        "description": "Trybatec affiche des unités dans ses graphiques (m³ ou kWh), mais cela ne garantit pas l’unité des index transmis par l’API. Sélectionnez un compteur pour comparer la référence graphique et l’unité source explicitement détectée. Une unité inconnue reste à confirmer avant tout import.\n\nLes compteurs dont l'unité est confirmée sont indiqués en priorité, même si l'API ne fournit aucune unité explicite. Chaque ligne distingue la source API et la confirmation de l'utilisateur.",
         "data": {
           "meter": "Compteur physique"
         }
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.\n\nSélectionnez l’unité, saisissez éventuellement l’UUID et validez. L’enregistrement précède le retour à la liste. Les liens de retour en un clic se trouvent dans le menu du compteur.",
         "data": {
           "unit": "Unité source confirmée",
           "device_uuid": "UUID de la fiche Trybatec (facultatif)"
@@ -95,7 +95,7 @@
       },
       "history_overview": {
         "title": "Aperçu de l’historique",
-        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "history_start_review": "Examiner les relevés",
           "init": "← Retour au menu principal"
@@ -103,7 +103,7 @@
       },
       "history_empty": {
         "title": "Aucun relevé à réviser",
-        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\n\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.",
+        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\n\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
@@ -111,8 +111,10 @@
       "history_meter_detail": {
         "title": "Détail du compteur",
         "description": "**{meter}** · Lot {lot} · {status}\n\n- **Premier relevé :** {first}\n- **Dernier relevé :** {last}\n- **Périodes lacunaires :** {gaps}\n- **Baisses d’index :** {decreases}\n- **Conflits :** {conflicts}\n- **Unité de l’index API :** {unit}\n\nLes relevés bruts ne sont pas modifiés. Les compteurs successifs restent distincts.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
-        "data": {
-          "navigation": "Navigation"
+        "menu_options": {
+          "history_meters": "← Retour à la liste des compteurs",
+          "history_start_review": "Examiner les relevés",
+          "init": "← Retour au menu principal"
         }
       },
       "history_start_review": {
@@ -120,31 +122,93 @@
       },
       "history_meters": {
         "title": "Détails des compteurs",
-        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "data": {
           "meter_detail": "Compteur physique"
         }
       },
       "history_unavailable": {
         "title": "Intégration Trybatec indisponible",
-        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.",
+        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
       },
       "history_preview_missing": {
         "title": "Prévisualisation historique requise",
-        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\n\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\n\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).",
+        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\n\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\n\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).\n\nLe lien ouvre l’action « trybatec.preview_history » déjà sélectionnée, sans l’exécuter.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
       },
       "diagnostics": {
         "title": "Diagnostics et journalisation",
-        "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})",
+        "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nValidez pour appliquer le niveau choisi. Les retours en un clic se trouvent dans le menu précédent.",
         "data": {
-          "log_level": "Niveau de journalisation",
-          "return_to_menu": "← Retour au menu principal"
+          "log_level": "Niveau de journalisation"
+        }
+      },
+      "settings_menu": {
+        "title": "Réglages",
+        "menu_options": {
+          "settings": "Modifier les réglages",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "diagnostics_menu": {
+        "title": "Diagnostics et journalisation",
+        "menu_options": {
+          "diagnostics": "Modifier le niveau de journalisation",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "meter_units_menu": {
+        "title": "Unités des compteurs",
+        "menu_options": {
+          "meter_units": "Choisir un compteur",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "meter_unit_menu": {
+        "title": "Options du compteur",
+        "menu_options": {
+          "meter_unit": "Modifier l’unité ou l’UUID",
+          "meter_units": "← Retour à la liste des compteurs",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_meters_menu": {
+        "title": "Historique des compteurs",
+        "menu_options": {
+          "history_meters": "Choisir un compteur à consulter",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_review_menu": {
+        "title": "Révision de l’historique",
+        "menu_options": {
+          "history_review": "Choisir un relevé à examiner",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_correction_menu": {
+        "title": "Corriger un relevé",
+        "description": "Les modifications en brouillon ne sont pas enregistrées dans l’historique tant que la confirmation finale n’a pas été donnée.",
+        "menu_options": {
+          "history_correction": "Modifier la correction",
+          "history_decision": "← Retour à l’écran précédent",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_confirm_menu": {
+        "title": "Valider le traitement du relevé",
+        "description": "Aucune décision n’est enregistrée en ouvrant ce menu. Choisissez « Confirmer » puis donnez votre accord explicite sur l’écran suivant.",
+        "menu_options": {
+          "history_confirm": "Examiner et confirmer la décision",
+          "history_correction_menu": "← Retour à la correction",
+          "history_decision": "← Retour au choix de décision",
+          "history_review_menu": "← Retour aux relevés sans enregistrer",
+          "init": "← Retour au menu principal"
         }
       }
     },
@@ -154,7 +218,10 @@
       "invalid_meter_unit": "Unité non prise en charge pour ce fluide.",
       "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail.",
       "invalid_device_uuid": "UUID de compteur invalide. Renseignez l'identifiant de la fiche Trybatec (format UUID).",
-      "invalid_log_level": "Niveau de journalisation invalide."
+      "invalid_log_level": "Niveau de journalisation invalide.",
+      "invalid_settings": "Réglages invalides. Vérifiez la période d'interrogation, les tarifs et la destination.",
+      "confirmation_required": "Cochez la confirmation requise avant d'enregistrer la décision ou de revenir au menu.",
+      "invalid_confirmation_navigation": "Le retour à la décision sans enregistrer est incompatible avec une confirmation cochée."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",

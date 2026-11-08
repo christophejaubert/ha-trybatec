@@ -20,6 +20,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector, DateSelector, TimeSelector, TextSelector, TextSelectorConfig, TextSelectorType,
+    SelectOptionDict, SelectSelector, SelectSelectorConfig, SelectSelectorMode,
 )
 from homeassistant.util import dt as dt_util
 
@@ -120,11 +121,67 @@ class TrybatecOptionsFlow(OptionsFlow):
     _pending_review: dict | None = None
     _selected_meter_unit_key: str | None = None
     _selected_history_meter_key: str | None = None
+    _return_after_confirmation: bool = False
+    _correction_draft: dict | None = None
+
+    @staticmethod
+    def _radio_choices(choices: dict[str, str]) -> SelectSelector:
+        """Always render a single-choice list as radio buttons, even above five items."""
+        return SelectSelector(
+            SelectSelectorConfig(
+                options=[SelectOptionDict(value=k, label=v) for k, v in choices.items()],
+                mode=SelectSelectorMode.LIST,
+            )
+        )
+
+    def _save_route_schema(self, *, include_meter_list: bool = False) -> SelectSelector:
+        choices = {
+            "finish": self._nav_text(
+                "Enregistrer et terminer", "Save and finish"
+            ),
+        }
+        if include_meter_list:
+            choices["meters"] = self._nav_text(
+                "Enregistrer et revenir à la liste des compteurs",
+                "Save and return to the meter list",
+            )
+        choices["menu"] = self._nav_text(
+            "Enregistrer et revenir au menu principal", "Save and return to main menu"
+        )
+        return self._radio_choices(choices)
+
+    async def _save_options_and_navigate(
+        self, updates: dict, route: str, *, include_meter_list: bool = False
+    ) -> ConfigFlowResult:
+        """Validate first, then store options exactly once before navigation.
+
+        Home Assistant's async_create_entry ends an options flow. An explicit
+        'save and return' therefore updates the existing entry in place while
+        the flow remains open; its existing update listener applies runtime
+        changes. No side effects occur when the user merely navigates.
+        """
+        allowed = {"finish", "menu"} | ({"meters"} if include_meter_list else set())
+        if route not in allowed:
+            raise ValueError("Unsupported post-save navigation")
+        options = {**self.config_entry.options, **updates}
+        if route == "finish":
+            return self.async_create_entry(title="", data=options)
+        if options != dict(self.config_entry.options):
+            self.hass.config_entries.async_update_entry(self.config_entry, options=options)
+        if route == "meters":
+            self._selected_meter_unit_key = None
+            return await self.async_step_meter_units()
+        return await self._go_to_main_menu()
 
     @staticmethod
     def _actions_url() -> str:
         """Instance-relative Home Assistant route; never embed a user's URL."""
-        return "/config/developer-tools/action"
+        # Official My Home Assistant redirect selects, but does not execute,
+        # the read-only preview action. Never include credentials or local URLs.
+        return (
+            "https://my.home-assistant.io/redirect/tools_perform_action/"
+            "?service=trybatec.preview_history"
+        )
 
     @staticmethod
     def _logs_url() -> str:
@@ -171,41 +228,75 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._selected_history_meter_key = None
         self._selected_reading = None
         self._pending_review = None
+        self._return_after_confirmation = False
+        self._correction_draft = None
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
+        # Native menu selections target "init" directly, not _go_to_main_menu.
+        # Clear only in-progress state, never persisted options or decisions.
+        self._selected_meter_unit_key = None
+        self._selected_history_meter_key = None
+        self._selected_reading = None
+        self._pending_review = None
+        self._return_after_confirmation = False
+        self._correction_draft = None
         return self.async_show_menu(
             step_id="init",
-            menu_options=["settings", "diagnostics", "meter_units",
-                          "history_overview", "history_meters", "history_review"],
+            menu_options=["settings_menu", "diagnostics_menu", "meter_units_menu",
+                          "history_overview", "history_meters_menu", "history_review_menu"],
+        )
+
+    # Navigation is always a native one-click menu. Editable forms contain
+    # only fields and their validation/confirmation, not navigation radios.
+    # Future options screens must follow this same menu -> form pattern.
+    async def async_step_settings_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="settings_menu", menu_options=["settings", "init"])
+
+    async def async_step_diagnostics_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="diagnostics_menu", menu_options=["diagnostics", "init"])
+
+    async def async_step_meter_units_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="meter_units_menu", menu_options=["meter_units", "init"])
+
+    async def async_step_history_meters_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="history_meters_menu", menu_options=["history_meters", "init"])
+
+    async def async_step_history_review_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="history_review_menu", menu_options=["history_review", "init"])
+
+    async def async_step_meter_unit_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if self._selected_meter_unit_key is None:
+            return await self.async_step_meter_units_menu()
+        return self.async_show_menu(
+            step_id="meter_unit_menu",
+            menu_options=["meter_unit", "meter_units", "init"],
         )
 
     async def async_step_diagnostics(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
         """Configure the shared Trybatec logging threshold without reload."""
-        if user_input is not None and user_input.get("return_to_menu"):
-            return await self._go_to_main_menu()
         schema = vol.Schema({
             vol.Required(
                 CONF_LOG_LEVEL,
-                default=self.config_entry.options.get(
-                    CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL
+                default=(
+                    (user_input or {}).get(CONF_LOG_LEVEL)
+                    or self.config_entry.options.get(CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL)
                 ),
-            ): vol.In(LOG_LEVELS),
-            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+            ): self._radio_choices({level: level for level in LOG_LEVELS}),
         })
         if user_input is not None:
             selected = user_input.get(CONF_LOG_LEVEL)
-            if selected not in LOG_LEVELS:
+            route = user_input.get("after_submit", "menu")
+            if selected not in LOG_LEVELS or route not in ("finish", "menu"):
                 return self.async_show_form(
                     step_id="diagnostics", data_schema=schema,
                     errors={"base": "invalid_log_level"},
                     description_placeholders={"logs_url": self._logs_url()},
                 )
-            return self.async_create_entry(
-                title="",
-                data={**self.config_entry.options, CONF_LOG_LEVEL: selected},
+            return await self._save_options_and_navigate(
+                {CONF_LOG_LEVEL: selected}, route
             )
         return self.async_show_form(
             step_id="diagnostics", data_schema=schema,
@@ -213,20 +304,27 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
         errors: dict[str, str] = {}
         if user_input is not None:
+            route = user_input.get("after_submit", "menu")
             try:
-                validate_tariffs(user_input[CONF_TARIFFS])
-            except (ValueError, TypeError, json.JSONDecodeError):
-                errors[CONF_TARIFFS] = "invalid_tariffs"
+                tariffs = user_input.get(
+                    CONF_TARIFFS, self.config_entry.options.get(CONF_TARIFFS, "{}")
+                )
+                poll = int(user_input.get(
+                    CONF_POLL_MINUTES,
+                    self.config_entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES),
+                ))
+                if not MIN_POLL_MINUTES <= poll <= 10080:
+                    raise ValueError("Polling interval out of bounds")
+                validate_tariffs(tariffs)
+                if route not in ("finish", "menu"):
+                    raise ValueError("Invalid navigation")
+            except (ValueError, TypeError, json.JSONDecodeError, OverflowError):
+                errors["base"] = "invalid_settings"
             else:
-                return self.async_create_entry(
-                    title="",
-                    data={**self.config_entry.options,
-                          **{key: value for key, value in user_input.items()
-                             if key != "return_to_menu"}},
+                return await self._save_options_and_navigate(
+                    {CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs}, route
                 )
         schema = vol.Schema(
             {
@@ -240,7 +338,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
-                vol.Optional("return_to_menu", default=False): BooleanSelector(),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
@@ -250,7 +347,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         """Current plus cached historical (including replaced) physical meters."""
         overrides = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         meters = {
-            meter_key(m["lot"], m["fluid"], m["serial"]): m
+            meter_key(m["lot"], m["fluid"], m["serial"]): dict(m)
             for m in coordinator.data.get("meters", {}).values()
         }
         cache = getattr(coordinator, "_history_review_cache", None)
@@ -267,11 +364,24 @@ class TrybatecOptionsFlow(OptionsFlow):
                         "portal_display_unit": item.get("portal_display_unit") or portal_display_unit(fluid),
                         "verified_unit": resolve_meter_unit(lot, fluid, serial, source, overrides),
                     }
+        # Read the persisted options on every screen visit. A cached coordinator
+        # snapshot can lag behind a valid OptionsFlow save; never display its
+        # outdated verified_unit as if the operator's choice were lost.
+        for meter in meters.values():
+            meter["verified_unit"] = resolve_meter_unit(
+                meter["lot"], meter["fluid"], meter["serial"],
+                meter.get("portal_unit"), overrides,
+            )
         return meters
 
     def _unit_origin(self, meter: dict, has_user_confirmation: bool) -> str:
         """Display unit provenance without treating chart metadata as API data."""
-        if has_user_confirmation:
+        if meter.get("portal_unit") in ("conflict", "unverified"):
+            return self._nav_text(
+                "Unité API contradictoire ou non reconnue",
+                "Conflicting or unrecognized API unit",
+            )
+        if has_user_confirmation and meter.get("verified_unit") is not None:
             return self._nav_text("Confirmée manuellement", "Manually confirmed")
         if meter.get("portal_unit") in _ALLOWED[meter["fluid"]]:
             return self._nav_text("Détectée par l’API", "Detected by API")
@@ -283,7 +393,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Select one physical meter; never silently reuse a unit from another."""
         if user_input is not None and user_input.get("meter") == RETURN_TO_MENU:
-            return await self._go_to_main_menu()
+            return await self.async_step_meter_units_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self._history_notice("history_unavailable")
@@ -295,37 +405,32 @@ class TrybatecOptionsFlow(OptionsFlow):
             if chosen not in mapping:
                 return self._history_notice("history_preview_missing")
             self._selected_meter_unit_key = chosen
-            return await self.async_step_meter_unit()
+            return await self.async_step_meter_unit_menu()
         display_label = self._nav_text("graphique", "chart")
         source_label = self._nav_text("index API", "API index")
-        verified_label = self._nav_text("unité", "unit")
-        origin_label = self._nav_text("provenance", "origin")
         saved = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         missing_label = self._nav_text("non détectée", "not detected")
-        choices = {
-            key: (
-                f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
-                f'{display_label}: {m.get("portal_display_unit") or portal_display_unit(m["fluid"]) or "—"} · '
-                f'{source_label}: {m.get("portal_unit") or missing_label} · '
-                f'{verified_label}: {m.get("verified_unit") or "—"} · '
-                f'{origin_label}: {self._unit_origin(m, key in saved)}'
-            )[:240] for key, m in mapping.items()
-        }
-        choices[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
+        choices = {}
+        for key, meter in mapping.items():
+            verified = meter.get("verified_unit")
+            status = (
+                f'{self._unit_origin(meter, key in saved)} : {verified}'
+                if verified else self._nav_text("À confirmer", "Needs confirmation")
+            )
+            choices[key] = (
+                f'{meter["fluid"]} · {meter["serial"]} · {meter["lot"]} · '
+                f'{status} · {source_label}: '
+                f'{meter.get("portal_unit") or missing_label} · '
+                f'{display_label}: '
+                f'{meter.get("portal_display_unit") or portal_display_unit(meter["fluid"]) or "—"}'
+            )[:240]
         return self.async_show_form(
             step_id="meter_units",
-            data_schema=vol.Schema({vol.Required("meter"): vol.In(choices)}),
+            data_schema=vol.Schema({vol.Required("meter"): self._radio_choices(choices)}),
         )
 
     async def async_step_meter_unit(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Persist only a single verified unit override, with conflict prevention."""
-        if user_input is not None and user_input.get("unit") == RETURN_TO_MENU:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("unit") == RETURN_TO_METERS:
-            self._selected_meter_unit_key = None
-            return await self.async_step_meter_units()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self._history_notice("history_unavailable")
@@ -350,20 +455,15 @@ class TrybatecOptionsFlow(OptionsFlow):
         device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
         current_uuid = device_uuids.get(self._selected_meter_unit_key, "") if isinstance(device_uuids, dict) else ""
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
-        allowed[RETURN_TO_METERS] = self._nav_text(
-            "← Retour à la liste des compteurs", "← Back to meter list"
-        )
-        allowed[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
         schema = vol.Schema({
-            vol.Required("unit", default=current_unit): vol.In(allowed),
+            vol.Required("unit", default=current_unit): self._radio_choices(allowed),
             vol.Optional("device_uuid", default=current_uuid): TextSelector(),
         })
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
-            uuid_candidate = str(user_input.get("device_uuid") or "").strip()
-            if candidate not in allowed:
+            uuid_candidate = str(user_input.get("device_uuid", current_uuid) or "").strip()
+            route = user_input.get("after_submit", "meters")
+            if candidate not in allowed or route not in ("finish", "menu", "meters"):
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
             if uuid_candidate and uuid_text(uuid_candidate) is None:
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_device_uuid"}, data_schema=schema)
@@ -383,12 +483,9 @@ class TrybatecOptionsFlow(OptionsFlow):
                 updated_uuids[self._selected_meter_unit_key] = uuid_text(uuid_candidate)
             else:
                 updated_uuids.pop(self._selected_meter_unit_key, None)
-            return self.async_create_entry(
-                title="", data={
-                    **self.config_entry.options,
-                    CONF_METER_UNITS: current,
-                    CONF_DEVICE_UUIDS: updated_uuids,
-                }
+            return await self._save_options_and_navigate(
+                {CONF_METER_UNITS: current, CONF_DEVICE_UUIDS: updated_uuids},
+                route, include_meter_list=True,
             )
         return self.async_show_form(
             step_id="meter_unit",
@@ -485,7 +582,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="history_meters",
             data_schema=vol.Schema({
-                vol.Required("meter_detail"): vol.In(meter_choices),
+                vol.Required("meter_detail"): self._radio_choices(meter_choices),
             }),
             description_placeholders={
                 "meters": str(len(meter_choices)),
@@ -525,19 +622,12 @@ class TrybatecOptionsFlow(OptionsFlow):
         lot, fluid, serial, meter = matches[0]
         first = meter["first"].astimezone(ZONE).strftime("%d/%m/%Y")
         last = meter["last"].astimezone(ZONE).strftime("%d/%m/%Y")
-        choices = {
-            "overview": self._nav_text("← Retour aux compteurs", "← Back to meter list"),
-            "review": self._nav_text("Examiner les relevés", "Review readings"),
-            "main": self._nav_text("← Menu principal", "← Main menu"),
-        }
         source_unit = meter.get("portal_unit")
         if source_unit in (None, "conflict", "unverified"):
             source_unit = self._nav_text("non confirmée", "not verified")
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="history_meter_detail",
-            data_schema=vol.Schema({
-                vol.Required("navigation", default="overview"): vol.In(choices),
-            }),
+            menu_options=["history_meters", "history_start_review", "init"],
             description_placeholders={
                 "meter": f"{fluid} · {serial}",
                 "lot": lot,
@@ -585,16 +675,15 @@ class TrybatecOptionsFlow(OptionsFlow):
             )[:240]
             for item in candidates
         }
-        selections[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
         return self.async_show_form(
             step_id="history_review",
-            data_schema=vol.Schema({vol.Required("reading"): vol.In(selections)}),
+            data_schema=vol.Schema({vol.Required("reading"): self._radio_choices(selections)}),
             description_placeholders={"actions_url": self._actions_url()},
         )
 
-    async def _save_review(self, decision: dict) -> ConfigFlowResult:
+    async def _save_review(
+        self, decision: dict, *, return_to_menu: bool = False
+    ) -> ConfigFlowResult:
         """Persist choices without modifying external statistics or source readings."""
         if self._selected_reading is None or self._selected_reading["key"] not in {
             c["key"] for c in self._review_list()
@@ -619,6 +708,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ]
         self._selected_reading = None
         self._pending_review = None
+        self._correction_draft = None
+        self._return_after_confirmation = False
+        if return_to_menu:
+            return await self._go_to_main_menu()
         return await self.async_step_history_review()
 
     async def async_step_history_decision(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -634,93 +727,191 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return await self.async_step_history_review()
             if choice == "correct":
                 return await self.async_step_history_correction()
+            self._correction_draft = None
+            self._return_after_confirmation = False
             self._pending_review = {"action": choice}
             return await self.async_step_history_confirm()
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="history_decision",
-            data_schema=vol.Schema({vol.Required("choice"): vol.In({
-                "accept": "Accept unchanged / Accepter",
-                "correct": "Correct and accept / Corriger",
-                "reject": "Exclude / Exclure",
-                "postpone": "Postpone / Reporter",
-                RETURN_TO_READINGS: self._nav_text(
-                    "← Retour à la liste des relevés", "← Back to reading list"
-                ),
-                RETURN_TO_MENU: self._nav_text(
-                    "← Retour au menu principal", "← Back to main menu"
-                ),
-            })}),
+            menu_options=[
+                "history_decision_accept", "history_decision_correct",
+                "history_decision_reject", "history_decision_postpone",
+                "history_review", "init",
+            ],
         )
 
-    async def async_step_history_correction(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Date/time picker, clear type, written explanation; no silent rewriting."""
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("back_to_decision") is True:
-            self._pending_review = None
-            return await self.async_step_history_decision()
+    async def async_step_history_correction_menu(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if self._selected_reading is None:
+            return self._history_notice("history_preview_missing")
+        return self.async_show_menu(
+            step_id="history_correction_menu",
+            menu_options=["history_correction", "history_decision", "init"],
+        )
+
+    async def async_step_history_confirm_menu(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Offer one-click safe back routes BEFORE final confirmation."""
+        if self._selected_reading is None or self._pending_review is None:
+            return self._history_notice("history_preview_missing")
+        previous = (
+            "history_correction_menu"
+            if self._pending_review.get("action") == "correct"
+            else "history_decision"
+        )
+        return self.async_show_menu(
+            step_id="history_confirm_menu",
+            menu_options=["history_confirm", previous, "history_review_menu", "init"],
+        )
+
+    async def async_step_history_decision_accept(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        await self.async_step_history_decision({"choice": "accept"})
+        return await self.async_step_history_confirm_menu()
+
+    async def async_step_history_decision_correct(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_history_correction_menu()
+
+    async def async_step_history_decision_reject(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        await self.async_step_history_decision({"choice": "reject"})
+        return await self.async_step_history_confirm_menu()
+
+    async def async_step_history_decision_postpone(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        await self.async_step_history_decision({"choice": "postpone"})
+        return await self.async_step_history_confirm_menu()
+
+
+    async def async_step_history_correction(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Keep draft fields while navigating; final history writes need confirmation."""
         if self._selected_reading is None:
             return self._history_notice("history_preview_missing")
         errors = {}
         if user_input is not None:
+            route = user_input.get("after_submit", "confirm_navigation")
+            self._correction_draft = {
+                key: user_input[key]
+                for key in ("mode", "date", "time", "reason")
+                if key in user_input
+            }
+            if route == "back":
+                # This is an in-flow draft only; never persist a historical
+                # decision before the dedicated confirmation step.
+                self._pending_review = None
+                return await self.async_step_history_decision()
             try:
-                local = datetime.fromisoformat(f'{user_input["date"]}T{user_input["time"]}')
+                if route not in ("confirm", "confirm_menu", "confirm_navigation"):
+                    raise ValueError("Invalid navigation")
+                local = datetime.fromisoformat(
+                    f'{user_input["date"]}T{user_input["time"]}'
+                )
                 if local.tzinfo is not None:
                     raise ValueError("Date picker returned offset unexpectedly")
-                # A GUI time lacks an offset: refuse DST folds/gaps instead of guessing.
                 a = local.replace(tzinfo=ZONE, fold=0)
                 b = local.replace(tzinfo=ZONE, fold=1)
-                if a.utcoffset() != b.utcoffset() or a.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None) != local:
+                if (
+                    a.utcoffset() != b.utcoffset()
+                    or a.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None)
+                    != local
+                ):
                     raise ValueError("DST ambiguous or nonexistent local time")
                 reason = user_input.get("reason", "")
                 if not isinstance(reason, str) or not 8 <= len(reason.strip()) <= 500:
                     raise ValueError("A correction requires a reason of 8–500 characters")
                 decision = {
-                    "action": "correct", "mode": user_input["mode"],
-                    "timestamp": a.isoformat(), "reason": reason,
+                    "action": "correct",
+                    "mode": user_input["mode"],
+                    "timestamp": a.isoformat(),
+                    "reason": reason,
                 }
+                if decision["mode"] not in ("measurement", "accounting"):
+                    raise ValueError("Invalid correction type")
                 if decision["mode"] == "accounting":
                     previous = self._selected_reading.get("previous_date")
-                    if previous and not (datetime.fromisoformat(previous) < a <= datetime.fromisoformat(self._selected_reading["source_date"])):
+                    if previous and not (
+                        datetime.fromisoformat(previous)
+                        < a
+                        <= datetime.fromisoformat(self._selected_reading["source_date"])
+                    ):
                         decision["requires_out_of_period_confirmation"] = True
                 self._pending_review = decision
+                self._return_after_confirmation = route == "confirm_menu"
+                if route == "confirm_navigation":
+                    return await self.async_step_history_confirm_menu()
                 return await self.async_step_history_confirm()
-            except ValueError:
+            except (ValueError, KeyError, TypeError):
                 errors["base"] = "invalid_review_correction"
+
         original = datetime.fromisoformat(self._selected_reading["source_date"])
+        draft = self._correction_draft or {}
         return self.async_show_form(
             step_id="history_correction",
             errors=errors,
             data_schema=vol.Schema({
-                vol.Required("mode", default="accounting"): vol.In({
-                    "measurement": "Actual measurement date / Date réelle vérifiée",
-                    "accounting": "Accounting attribution only / Imputation comptable",
-                }),
-                vol.Required("date", default=original.date().isoformat()): DateSelector(),
-                vol.Required("time", default=original.strftime("%H:%M:%S")): TimeSelector(),
-                vol.Optional("reason"): str,
-                vol.Optional("back_to_decision", default=False): BooleanSelector(),
-                vol.Optional("return_to_menu", default=False): BooleanSelector(),
+                vol.Required("mode", default=draft.get("mode", "accounting")):
+                    self._radio_choices({
+                        "measurement": self._nav_text(
+                            "Date réelle vérifiée", "Verified measurement date"
+                        ),
+                        "accounting": self._nav_text(
+                            "Imputation comptable", "Accounting allocation"
+                        ),
+                    }),
+                vol.Required(
+                    "date", default=draft.get("date", original.date().isoformat())
+                ): DateSelector(),
+                vol.Required(
+                    "time", default=draft.get("time", original.strftime("%H:%M:%S"))
+                ): TimeSelector(),
+                vol.Optional("reason", default=draft.get("reason", "")): str,
+                # No navigation field: the confirmation is a separate native menu.
             }),
         )
 
 
-    async def async_step_history_confirm(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Require final user approval of the particular source reading action."""
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("back_to_decision") is True:
-            self._pending_review = None
-            return await self.async_step_history_decision()
+    async def async_step_history_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Only persist an explicitly approved reading; route after that write."""
         if self._selected_reading is None or self._pending_review is None:
             return self._history_notice("history_preview_missing")
-        if user_input is not None and user_input.get("confirm") is True:
-            approved = dict(self._pending_review)
-            if approved.pop("requires_out_of_period_confirmation", False):
-                if user_input.get("confirm_outside_period") is not True:
-                    return await self.async_step_history_confirm()
-                approved["out_of_period_confirmed"] = True
-            return await self._save_review(approved)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            destination = user_input.get(
+                "after_submit",
+                "menu" if self._return_after_confirmation else "review",
+            )
+            confirmed = user_input.get("confirm") is True
+            if destination == "back" and not confirmed:
+                self._pending_review = None
+                return await self.async_step_history_decision()
+            if destination not in ("review", "menu"):
+                errors["base"] = "invalid_confirmation_navigation"
+            elif not confirmed:
+                errors["base"] = "confirmation_required"
+            elif (
+                self._pending_review.get("requires_out_of_period_confirmation")
+                and user_input.get("confirm_outside_period") is not True
+            ):
+                errors["base"] = "confirmation_required"
+            else:
+                approved = dict(self._pending_review)
+                override = approved.pop("requires_out_of_period_confirmation", False)
+                if override:
+                    approved["out_of_period_confirmed"] = True
+                return await self._save_review(
+                    approved, return_to_menu=destination == "menu"
+                )
         item = self._selected_reading
         decision = self._pending_review
         label = (
@@ -729,23 +920,34 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
         estimated_delta = (
             item["index"] - item["previous_index"]
-            if item.get("previous_index") is not None and item["index"] >= item["previous_index"]
+            if item.get("previous_index") is not None
+            and item["index"] >= item["previous_index"]
             else None
         )
         override = bool(decision.get("requires_out_of_period_confirmation"))
         fields = {
             vol.Required("confirm", default=False): BooleanSelector(),
-            vol.Optional("back_to_decision", default=False): BooleanSelector(),
-            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+            # Navigation is offered on the preceding native confirmation menu.
         }
         if override:
-            fields[vol.Required("confirm_outside_period", default=False)] = BooleanSelector()
+            fields[vol.Required(
+                "confirm_outside_period", default=False
+            )] = BooleanSelector()
         return self.async_show_form(
             step_id="history_confirm",
+            errors=errors,
             description_placeholders={
                 "reading": label,
-                "interval_quantity": str(round(estimated_delta, 6)) if estimated_delta is not None else "not available",
-                "outside_interval_warning": ("WARNING: accounting period differs from source observation interval, this is not a measurement timestamp. Additional approval is mandatory." if override else ""),
+                "interval_quantity": (
+                    str(round(estimated_delta, 6))
+                    if estimated_delta is not None else "not available"
+                ),
+                "outside_interval_warning": (
+                    "WARNING: accounting period differs from source observation "
+                    "interval, this is not a measurement timestamp. Additional "
+                    "approval is mandatory."
+                    if override else ""
+                ),
                 "decision": decision["action"] + (
                     f' / {decision.get("mode", "")} / {decision.get("timestamp", "")}'
                     if decision["action"] == "correct" else ""
