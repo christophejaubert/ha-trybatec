@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import logging
+from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -79,28 +80,44 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         updated = self._build_state(self._last_index_payload, today)
         self._applied_options = dict(self.entry.options)
         self.async_set_updated_data(updated)
+        _LOGGER.info("Trybatec meter units updated locally without a portal request")
 
     async def _async_update_data(self) -> dict[str, Any]:
         today = dt_util.now().astimezone(ZoneInfo(TIMEZONE)).date()
         start = date(today.year, 1, 1)
         end = today + timedelta(days=1)
+        phase = "index_fetch"
+        started = monotonic()
+        _LOGGER.debug("Trybatec index refresh started")
         try:
             payload = await self.client.indexes(
                 self.entry.data[CONF_DEAL_ID], start=start, end=end
             )
+            _LOGGER.debug("Trybatec indexes fetched in %.2f s", monotonic() - started)
+            phase = "device_metadata"
             await self.client.enrich_meter_units(
                 [payload], self.entry.data[CONF_DEAL_ID],
                 device_uuids=self.entry.options.get(CONF_DEVICE_UUIDS, {}),
             )
+            phase = "parse_and_units"
             data = self._build_state(payload, today)
             self._last_index_payload = payload
             self._applied_options = dict(self.entry.options)
+            _LOGGER.info(
+                "Trybatec index refresh succeeded: %d meters, duration %.2f s",
+                len(data["meters"]), monotonic() - started,
+            )
             return data
         except TrybatecAuthError as exc:
-            _LOGGER.warning("Trybatec authentication failed; reauthentication required")
+            _LOGGER.warning(
+                "Trybatec authentication failed at %s; reauthentication required", phase
+            )
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
         except (TrybatecConnectionError, TrybatecDataError, ValueError, TypeError, OverflowError) as exc:
             # Vendor and validation errors have sanitized messages; never log
             # response bodies, passwords, tokens, serialized settings or IDs.
-            _LOGGER.warning("Trybatec meter update failed: %s", type(exc).__name__)
+            _LOGGER.warning(
+                "Trybatec meter refresh failed at %s (%s) after %.2f s",
+                phase, type(exc).__name__, monotonic() - started,
+            )
             raise UpdateFailed("Unable to update Trybatec meter indexes") from exc
