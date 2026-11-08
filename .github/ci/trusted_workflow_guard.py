@@ -70,7 +70,7 @@ def evaluate(pr: dict, filenames: list[str]) -> tuple[bool, list[str]]:
         raise ValueError("Invalid PR payload")
     if pr["base"].get("ref") != "main":
         raise ValueError("Trusted gate must inspect PRs targeting main")
-    if not isinstance(filenames, list) or len(filenames) > MAX_FILES:
+    if not isinstance(filenames, list) or len(filenames) > 2 * MAX_FILES:
         raise ValueError("PR file list missing or exceeds safety limit")
     sensitive = sorted({name for name in filenames if sensitive_path(name)})
     if not sensitive:
@@ -121,7 +121,12 @@ def public_pr_files(number: int, token: str) -> list[str]:
             filename = item.get("filename")
             sensitive_path(filename)  # Validate even when not protected.
             names.append(filename)
-            if len(names) > MAX_FILES:
+            # On a rename, GitHub also supplies the old path. Protect both.
+            if item.get("status") == "renamed":
+                previous = item.get("previous_filename")
+                sensitive_path(previous)
+                names.append(previous)
+            if len(names) > 2 * MAX_FILES:
                 raise ValueError("PR has too many changed files")
         if len(rows) < 100:
             return names
@@ -155,15 +160,12 @@ def main() -> None:
     except (OSError, KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Trusted workflow protection failed closed: {type(exc).__name__}") from exc
     if not allowed:
-        print("External contributor attempted to change protected CI/security files:")
-        for name in changed:
-            print(f"- {name}")
+        # Never echo attacker-controlled filenames into Actions logs.
+        print(f"External contributor changed {len(changed)} protected CI/security paths.")
         raise SystemExit(1)
     if changed:
-        print("Protected CI files changed in a PR authored by the repository owner.")
+        print(f"Repository owner changed {len(changed)} protected CI/security paths.")
         print("These changes still require a deliberate human security review.")
-        for name in changed:
-            print(f"- {name}")
     else:
         print("No protected CI or security policy files changed.")
     print("Trusted workflow-integrity policy passed.")
