@@ -127,7 +127,8 @@ def test_correction_with_accounting_date_and_dst_refusal(ui, monkeypatch):
         assert bad["errors"]["base"] == "invalid_review_correction"
         assert not saved
         ok = await flow.async_step_history_correction({"mode":"accounting","date":"2024-12-31","time":"23:59:00","reason":"Approved balance closing"})
-        assert ok["step_id"] == "history_confirm"
+        assert ok["step_id"] == "history_confirm_menu"
+        assert "history_confirm" in ok["menu_options"]
         await flow.async_step_history_confirm({"confirm":True})
         assert saved[0][-1] == {"action":"correct","mode":"accounting","timestamp":"2024-12-31T23:59:00+01:00","reason":"Approved balance closing"}
     asyncio.run(run())
@@ -454,10 +455,10 @@ def test_device_uuid_can_be_bound_to_exact_meter_without_unit_assumption(ui):
         assert invalid["errors"]["base"] == "invalid_device_uuid"
         assert flow.config_entry.options == {"poll_minutes": 720}
         saved = await flow.async_step_meter_unit({"unit": "unverified", "device_uuid": uid})
-        assert saved["type"] == "create_entry"
-        assert saved["data"]["device_uuids"] == {key: uid}
-        assert saved["data"]["meter_units"] == {}
-        assert saved["data"]["poll_minutes"] == 720
+        assert saved["type"] == "form" and saved["step_id"] == "meter_units"
+        assert flow.config_entry.options["device_uuids"] == {key: uid}
+        assert flow.config_entry.options["meter_units"] == {}
+        assert flow.config_entry.options["poll_minutes"] == 720
     asyncio.run(run())
 
 
@@ -524,8 +525,8 @@ def test_diagnostics_settings_preserve_other_options_and_navigation(ui):
     assert form["type"] == "form" and form["step_id"] == "diagnostics"
     assert form["description_placeholders"]["logs_url"] == "/config/logs?search=trybatec"
     result = asyncio.run(flow.async_step_diagnostics({"log_level": "DEBUG"}))
-    assert result["type"] == "create_entry"
-    assert result["data"] == {**options_before, "log_level": "DEBUG"}
+    assert result["type"] == "menu" and result["step_id"] == "init"
+    assert flow.config_entry.options == {**options_before, "log_level": "DEBUG"}
     bad = asyncio.run(flow.async_step_diagnostics({"log_level": "verbose"}))
     assert bad["errors"]["base"] == "invalid_log_level"
     back = asyncio.run(flow.async_step_diagnostics({
