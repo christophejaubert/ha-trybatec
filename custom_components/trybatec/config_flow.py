@@ -740,25 +740,54 @@ class TrybatecOptionsFlow(OptionsFlow):
             ],
         )
 
+    async def async_step_history_correction_menu(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if self._selected_reading is None:
+            return self._history_notice("history_preview_missing")
+        return self.async_show_menu(
+            step_id="history_correction_menu",
+            menu_options=["history_correction", "history_decision", "init"],
+        )
+
+    async def async_step_history_confirm_menu(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Offer one-click safe back routes BEFORE final confirmation."""
+        if self._selected_reading is None or self._pending_review is None:
+            return self._history_notice("history_preview_missing")
+        previous = (
+            "history_correction_menu"
+            if self._pending_review.get("action") == "correct"
+            else "history_decision"
+        )
+        return self.async_show_menu(
+            step_id="history_confirm_menu",
+            menu_options=["history_confirm", previous, "history_review_menu", "init"],
+        )
+
     async def async_step_history_decision_accept(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_history_decision({"choice": "accept"})
+        await self.async_step_history_decision({"choice": "accept"})
+        return await self.async_step_history_confirm_menu()
 
     async def async_step_history_decision_correct(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_history_decision({"choice": "correct"})
+        return await self.async_step_history_correction_menu()
 
     async def async_step_history_decision_reject(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_history_decision({"choice": "reject"})
+        await self.async_step_history_decision({"choice": "reject"})
+        return await self.async_step_history_confirm_menu()
 
     async def async_step_history_decision_postpone(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_history_decision({"choice": "postpone"})
+        await self.async_step_history_decision({"choice": "postpone"})
+        return await self.async_step_history_confirm_menu()
 
 
     async def async_step_history_correction(
@@ -769,7 +798,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             return self._history_notice("history_preview_missing")
         errors = {}
         if user_input is not None:
-            route = user_input.get("after_submit", "confirm")
+            route = user_input.get("after_submit", "confirm_navigation")
             self._correction_draft = {
                 key: user_input[key]
                 for key in ("mode", "date", "time", "reason")
@@ -781,7 +810,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                 self._pending_review = None
                 return await self.async_step_history_decision()
             try:
-                if route not in ("confirm", "confirm_menu"):
+                if route not in ("confirm", "confirm_menu", "confirm_navigation"):
                     raise ValueError("Invalid navigation")
                 local = datetime.fromisoformat(
                     f'{user_input["date"]}T{user_input["time"]}'
@@ -817,6 +846,8 @@ class TrybatecOptionsFlow(OptionsFlow):
                         decision["requires_out_of_period_confirmation"] = True
                 self._pending_review = decision
                 self._return_after_confirmation = route == "confirm_menu"
+                if route == "confirm_navigation":
+                    return await self.async_step_history_confirm_menu()
                 return await self.async_step_history_confirm()
             except (ValueError, KeyError, TypeError):
                 errors["base"] = "invalid_review_correction"
