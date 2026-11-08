@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timedelta
 from hashlib import sha256
+from hmac import compare_digest
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -25,10 +26,15 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DEAL_ID, CONF_METER_UNITS, DOMAIN, FLUIDS, TIMEZONE
+from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
+from .historical_costs import estimate_historical_costs
+from .history_diagnostics import diagnose_history as build_history_diagnostics
+from .parsing import validate_tariffs
 from .history_store import load_decisions
 from .units import resolve_meter_unit, unit_factor, normalized_unit, validate_meter_units
-from .recorder_guard import stage_pending, verified_snapshot, expected_windows
+from .recorder_guard import (
+    stage_pending, verified_snapshot, expected_windows, fingerprint_import_plan,
+)
 from .history_v4 import compose_plan, reconcile_plan
 from .history import (
     MAX_HISTORY_DAYS, build_history, history_windows, physical_statistic_id,
@@ -39,6 +45,8 @@ _LOGGER = logging.getLogger(__name__)
 PREVIEW_SERVICE = "preview_history"
 IMPORT_SERVICE = "import_history"
 VERIFY_SERVICE = "verify_history"
+COSTS_SERVICE = "preview_costs"
+DIAGNOSTICS_SERVICE = "diagnose_history"
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -229,7 +237,7 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
     """Preview is read-only and exposes meter details only to the administrator."""
     await _require_admin(hass, call)
     try:
-        _, start, end, history, requests = await _load(hass, call)
+        coordinator, start, end, history, requests = await _load(hass, call)
     except ServiceValidationError:
         raise
     except Exception as exc:
@@ -239,7 +247,11 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "api_requests": requests,
-        "statistics": summarize_preview(history),
+        "statistics": summarize_preview(
+            history, meter_units=validate_meter_units(
+                coordinator.entry.options.get(CONF_METER_UNITS, {})
+            ),
+        ),
         "review_candidates": history["__review_candidates__"],
         "replacement_groups": {
             fluid: history[fluid]["points"] for fluid in FLUIDS
@@ -247,7 +259,16 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "meter_units": [
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
-                "portal_unit": meter.get("portal_unit"), "retired": meter["retired"],
+                "portal_unit": meter.get("portal_unit"),
+                "device_unit_source": meter.get("unit_source"),
+                "portal_display_unit": meter.get("portal_display_unit"),
+                "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
+                "index_unit_status": (
+                    "api_explicit" if meter.get("portal_unit") not in (None, "unverified", "conflict")
+                    else "unverified_or_conflicting" if meter.get("portal_unit") in ("unverified", "conflict")
+                    else "no_unit_field_found_in_index_payload"
+                ),
+                "retired": meter["retired"],
             }
             for (lot, fluid, serial), meter in history["__physical_meters__"].items()
         ],
@@ -256,7 +277,8 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
             "Sparse or retrospectively recorded index dates are not verified "
             "measurement dates. Only near-daily intervals are importable. "
             "Different physical meters are never automatically joined; "
-            "all meter units must be verified before historical import."
+            "the portal chart display unit does not establish index units. "
+            "All source index units must be confirmed before historical import."
         ),
     }
 
@@ -328,31 +350,65 @@ async def async_import_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         if not plan:
             raise ServiceValidationError("No eligible intervals with verified per-meter units")
 
+        # An explicit retry must be identical to the data and choices that
+        # were originally approved. Compare *before* changing a ledger or
+        # queueing Recorder writes. The fingerprint contains no raw readings.
+        try:
+            pending_fingerprint = fingerprint_import_plan(
+                data, plan, chosen, start, end, call.data, skipped,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ServiceValidationError("Cannot fingerprint historical import safely") from exc
+
         storage_key = sha256(coordinator.entry.entry_id.encode("utf-8")).hexdigest()[:20]
         store: Store = Store(hass, 1, f"{DOMAIN}.history_v5_{storage_key}")
         try:
             stored = await store.async_load()
-            if stored and stored.get("pending") and not call.data.get("retry_pending"):
+            previous_pending = stored.get("pending") if isinstance(stored, dict) else None
+            retry = call.data.get("retry_pending") is True
+            if retry:
+                if not isinstance(previous_pending, dict) or not previous_pending:
+                    raise ValueError("No pending Recorder import to retry")
+                saved_fingerprint = stored.get("pending_fingerprint")
+                if not isinstance(saved_fingerprint, str) or len(saved_fingerprint) != 64:
+                    raise ValueError(
+                        "Pending import predates fingerprint protection; "
+                        "verify existing Recorder rows before any new import"
+                    )
+                if not compare_digest(saved_fingerprint, pending_fingerprint):
+                    raise ValueError(
+                        "Pending import source data or approved plan changed; "
+                        "refuse modified retry"
+                    )
+            elif previous_pending:
                 raise ValueError(
                     "Recorder import pending verification; run trybatec.verify_history first"
                 )
             updated, approved = reconcile_plan(
                 stored, plan, confirm_revision=bool(call.data.get("confirm_revision", False)),
             )
-            if stored and stored.get("pending") and call.data.get("retry_pending"):
-                existing_pending = stored["pending"]
+            if previous_pending and retry:
                 by_logical = {item["logical_id"]: item for item in approved}
+                old_series = stored["series"]
+                new_series = updated["series"]
                 if any(
-                    key not in by_logical or by_logical[key]["statistic_id"] != stat_id
-                    for key, stat_id in existing_pending.items()
+                    key not in by_logical
+                    or by_logical[key]["statistic_id"] != stat_id
+                    or key not in old_series
+                    or old_series[key].get("statistic_id") != stat_id
+                    or old_series[key].get("snapshot") != new_series[key].get("snapshot")
+                    for key, stat_id in previous_pending.items()
                 ):
-                    raise ValueError("Pending import no longer matches source data; refuse changed retry")
-                # Previously verified siblings are not requeued.
-                approved = [by_logical[key] for key in existing_pending]
+                    raise ValueError(
+                        "Pending import series, indexes or sums changed; refuse modified retry"
+                    )
+                # Previously verified siblings must not be queued a second time.
+                approved = [by_logical[key] for key in previous_pending]
             updated = stage_pending(
                 updated if not stored else {**updated, "pending": stored.get("pending", {})},
-                approved, allow_identical_retry=bool(call.data.get("retry_pending", False)),
+                approved, allow_identical_retry=retry,
             )
+            updated["pending_fingerprint"] = pending_fingerprint
         except ValueError as exc:
             raise ServiceValidationError(str(exc)) from exc
         except Exception as exc:
@@ -473,6 +529,50 @@ async def async_verify_history(hass: HomeAssistant, call: ServiceCall) -> dict[s
         }
 
 
+
+async def async_preview_costs(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Administrator-only read-only annual costing, distinct from billing."""
+    await _require_admin(hass, call)
+    try:
+        coordinator, start, end, history, requests = await _load(hass, call)
+        tariffs = validate_tariffs(coordinator.entry.options.get(CONF_TARIFFS, "{}"))
+        overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
+        result = estimate_historical_costs(history, tariffs, overrides)
+    except ServiceValidationError:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ServiceValidationError("Historical costs cannot be calculated safely") from exc
+    except Exception as exc:
+        _LOGGER.warning("Trybatec cost preview unavailable: %s", type(exc).__name__)
+        raise ServiceValidationError("Unable to retrieve historical cost preview") from exc
+    return {
+        **result,
+        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "api_requests": requests, "persisted": False,
+    }
+
+
+async def async_diagnose_history(hass: HomeAssistant, call: ServiceCall) -> dict[str, Any]:
+    """Administrator-only diagnostics; never alters source/Recorder entries."""
+    await _require_admin(hass, call)
+    try:
+        coordinator, start, end, history, requests = await _load(hass, call)
+        overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
+        result = build_history_diagnostics(history, overrides)
+    except ServiceValidationError:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ServiceValidationError("Historical diagnostics cannot be evaluated safely") from exc
+    except Exception as exc:
+        _LOGGER.warning("Trybatec diagnostic preview unavailable: %s", type(exc).__name__)
+        raise ServiceValidationError("Unable to retrieve Trybatec diagnostic preview") from exc
+    return {
+        **result,
+        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "api_requests": requests, "persisted": False,
+    }
+
+
 def register_history_actions(hass: HomeAssistant) -> None:
     """Register only manual history actions; no automatic recorder changes."""
     async def preview(call: ServiceCall) -> dict[str, Any]:
@@ -485,6 +585,12 @@ def register_history_actions(hass: HomeAssistant) -> None:
     async def verify(call: ServiceCall) -> dict[str, Any]:
         return await async_verify_history(hass, call)
 
+    async def preview_costs(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_costs(hass, call)
+
+    async def diagnose(call: ServiceCall) -> dict[str, Any]:
+        return await async_diagnose_history(hass, call)
+
     hass.services.async_register(
         DOMAIN, PREVIEW_SERVICE, preview, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
@@ -495,5 +601,13 @@ def register_history_actions(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, VERIFY_SERVICE, verify, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, COSTS_SERVICE, preview_costs, schema=SERVICE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, DIAGNOSTICS_SERVICE, diagnose, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )

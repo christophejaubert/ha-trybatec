@@ -1,0 +1,4 @@
+# Reference test tooling: versions verified in successful GitHub Actions run 42479226587.
+pytest==9.2.0
+pytest-cov==7.1.0
+aiohttp==3.14.5

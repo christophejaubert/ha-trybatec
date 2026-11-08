@@ -27,7 +27,8 @@
         "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)"
+          "annual_tariffs": "Annual tariffs (JSON, optional)",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "init": {
@@ -36,12 +37,13 @@
           "settings": "Settings",
           "history_review": "Review historical readings",
           "meter_units": "Verify meter units",
-          "history_overview": "Historical preview overview"
+          "history_overview": "Historical preview overview",
+          "history_meters": "Physical meter details"
         }
       },
       "history_review": {
         "title": "Choose a reading for review",
-        "description": "Run trybatec.preview_history first. Only readings from the latest preview appear.",
+        "description": "Run trybatec.preview_history first. Only readings from the latest preview appear.\n\n[Open Settings → Tools → Actions]({actions_url})",
         "data": {
           "reading": "Reading"
         }
@@ -60,7 +62,9 @@
           "mode": "Correction type",
           "date": "Date",
           "time": "Time",
-          "reason": "Required justification"
+          "reason": "Required justification",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "history_confirm": {
@@ -68,28 +72,56 @@
         "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}",
         "data": {
           "confirm": "I confirm this decision",
-          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval"
+          "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "meter_units": {
         "title": "Select meter",
-        "description": "Portal-reported and individually confirmed units. Retired meters appear after a history preview.",
+        "description": "Trybatec displays units on its charts (m³ or kWh), but they do not establish the raw API index scale. Select a meter to compare the illustrative chart unit and any explicitly detected source index unit. Unknown units require confirmation before import.",
         "data": {
           "meter": "Physical meter"
         }
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Unit reported by portal: {portal_unit}. Verify the INDEX unit, not just manufacturer specifications. Conflicts disable statistics.",
+        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nIf automatic directory discovery is unavailable, enter the UUID from the `device?id=…` request. The integration fetches `unite` from the matching device detail and verifies lot/fluid/serial. Leave source unit unknown until the detail is retrieved.",
         "data": {
-          "unit": "Confirmed source unit"
+          "unit": "Confirmed source unit",
+          "device_uuid": "Trybatec device UUID (optional)"
         }
       },
       "history_overview": {
         "title": "Historical preflight",
-        "description": "Period: {period}. Meters: {meters}. Readings flagged: {flagged}.\\n{details}\\nDistinct physical meters are never automatically merged. Import through the admin action trybatec.import_history.",
+        "description": "**Period:** {period}\n\n**{meters} meters · {flagged} readings flagged for review**\n\n- **Cold water (EF)**: {ef_meters} meter(s), {ef_gaps} gap(s), {ef_conflicts} conflict(s)\n- **Hot water (ECS)**: {ecs_meters} meter(s), {ecs_gaps} gap(s), {ecs_conflicts} conflict(s)\n- **Heating (CET)**: {cet_meters} meter(s), {cet_gaps} gap(s), {cet_conflicts} conflict(s)\n\nPer-meter details are available separately in the integration options. Physical meters are never automatically merged.\n\n[Open Developer Tools → Actions]({actions_url})",
+        "menu_options": {
+          "history_start_review": "Review flagged readings",
+          "init": "← Back to main menu"
+        }
+      },
+      "history_empty": {
+        "title": "No readings to review",
+        "description": "No reading currently needs a decision, or the preview is unavailable.\n\nRun `trybatec.preview_history` in Tools, then return here.\n\n[Open Settings → Tools → Actions]({actions_url})",
+        "menu_options": {
+          "init": "← Back to main menu"
+        }
+      },
+      "history_meter_detail": {
+        "title": "Meter details",
+        "description": "**{meter}** · Lot {lot} · {status}\n\n- **First reading:** {first}\n- **Last reading:** {last}\n- **Gaps:** {gaps}\n- **Index decreases:** {decreases}\n- **Conflicts:** {conflicts}\n- **API index unit:** {unit}\n\nRaw readings are not modified. Replaced physical meters remain separate.\n\n[Open Developer Tools → Actions]({actions_url})",
         "data": {
-          "review": "Continue to flagged readings"
+          "navigation": "Navigation"
+        }
+      },
+      "history_start_review": {
+        "title": "Review flagged readings"
+      },
+      "history_meters": {
+        "title": "Physical meter details",
+        "description": "Choose one of {meters} physical meters, including retired meters. Inspection does not change historical readings.\n\n[Open Developer Tools → Actions]({actions_url})",
+        "data": {
+          "meter_detail": "Physical meter"
         }
       }
     },
@@ -97,7 +129,8 @@
       "invalid_tariffs": "Invalid tariff JSON. See the example.",
       "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change).",
       "invalid_meter_unit": "Unsupported unit for this fluid.",
-      "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value."
+      "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value.",
+      "invalid_device_uuid": "Invalid device UUID. Enter the Trybatec device-detail identifier."
     },
     "abort": {
       "history_preview_required": "First run a new history preview from Developer Tools → Actions.",

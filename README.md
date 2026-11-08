@@ -26,6 +26,71 @@
 - Import only via administrator-only **trybatec.import_history** with `confirm: true`, verified units, and other relevant flags. A persistent pending ledger blocks blind reimports. After Recorder processes queued rows, run **trybatec.verify_history** to compare every queued hourly sum with the recorded statistics. A failed or interrupted import remains pending; `retry_pending: true` permits only an identical retrial.
 - The UI is still based on native Home Assistant options flows, **not** a full-page bulk history editor. The Recorder importer is still asynchronous and non-atomic. Source and accounting timestamps remain separate.
 
+
+### b7 — Métadonnées de compteur depuis Trybatec
+
+Une capture réelle de la fiche `device?id=UUID` confirme que l'API retourne les champs `serialNumber`, `fluidCode`, `lot` et **`unite: "KWh"`**. La b7 récupère cette réponse via l'authentification existante, vérifie l'UUID, le lot, le fluide, le numéro de série et, lorsqu'il est présent, le `dealUid`. Elle normalise par exemple `KWh` en `kWh`, et refuse toute identité, unité ou valeur contradictoire.
+
+Découverte de l'UUID : d'abord un UUID explicitement présent dans la ligne d'index ; sinon, tentative bornée via `GET /api/v1/devices?dealId=...` (route **exploratoire, non documentée et non confirmée**). Si cette liste n'existe pas ou ne permet pas une correspondance univoque, **Configurer → Vérifier les unités → Compteur** permet d'indiquer facultativement l'UUID vu sur le portail. La b7 interroge alors la route réellement observée `GET /api/v1/device?id=UUID` ; il n'est plus nécessaire de recopier l'unité de la fiche. Ne pas confondre cet identifiant UUID avec le `deviceId` numérique des consommations journalières.
+
+Les réponses de détail sont mises en cache uniquement en mémoire ; la tentative de répertoire est espacée de 12 heures et les appels sont bornés. Aucune fiche non associée au lot et au compteur demandé n'est utilisée. L'API n'étant pas documentée, la découverte entièrement automatique de tous les compteurs **reste à confirmer sur une installation réelle**.
+
+Les nouveaux champs d'unité des index sont utilisés par les capteurs temps réel, les estimations annuelles et les prévisualisations historiques. Une unité contradictoire ou non vérifiée continue de bloquer l'import plutôt que d'inventer une échelle. Aucun relevé ou historique Recorder n'est importé automatiquement.
+
+### b7 — Traitement des unités source et diagnostics
+
+Le portail Trybatec affiche des unités de **consommation graphique** (notamment m³ et kWh). Ces unités ne prouvent pas que l'index brut fourni par l'API `/api/v1/indexes` utilise la même échelle.
+
+- Le lecteur b7 cherche les champs d'unité *explicites* dans les propriétés de chaque compteur, ses métadonnées d'index et chaque relevé imbriqué. Si différents champs sont incompatibles, la source est signalée comme conflictuelle.
+- `trybatec.preview_history` expose pour chaque compteur : `portal_unit` (unité source réellement trouvée, éventuellement nulle), `portal_display_unit` (référence graphique indicative), `source_index_unit_field_paths` (chemins des propriétés portant un nom d'unité, sans leurs valeurs) et `index_unit_status`. Les éventuelles clés d'unité inconnues sont diagnostiquées mais **jamais interprétées arbitrairement**.
+- Les résultats `statistics` n'affichent plus `m³` pour un historique EF/ECS dont l'unité source est inconnue : `unit_status` distingue la confirmation de l'index et l'unité de présentation. Les totaux de relevés bruts sont indiqués comme **deltas d'index non normalisés** lorsqu'une unité source manque.
+- Cette modification ne déduit pas automatiquement l'échelle de l'index CET à partir du modèle SHARKY ou de l'intitulé `kWh` d'un graphique. Sans propriété API explicite ni vérification manuelle de l'échelle, les statistiques d'énergie demeurent indisponibles. Aucun import n'est réalisé automatiquement.
+- **Limite :** les noms exacts des champs de la réponse Trybatec restent non documentés. La présence d'une unité dans l'interface web ne garantit pas qu'elle existe dans les lignes retournées par l'endpoint d'index.
+
+### b7 — Compatibilité des estimations annuelles avec Home Assistant
+
+Les capteurs annuels EF/ECS (`water`) et CET (`energy`) qui présentent des consommations **estimées depuis le début de l'année** n'exposent plus `state_class: measurement`. Ils n'exposent volontairement **aucune state_class** : leurs valeurs sont susceptibles d'être révisées et de revenir à zéro au changement d'année, et ne doivent pas générer des statistiques Recorder de compteurs cumulés. Les capteurs d'**index physiques** vérifiés conservent `total_increasing` ; les séries d'import historique sont gérées séparément. Aucun identifiant d'entité n'est modifié par ce correctif.
+
+### b7 — Aperçu historique simplifié (interface)
+
+L'écran principal de l'aperçu utilise un **menu à deux choix directs**, « Examiner les relevés » et « Retour au menu principal ». Il n'y a plus de case à cocher suivie d'un bouton de soumission. La consultation détaillée des compteurs est accessible séparément depuis **Configurer → Détails des compteurs**. Les choix de navigation ne modifient ni les options ni les données historiques.
+
+Dans **Configurer → Aperçu de l’historique**, la vue principale présente la période et les compteurs, avec des indicateurs agrégés par fluide (nombre de compteurs, lacunes et conflits), sans afficher les dates UTC de chaque compteur dans un paragraphe unique. Un sélecteur ouvre une fiche par compteur, avec ses dates converties dans le fuseau local de Home Assistant (Europe/Paris), son statut et ses anomalies. La fiche permet de revenir à l’aperçu, d’ouvrir la revue des relevés ou de retourner au menu. La navigation en lecture seule ne modifie aucune décision ni aucun index.
+
+Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, sans caractères littéraux `\\n`. Les relevés historiques restent accessibles uniquement après une prévisualisation et les imports Recorder nécessitent toujours une action administrateur distincte.
+
+## b7 development branch — not published
+
+The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.
+The latest published pre-release remains **0.2.0b6**. Do not replace a working
+b6 installation with this development branch without a full backup and an
+explicit test plan. No historical data is written automatically.
+
+New administrator-only read-only Home Assistant actions:
+
+- `trybatec.preview_costs` — approximate annual costs in **EUR**, calculated
+  **only** from verified daily increments and separately reported,
+  explicitly approved accounting allocations. Amounts use the manually entered
+  tariff for the exact civil year and fluid. No extrapolation through gaps, no
+  previous-year tariff fallback, no fixed building charges and no claim that
+  a provisional or even an "approved" tariff means an approved invoice.
+  Quantities are normalized using each physical meter's confirmed index unit.
+  Unverified or fatally conflicting meters are withheld and itemized.
+- `trybatec.diagnose_history` — read-only report of gaps, decreasing indexes,
+  conflicting source observations, unverified units, and ambiguous replacement
+  overlaps by physical meter and fluid. No index rewriting or presumed
+  continuity between replaced meters.
+- The Trybatec API client now bounds the maximum received JSON body, meters
+  and readings; it retries HTTP 429/500/502/503/504 a limited number of times.
+  Permanent errors and unexpected response structures fail safely.
+- Both actions accept `start_date`, `end_date` and optional `entry_id` in
+  Developer Tools → Actions, require an authenticated HA administrator, and
+  do not queue or alter Recorder data. Previewing a ten-year period can issue
+  many API requests; use an appropriately narrow date range.
+
+This branch will be updated after live b6 feedback. Publication, merging, and
+installation are not part of this development stage.
+
 ## Features
 
 - User-interface setup with a portal username, password, and `dealId` obtained

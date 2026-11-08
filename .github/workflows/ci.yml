@@ -6,31 +6,65 @@ on:
   schedule:
     - cron: "21 7 * * *" # Daily compatibility check with latest published HA
   workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release creation requires manual approval; draft only"
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - prerelease
+          - stable
 
 permissions:
   contents: read
 
 jobs:
   pure-tests:
+    name: pure-tests (Python ${{ matrix.python_label }})
     runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python_label: "3.13"
+            python_version: "3.13.18"
+          - python_label: "3.14"
+            python_version: "3.14.10"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          python-version: "3.14"
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: ${{ matrix.python_version }}
       - name: Install pure Python test dependencies
-        run: python -m pip install pytest aiohttp
+        run: |
+          python -m pip install -r .github/ci/requirements-pure.txt
+          python -m pip check
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
       - name: Test parsing, multi-customer history, service security, and API client
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml tests .github/ci/test_resolve_refs.py
+      - name: Upload coverage report
+        if: matrix.python_label == '3.14'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trybatec-coverage
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate manifest and public release privacy
         run: |
           python - <<'PY'
           from pathlib import Path
           import json
           manifest = json.loads(Path('custom_components/trybatec/manifest.json').read_text())
-          assert manifest['version'] == '0.2.0b6' and manifest['domain'] == 'trybatec'
+          assert manifest['domain'] == 'trybatec'
+          assert __import__('re').fullmatch(r'\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?', manifest['version'])
           published = [Path('README.md'), Path('RELEASE_NOTES_BETA.md')]
           published += list(Path('custom_components/trybatec').rglob('*.py'))
           published += list(Path('tests').glob('test_*.py'))
@@ -57,11 +91,238 @@ jobs:
               assert unpack('>II',data[16:24])==(n,n)
           PY
 
-  latest-homeassistant-import:
+  lint:
+    name: ruff-essential
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Install Ruff
+        run: |
+          python -m pip install -r .github/ci/requirements-lint.txt
+          python -m pip check
+      - name: Enforce high-confidence lint errors
+        run: ruff check --output-format=github --select E9,F63,F7,F82 custom_components/trybatec tests
+      - name: Report general lint debt (not blocking initially)
+        continue-on-error: true
+        run: ruff check --output-format=github custom_components/trybatec tests
+      - name: Report formatting drift (not blocking initially)
+        continue-on-error: true
+        run: ruff format --check custom_components/trybatec tests
+
+  hassfest:
+    name: hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master, pinned 2026-11-08
+
+  hacs:
+    name: hacs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate integration as an HACS repository
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main, pinned 2026-11-08
+        with:
+          category: integration
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect accidentally committed secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  homeassistant-runtime-tests:
+    name: ha-runtime-and-storage
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Install Home Assistant test framework
+        run: |
+          python -m pip install -r .github/ci/requirements-ha-runtime.txt
+          python -m pip check
+      - name: Test entities, services and persistent decisions on isolated Home Assistant
+        run: python -m pytest -q -o asyncio_mode=auto integration_tests
+
+  resolve-test-refs:
+    name: resolve-test-refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Even if the PR edits its own workflow, this job never receives GITHUB_TOKEN
+    # permissions or repository secrets. Trusted executable source is a fixed SHA.
+    permissions: {}
+    outputs:
+      candidate_sha: ${{ steps.select.outputs.candidate_sha }}
+      baseline_sha: ${{ steps.select.outputs.baseline_sha }}
+    steps:
+      - name: Checkout trusted reference resolver at audited immutable SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: 7690efebd1e94125c4267458601650f88da41c8c
+          path: ci-trusted
+      - name: Checkout exact candidate commit as untrusted data
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-candidate
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Resolve public release metadata without any GitHub token
+        id: select
+        working-directory: ci-candidate
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python ../ci-trusted/.github/ci/resolve_refs.py
+
+  decision-persistence-process-restart:
+    name: decision-persistence (${{ matrix.case }})
+    needs: resolve-test-refs
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: baseline-self
+            writer_kind: baseline
+            reader_kind: baseline
+          - case: candidate-self
+            writer_kind: candidate
+            reader_kind: candidate
+          - case: baseline-to-candidate
+            writer_kind: baseline
+            reader_kind: candidate
+    steps:
+      - name: Checkout CI harness at exact candidate SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: ci-harness
+      - name: Checkout writer integration by immutable SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.writer_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          path: tested-writer
+      - name: Checkout reader integration by immutable SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.reader_kind == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          path: tested-reader
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Install pinned Home Assistant Core for physical storage tests
+        run: |
+          python -m pip install 'homeassistant==2026.11.0'
+          python -m pip check
+      - name: Process 1 - start HA and persist synthetic review decision
+        working-directory: tested-writer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-writer
+        run: python ../ci-harness/scripts/ci_decision_restart.py write "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+      - name: Process 2 - restart HA and verify persistence and resynchronization
+        working-directory: tested-reader
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-reader
+        run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+
+  decision-persistence-gate:
+    name: decision-persistence-gate
+    if: ${{ always() }}
+    needs: [resolve-test-refs, decision-persistence-process-restart, recorder-e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block failed or skipped persistence and Recorder E2E matrix cases
+        env:
+          REFS: ${{ needs.resolve-test-refs.result }}
+          PERSISTENCE: ${{ needs.decision-persistence-process-restart.result }}
+          RECORDER_E2E: ${{ needs.recorder-e2e.result }}
+        run: |
+          echo "Reference resolution: $REFS"
+          echo "Three persistence cases: $PERSISTENCE"
+          echo "Both Recorder E2E cases: $RECORDER_E2E"
+          if [[ "$REFS" != "success" || "$PERSISTENCE" != "success" || "$RECORDER_E2E" != "success" ]]; then
+            echo "At least one required persistence or Recorder E2E case failed or was skipped." >&2
+            exit 1
+          fi
+
+  recorder-e2e:
+    name: recorder-e2e (${{ matrix.target }})
+    needs: resolve-test-refs
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [baseline, candidate]
+    steps:
+      - name: Checkout CI harness at immutable candidate SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: ci-harness
+      - name: Checkout integration under test at immutable SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.target == 'baseline' && needs.resolve-test-refs.outputs.baseline_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          path: tested-integration
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Install pinned, isolated HA Recorder fixtures
+        run: |
+          python -m pip install -r ci-harness/.github/ci/requirements-ha-runtime.txt
+          python -m pip check
+      - name: Exercise historical preview, import, Recorder SQLite, retry and verification
+        working-directory: tested-integration
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-integration
+        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/recorder_pipeline_spec.py
+
+  latest-homeassistant-import:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
       - name: Install latest Home Assistant (not cached/pinned)
@@ -69,29 +330,64 @@ jobs:
       - name: Display installed version and import custom component
         run: |
           python -m pip show homeassistant | grep Version
-          python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor; import custom_components.trybatec.history_services"
+          python - <<'PY'
+          from pathlib import Path
+          import importlib
+          for file in sorted(Path('custom_components/trybatec').glob('*.py')):
+              importlib.import_module(f'custom_components.trybatec.{file.stem}')
+          PY
 
-  publish-experimental-beta:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [pure-tests, latest-homeassistant-import]
+  draft-release:
+    name: Prepare unpublished release draft (manual only)
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: trybatec-draft-release
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify beta version before publishing
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate requested version against the manifest
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
         run: |
-          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b6"'
-      - name: Create experimental GitHub pre-release if missing
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          version = json.loads(Path('custom_components/trybatec/manifest.json').read_text())['version']
+          pre = re.fullmatch(r'\d+\.\d+\.\d+(?:a|b|rc)\d+', version)
+          stable = re.fullmatch(r'\d+\.\d+\.\d+', version)
+          kind = os.environ['RELEASE_TYPE']
+          if not ((kind == 'prerelease' and pre) or (kind == 'stable' and stable)):
+              raise SystemExit('Release kind and manifest version are inconsistent')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write(f'version={version}\n')
+          PY
+      - name: Create draft release only; publication requires a separate manual action
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if gh release view '0.2.0b6' > /dev/null 2>&1; then
-            echo 'The 0.2.0b6 release exists; leaving it unchanged.'
-          else
-            gh release create '0.2.0b6' \
-              --target "$GITHUB_SHA" \
-              --prerelease \
-              --title 'Trybatec 0.2.0b6 — Unit-verified import and Recorder reconciliation' \
-              --notes-file RELEASE_NOTES_BETA.md
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite." >&2
+            exit 1
           fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists; refusing to overwrite." >&2
+            exit 1
+          fi
+          prerelease_flag=()
+          if [[ "$RELEASE_TYPE" == 'prerelease' ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+          gh release create "$VERSION" --target "$GITHUB_SHA" --draft \
+            "${prerelease_flag[@]}" --title "Trybatec $VERSION" --generate-notes
+          echo "Draft created. Publish it explicitly in GitHub after review."

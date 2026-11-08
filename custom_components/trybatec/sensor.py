@@ -127,6 +127,10 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         return {
             "lot": meter["lot"],
             "portal_unit": meter.get("portal_unit"),
+            "portal_display_unit": meter.get("portal_display_unit"),
+            "source_index_unit_origin": meter.get("index_unit_origin"),
+            "device_unit_source": meter.get("device_unit_source"),
+            "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
             "source_unit": meter.get("verified_unit"),
             "unit_verified": meter.get("verified_unit") is not None,
             "location": meter["location"],
@@ -162,7 +166,10 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         if metric == "volume":
             self._attr_native_unit_of_measurement = normalized_unit(fluid)
             self._attr_device_class = SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+            # YTD estimates can be revised and reset each calendar year. Do
+            # not register misleading long-term recorder statistics, and avoid
+            # the invalid MEASUREMENT state class for energy/water sensors.
+            self._attr_state_class = None
         elif metric == "cost":
             self._attr_native_unit_of_measurement = "EUR"
             self._attr_device_class = SensorDeviceClass.MONETARY

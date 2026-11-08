@@ -27,7 +27,8 @@
         "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
-          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "init": {
@@ -36,12 +37,13 @@
           "settings": "Réglages",
           "history_review": "Réviser les relevés historiques",
           "meter_units": "Vérifier les unités des compteurs",
-          "history_overview": "Synthèse graphique de l’historique"
+          "history_overview": "Synthèse graphique de l’historique",
+          "history_meters": "Détails des compteurs"
         }
       },
       "history_review": {
         "title": "Choisir un relevé à examiner",
-        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.",
+        "description": "Exécutez d’abord trybatec.preview_history. Seuls les relevés identifiés dans la dernière analyse apparaissent.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
           "reading": "Relevé"
         }
@@ -60,7 +62,9 @@
           "mode": "Type de correction",
           "date": "Date",
           "time": "Heure",
-          "reason": "Justification obligatoire"
+          "reason": "Justification obligatoire",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "history_confirm": {
@@ -68,28 +72,56 @@
         "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}",
         "data": {
           "confirm": "Je confirme cette décision",
-          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
+          "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés",
+          "back_to_decision": "Revenir au choix de la décision",
+          "return_to_menu": "Revenir au menu principal"
         }
       },
       "meter_units": {
         "title": "Choisir le compteur",
-        "description": "Unités relevées dans le portail ou déclarées par compteur. Les compteurs remplacés sont inclus lorsqu’un historique a été prévisualisé.",
+        "description": "Trybatec affiche des unités dans ses graphiques (m³ ou kWh), mais cela ne garantit pas l’unité des index transmis par l’API. Sélectionnez un compteur pour comparer la référence graphique et l’unité source explicitement détectée. Une unité inconnue reste à confirmer avant tout import.",
         "data": {
           "meter": "Compteur physique"
         }
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Unité fournie par le portail : {portal_unit}. Vérifiez l’unité de l’INDEX, et non simplement la fiche constructeur. Une unité incompatible bloque les statistiques.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nSi l'API ne permet pas de retrouver automatiquement la fiche, indiquez ici son UUID extrait de la requête `device?id=…`. L'intégration récupérera le champ `unite` directement dans la fiche et vérifiera la correspondance lot/fluide/numéro de série. Laissez « Inconnue » pour l'unité tant que la fiche n'a pas été chargée.",
         "data": {
-          "unit": "Unité source confirmée"
+          "unit": "Unité source confirmée",
+          "device_uuid": "UUID de la fiche Trybatec (facultatif)"
         }
       },
       "history_overview": {
         "title": "Aperçu de l’historique",
-        "description": "Période : {period}. Compteurs : {meters}. Relevés à examiner : {flagged}.\\n{details}\\nLes compteurs distincts ne sont jamais fusionnés automatiquement. Pour importer, utiliser l’action administrateur trybatec.import_history.",
+        "description": "**Période :** {period}\n\n**{meters} compteurs · {flagged} relevés à examiner**\n\n- **Eau froide (EF)** : {ef_meters} compteur(s), {ef_gaps} lacune(s), {ef_conflicts} conflit(s)\n- **Eau chaude (ECS)** : {ecs_meters} compteur(s), {ecs_gaps} lacune(s), {ecs_conflicts} conflit(s)\n- **Chauffage (CET)** : {cet_meters} compteur(s), {cet_gaps} lacune(s), {cet_conflicts} conflit(s)\n\nLes détails des compteurs sont accessibles séparément depuis les paramètres. Aucun compteur n’est fusionné automatiquement.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "menu_options": {
+          "history_start_review": "Examiner les relevés",
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_empty": {
+        "title": "Aucun relevé à examiner",
+        "description": "Aucun relevé ne nécessite actuellement une décision, ou la prévisualisation n'est pas disponible.\n\nExécutez `trybatec.preview_history` dans les outils, puis revenez ici.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "menu_options": {
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_meter_detail": {
+        "title": "Détail du compteur",
+        "description": "**{meter}** · Lot {lot} · {status}\n\n- **Premier relevé :** {first}\n- **Dernier relevé :** {last}\n- **Périodes lacunaires :** {gaps}\n- **Baisses d’index :** {decreases}\n- **Conflits :** {conflicts}\n- **Unité de l’index API :** {unit}\n\nLes relevés bruts ne sont pas modifiés. Les compteurs successifs restent distincts.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
-          "review": "Poursuivre vers les relevés à valider"
+          "navigation": "Navigation"
+        }
+      },
+      "history_start_review": {
+        "title": "Examiner les relevés"
+      },
+      "history_meters": {
+        "title": "Détails des compteurs",
+        "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "data": {
+          "meter_detail": "Compteur physique"
         }
       }
     },
@@ -97,7 +129,8 @@
       "invalid_tariffs": "Tarifs JSON invalides. Consultez l'exemple.",
       "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure).",
       "invalid_meter_unit": "Unité non prise en charge pour ce fluide.",
-      "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail."
+      "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail.",
+      "invalid_device_uuid": "UUID de compteur invalide. Renseignez l'identifiant de la fiche Trybatec (format UUID)."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",

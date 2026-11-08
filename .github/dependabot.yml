@@ -1,0 +1,25 @@
+# Dependabot proposes updates; it never merges or publishes them.
+# Active only after this file reaches the repository default branch.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
+
+  - package-ecosystem: "pip"
+    directory: "/.github/ci"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
