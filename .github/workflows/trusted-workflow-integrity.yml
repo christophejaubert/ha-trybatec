@@ -1,0 +1,33 @@
+name: Trusted workflow integrity
+
+# This workflow is loaded from the protected target branch, never from a PR.
+# The pull_request_target event is safe here ONLY because we never checkout,
+# import, evaluate or execute PR-controlled code and give the token read rights.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  trusted-workflow-integrity:
+    name: trusted-workflow-integrity
+    if: ${{ github.event.pull_request.base.ref == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout protected base branch only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check protected CI file paths without executing PR code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .github/ci/trusted_workflow_guard.py
