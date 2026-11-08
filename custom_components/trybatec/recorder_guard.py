@@ -28,6 +28,7 @@ def stage_pending(ledger: dict[str, Any], approved: list[dict[str, Any]],
 def verified_snapshot(snapshot: list[list], rows: list[dict[str, Any]]) -> tuple[bool, int]:
     """Check *all* expected UTC buckets and sums, not just the final row."""
     actual: dict[datetime, float] = {}
+    invalid_or_duplicate: set[datetime] = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -36,13 +37,19 @@ def verified_snapshot(snapshot: list[list], rows: list[dict[str, Any]]) -> tuple
             amount = float(row["sum"])
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
-        if timestamp.tzinfo is not None and isfinite(amount):
-            actual[timestamp.astimezone(timezone.utc)] = amount
+        if timestamp.tzinfo is not None:
+            bucket = timestamp.astimezone(timezone.utc)
+            if bucket in actual or not isfinite(amount):
+                # Duplicate or invalid returned statistics cannot establish a
+                # single authoritative Recorder sum for the expected bucket.
+                invalid_or_duplicate.add(bucket)
+            else:
+                actual[bucket] = amount
     missing = 0
     for stamp, raw_sum in snapshot:
         at = datetime.fromisoformat(stamp).astimezone(timezone.utc)
         stored_sum = actual.get(at)
-        if stored_sum is None or not isclose(stored_sum, raw_sum, rel_tol=1e-7, abs_tol=2e-6):
+        if at in invalid_or_duplicate or stored_sum is None or not isclose(stored_sum, raw_sum, rel_tol=1e-7, abs_tol=2e-6):
             missing += 1
     return missing == 0, missing
 

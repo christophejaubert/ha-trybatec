@@ -684,3 +684,102 @@ def test_b7_multimeter_interruption_recovery_with_isolated_persistent_ledger(
         assert db == unchanged
 
     asyncio.run(exercise())
+
+
+
+@pytest.mark.parametrize("fault", ["missing", "wrong_sum", "duplicate", "invalid_response"])
+def test_b7_recorder_partial_verification_keeps_unconfirmed_series_pending(
+    services, monkeypatch, fault
+):
+    """Never mark an entire two-meter import verified from a partial HA read."""
+    from copy import deepcopy
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    snapshot = [
+        [base.isoformat(), 0.0],
+        [(base + timedelta(days=1)).isoformat(), 1.5],
+        [(base + timedelta(days=2)).isoformat(), 3.0],
+    ]
+    ids = [
+        "trybatec:history_v5_ef_daily_CI-METER-A",
+        "trybatec:history_v5_ef_daily_CI-METER-B",
+    ]
+    original = {
+        "version": 1,
+        "series": {
+            key: {"statistic_id": key, "snapshot": deepcopy(snapshot)}
+            for key in ids
+        },
+        "pending": {key: key for key in ids},
+    }
+    disk = {"content": deepcopy(original), "writes": 0}
+
+    class FakeStore:
+        def __init__(self, *args):
+            pass
+
+        async def async_load(self):
+            return deepcopy(disk["content"])
+
+        async def async_save(self, ledger):
+            disk["writes"] += 1
+            disk["content"] = deepcopy(ledger)
+
+    async def stats(domain, action, payload, **kwargs):
+        assert (domain, action) == ("recorder", "get_statistics")
+        assert kwargs == {"blocking": True, "return_response": True}
+        sid = payload["statistic_ids"][0]
+        expected = [{"start": stamp, "sum": amount} for stamp, amount in snapshot]
+        if sid == ids[1]:
+            if fault == "missing":
+                expected = expected[:-1]
+            elif fault == "wrong_sum":
+                expected[1]["sum"] += 100
+            elif fault == "duplicate":
+                expected.append({**expected[1], "sum": 500})
+            else:
+                return {"unexpected": {}}
+        return {"statistics": {sid: expected}}
+
+    monkeypatch.setattr(services, "Store", FakeStore)
+    monkeypatch.setattr(
+        services, "_coordinator",
+        lambda *_: SimpleNamespace(entry=SimpleNamespace(entry_id="CI-ACCOUNT")),
+    )
+    monkeypatch.setattr(
+        services.dt_util, "utcnow",
+        lambda: datetime.now(timezone.utc), raising=False,
+    )
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda uid: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+        services=SimpleNamespace(async_call=stats),
+    )
+    call = SimpleNamespace(context=SimpleNamespace(user_id="admin"), data={})
+
+    async def exercise():
+        if fault == "invalid_response":
+            with pytest.raises(
+                services.ServiceValidationError,
+                match="Recorder verification service returned invalid data",
+            ):
+                await services.async_verify_history(hass, call)
+            assert disk["content"] == original
+            assert disk["writes"] == 0
+            return
+
+        state = await services.async_verify_history(hass, call)
+        assert state["status"] == "pending_recorder_verification"
+        assert len(state["verified"]) == 1
+        assert state["verified"][0]["statistic_id"] == ids[0]
+        assert len(state["pending"]) == 1
+        assert state["pending"][0]["statistic_id"] == ids[1]
+        assert state["pending"][0]["missing_or_mismatched_rows"] == 1
+        assert disk["content"]["pending"] == {ids[1]: ids[1]}
+        assert disk["content"]["series"][ids[1]] == original["series"][ids[1]]
+        assert disk["writes"] == 1
+
+    asyncio.run(exercise())
