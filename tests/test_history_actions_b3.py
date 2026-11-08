@@ -326,3 +326,176 @@ def test_b7_cost_and_diagnostic_actions_are_admin_only_read_only(services, monke
         assert diagnosis["meters_total"] == 1
         assert diagnosis["details"][0]["verified_source_unit"] == "m³"
     asyncio.run(run())
+
+
+
+def test_b7_source_fingerprint_detects_index_time_with_same_hourly_bucket():
+    """A changed vendor timestamp must not be considered an identical retry."""
+    from custom_components.trybatec.history_v4 import compose_plan
+
+    def history_at(minute):
+        return build_history([{"lines": [{
+            "compteur": "FAKE-SERIAL", "fluide": "EF", "lot": "FAKE-LOT",
+            "depose": False, "indexUnit": "m3",
+            "indexes": [
+                {"date": "2026-01-01T00:00:00+01:00", "value": 10.0},
+                {"date": "2026-01-02T00:00:00+01:00", "value": 11.0},
+                {"date": f"2026-01-03T00:{minute:02d}:00+01:00", "value": 12.0},
+            ],
+        }]}], date(2026, 1, 1), date(2026, 1, 6))
+
+    first = history_at(0)
+    changed = history_at(10)
+    first_plan, _ = compose_plan(
+        first, "synthetic-account", ["EF"],
+        allow_gaps=False, skip_conflicts=False, include_accounting=False,
+    )
+    changed_plan, _ = compose_plan(
+        changed, "synthetic-account", ["EF"],
+        allow_gaps=False, skip_conflicts=False, include_accounting=False,
+    )
+    assert first_plan[0]["rows"] == changed_plan[0]["rows"]
+    assert (
+        first["__physical_meters__"][("FAKE-LOT", "EF", "FAKE-SERIAL")]["source_fingerprint"]
+        != changed["__physical_meters__"][("FAKE-LOT", "EF", "FAKE-SERIAL")]["source_fingerprint"]
+    )
+
+
+def test_b7_pending_retry_rejects_changed_source_before_recorder_write(
+    services, monkeypatch
+):
+    """Catch append, value, timestamp and option changes, including same series ID."""
+    from copy import deepcopy
+
+    def synthetic_history(points):
+        return build_history([{"lines": [{
+            "compteur": "FAKE-SERIAL", "lot": "FAKE-LOT",
+            "fluide": "EF", "depose": False, "indexUnit": "m3",
+            "indexes": [
+                {"date": date_text, "value": value}
+                for date_text, value in points
+            ],
+        }]}], date(2026, 1, 1), date(2026, 1, 9))
+
+    base_points = [
+        ("2026-01-01T00:00:00+01:00", 10.0),
+        ("2026-01-02T00:00:00+01:00", 11.0),
+        ("2026-01-03T00:00:00+01:00", 12.0),
+    ]
+    current = {"history": synthetic_history(base_points)}
+    coordinator = SimpleNamespace(entry=SimpleNamespace(
+        entry_id="CI-SYNTHETIC-ENTRY", unique_id="CI-SYNTHETIC-ACCOUNT",
+        options={},
+    ))
+
+    async def fake_load(*_args):
+        return coordinator, date(2026, 1, 1), date(2026, 1, 9), current["history"], 1
+
+    monkeypatch.setattr(services, "_load", fake_load)
+    monkeypatch.setattr(services, "_coordinator", lambda *args: coordinator)
+
+    database = {"value": None, "save_count": 0}
+    queued = []
+
+    class FakeStore:
+        def __init__(self, hass, version, key):
+            assert version == 1 and "CI-SYNTHETIC-ENTRY" not in key
+
+        async def async_load(self):
+            return deepcopy(database["value"])
+
+        async def async_save(self, value):
+            database["save_count"] += 1
+            database["value"] = deepcopy(value)
+
+    monkeypatch.setattr(services, "Store", FakeStore)
+    monkeypatch.setattr(
+        services, "async_add_external_statistics",
+        lambda hass, meta, rows: queued.append((meta, deepcopy(rows))),
+    )
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda user_id: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+    )
+    def call(**kwargs):
+        return SimpleNamespace(
+            context=SimpleNamespace(user_id="admin"),
+            data={
+                "confirm": True, "include_cold_water": True,
+                "include_hot_water": False, "include_heating": False,
+                **kwargs,
+            },
+        )
+
+    async def check():
+        first = await services.async_import_history(hass, call())
+        assert first["status"] == "pending_recorder_verification"
+        assert len(queued) == 1
+        initial_db = deepcopy(database["value"])
+        assert len(initial_db["pending"]) == 1
+        assert len(initial_db["pending_fingerprint"]) == 64
+
+        same = await services.async_import_history(hass, call(retry_pending=True))
+        assert same["status"] == "pending_recorder_verification"
+        assert len(queued) == 2
+        assert database["value"] == initial_db
+        original_save_count = database["save_count"]
+
+        changes = [
+            synthetic_history(base_points + [
+                ("2026-01-04T00:00:00+01:00", 13.0)
+            ]),  # Newly appended index preserves original statistic ID.
+            synthetic_history(base_points[:-1] + [
+                ("2026-01-03T00:00:00+01:00", 12.5)
+            ]),
+            synthetic_history(base_points[:-1] + [
+                ("2026-01-03T00:10:00+01:00", 12.0)
+            ]),  # Different source timestamp but SAME hourly bucket/sums.
+        ]
+        for altered in changes:
+            current["history"] = altered
+            with pytest.raises(
+                services.ServiceValidationError,
+                match="source data or approved plan changed",
+            ):
+                await services.async_import_history(hass, call(retry_pending=True))
+            assert len(queued) == 2
+            assert database["save_count"] == original_save_count
+            assert database["value"] == initial_db
+
+        current["history"] = synthetic_history(base_points)
+        with pytest.raises(
+            services.ServiceValidationError,
+            match="source data or approved plan changed",
+        ):
+            await services.async_import_history(
+                hass, call(retry_pending=True, allow_gaps=True)
+            )
+        assert len(queued) == 2
+        assert database["value"] == initial_db
+
+        # A b6 ledger has no trustworthy fingerprint. Fail closed rather than
+        # silently retrying it, but keep its pending record available to verify.
+        database["value"] = {
+            key: value for key, value in initial_db.items()
+            if key != "pending_fingerprint"
+        }
+        with pytest.raises(
+            services.ServiceValidationError, match="predates fingerprint protection",
+        ):
+            await services.async_import_history(hass, call(retry_pending=True))
+        assert len(queued) == 2
+        assert database["save_count"] == original_save_count
+
+        # With no pending work, retry_pending may not start a new import.
+        database["value"] = {**initial_db, "pending": {}}
+        with pytest.raises(
+            services.ServiceValidationError, match="No pending Recorder import",
+        ):
+            await services.async_import_history(hass, call(retry_pending=True))
+        assert len(queued) == 2
+        assert database["save_count"] == original_save_count
+
+    asyncio.run(check())

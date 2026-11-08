@@ -5,7 +5,9 @@ until every expected hourly bucket is observable in Recorder.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from hashlib import sha256
+import json
 from math import isclose, isfinite
 from typing import Any
 
@@ -59,3 +61,83 @@ def expected_windows(snapshot: list[list], *, days: int = 90):
         finish = min(cursor + timedelta(days=days), end)
         yield cursor, finish
         cursor = finish
+
+
+def fingerprint_import_plan(
+    history: dict[str, Any],
+    plan: list[dict[str, Any]],
+    chosen: list[str],
+    start: date,
+    end: date,
+    options: dict[str, Any],
+    skipped: list[dict[str, Any]],
+) -> str:
+    """Hash the full approved input for an exact, fail-closed pending retry.
+
+    The fingerprint covers the original source indexes *before* any review
+    decision, all selected physical meters, the generated hourly state/sum
+    rows, conversion units, review allocations, dates and import options.
+    Only the digest, never raw vendor data or personal identifiers, is stored.
+    """
+    physical = []
+    for (lot, fluid, serial), meter in sorted(
+        history["__physical_meters__"].items()
+    ):
+        if fluid not in chosen:
+            continue
+        source_digest = meter.get("source_fingerprint")
+        if (
+            not isinstance(source_digest, str)
+            or len(source_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in source_digest)
+        ):
+            raise ValueError("Missing immutable source fingerprint; import refused")
+        allocations = [
+            [allocation["at"].isoformat(), allocation["quantity"],
+             allocation["source_key"]]
+            for allocation in meter["accounting_allocations"]
+        ]
+        physical.append({
+            "lot": lot, "fluid": fluid, "serial": serial,
+            "source_fingerprint": source_digest,
+            "accounting_allocations": sorted(allocations),
+        })
+
+    normalized_plan = []
+    seen = set()
+    for item in sorted(plan, key=lambda candidate: candidate["logical_id"]):
+        logical = item["logical_id"]
+        if logical in seen:
+            raise ValueError("Duplicate historical series identity; import refused")
+        seen.add(logical)
+        normalized_plan.append({
+            "logical_id": logical,
+            "kind": item["kind"], "lot": item["lot"],
+            "fluid": item["fluid"], "serial": item["serial"],
+            "source_unit": item["source_unit"],
+            "normalized_unit": item["normalized_unit"],
+            "quantity": item["quantity"],
+            "rows": [
+                [row["start"].isoformat(), row["state"], row["sum"]]
+                for row in item["rows"]
+            ],
+        })
+    flags = (
+        "allow_gaps", "skip_anomalous_meters", "include_accounting",
+        "confirm_accounting", "confirm_heating_kwh", "confirm_revision",
+    )
+    contract = {
+        "version": 1,
+        "dates": [start.isoformat(), end.isoformat()],
+        "fluids": sorted(chosen),
+        "options": {flag: options.get(flag) is True for flag in flags},
+        "source_meters": physical,
+        "approved_plan": normalized_plan,
+        "skipped": sorted(skipped, key=lambda value: json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )),
+    }
+    encoded = json.dumps(
+        contract, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
