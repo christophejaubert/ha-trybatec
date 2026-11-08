@@ -33,12 +33,12 @@
       "init": {
         "title": "Options Trybatec",
         "menu_options": {
-          "settings_menu": "Réglages",
-          "history_review_menu": "Réviser les relevés historiques",
-          "meter_units_menu": "Vérifier les unités des compteurs",
+          "settings": "Réglages",
+          "history_review": "Réviser les relevés historiques",
+          "meter_units": "Vérifier les unités des compteurs",
           "history_overview": "Synthèse graphique de l’historique",
-          "history_meters_menu": "Détails des compteurs",
-          "diagnostics_menu": "Diagnostics et journalisation"
+          "history_meters": "Détails des compteurs",
+          "diagnostics": "Diagnostics et journalisation"
         }
       },
       "history_review": {
@@ -146,69 +146,6 @@
         "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nValidez pour appliquer le niveau choisi. Les retours en un clic se trouvent dans le menu précédent.",
         "data": {
           "log_level": "Niveau de journalisation"
-        }
-      },
-      "settings_menu": {
-        "title": "Réglages",
-        "menu_options": {
-          "settings": "Modifier les réglages",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "diagnostics_menu": {
-        "title": "Diagnostics et journalisation",
-        "menu_options": {
-          "diagnostics": "Modifier le niveau de journalisation",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "meter_units_menu": {
-        "title": "Unités des compteurs",
-        "menu_options": {
-          "meter_units": "Choisir un compteur",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "meter_unit_menu": {
-        "title": "Options du compteur",
-        "menu_options": {
-          "meter_unit": "Modifier l’unité ou l’UUID",
-          "meter_units": "← Retour à la liste des compteurs",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "history_meters_menu": {
-        "title": "Historique des compteurs",
-        "menu_options": {
-          "history_meters": "Choisir un compteur à consulter",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "history_review_menu": {
-        "title": "Révision de l’historique",
-        "menu_options": {
-          "history_review": "Choisir un relevé à examiner",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "history_correction_menu": {
-        "title": "Corriger un relevé",
-        "description": "Les modifications en brouillon ne sont pas enregistrées dans l’historique tant que la confirmation finale n’a pas été donnée.",
-        "menu_options": {
-          "history_correction": "Modifier la correction",
-          "history_decision": "← Retour à l’écran précédent",
-          "init": "← Retour au menu principal"
-        }
-      },
-      "history_confirm_menu": {
-        "title": "Valider le traitement du relevé",
-        "description": "Aucune décision n’est enregistrée en ouvrant ce menu. Choisissez « Confirmer » puis donnez votre accord explicite sur l’écran suivant.",
-        "menu_options": {
-          "history_confirm": "Examiner et confirmer la décision",
-          "history_correction_menu": "← Retour à la correction",
-          "history_decision": "← Retour au choix de décision",
-          "history_review_menu": "← Retour aux relevés sans enregistrer",
-          "init": "← Retour au menu principal"
         }
       }
     },
