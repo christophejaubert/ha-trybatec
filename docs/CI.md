@@ -32,7 +32,7 @@ not the functional Home Assistant integration. Workflow source:
 ### Which source code does the persistence matrix test?
 
 The `resolve-test-refs` job executes a trusted resolver from the audited
-immutable commit `5cc64e5e58842e2eba93e4c706e6a357188dd246`,
+immutable commit `7690efebd1e94125c4267458601650f88da41c8c`,
 NOT from the candidate PR. The job explicitly sets `permissions: {}`,
 supplies no `GH_TOKEN` or other secrets, and uses only anonymous HTTPS GET
 requests to a small allowlist of public GitHub release/tag endpoints.
