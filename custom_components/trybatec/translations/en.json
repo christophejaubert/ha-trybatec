@@ -24,11 +24,11 @@
     "step": {
       "settings": {
         "title": "Trybatec options",
-        "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.",
+        "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.\n\nValues are validated and saved before returning to the menu. To discard changes, close the dialog using ×.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
           "annual_tariffs": "Annual tariffs (JSON, optional)",
-          "return_to_menu": "Return to main menu"
+          "after_submit": "After validation"
         }
       },
       "init": {
@@ -58,39 +58,38 @@
       },
       "history_correction": {
         "title": "Correct or attribute a reading",
-        "description": "Only correct measurement date with evidence. Accounting attribution is a convention, not a measurement timestamp.",
+        "description": "Only correct measurement date with evidence. Accounting attribution is a convention, not a measurement timestamp.\n\nA correction is only a draft until mandatory confirmation is completed. You may retain the draft and return to the decision step. Select whether to return to the menu after confirmation.",
         "data": {
           "mode": "Correction type",
           "date": "Date",
           "time": "Time",
           "reason": "Required justification",
-          "back_to_decision": "Back to decision choice",
-          "return_to_menu": "Return to main menu"
+          "after_submit": "After validation"
         }
       },
       "history_confirm": {
         "title": "Confirm reading decision",
-        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}",
+        "description": "**Reading:** {reading}  \n**Difference between readings (indicative):** {interval_quantity}  \n**Decision:** {decision}  \nThis difference is not necessarily verified consumption or daily usage. No statistics are modified here. Run a new preview before importing.  \\n**Warning:** {outside_interval_warning}\n\nA decision is saved only after explicit confirmation, including any additional approval required for out-of-period accounting attribution. Then choose where to navigate.",
         "data": {
           "confirm": "I confirm this decision",
           "confirm_outside_period": "I explicitly confirm the attribution outside the observed interval",
-          "back_to_decision": "Back to decision choice",
-          "return_to_menu": "Return to main menu"
+          "after_submit": "After validation"
         }
       },
       "meter_units": {
         "title": "Select meter",
-        "description": "Trybatec displays units on its charts (m³ or kWh), but they do not establish the raw API index scale. Select a meter to compare the illustrative chart unit and any explicitly detected source index unit. Unknown units require confirmation before import.",
+        "description": "Trybatec displays units on its charts (m³ or kWh), but they do not establish the raw API index scale. Select a meter to compare the illustrative chart unit and any explicitly detected source index unit. Unknown units require confirmation before import.\n\nMeters with verified units are shown prominently, even if the API does not explicitly provide a unit. Each row distinguishes API evidence from manual confirmation.",
         "data": {
           "meter": "Physical meter"
         }
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nPreselected unit provenance: {selection_origin}. The chart unit is only a reference unless the API explicitly supplies the raw index unit.\n\nIf you do not have the Trybatec device UUID, leave that field empty. If the real raw index unit has not been verified, select « Unknown » in the unit list. Do not confirm an index unit from the chart alone **unless you are certain which unit to use**.",
+        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nPreselected unit provenance: {selection_origin}. The chart unit is only a reference unless the API explicitly supplies the raw index unit.\n\nIf you do not have the Trybatec device UUID, leave that field empty. If the real raw index unit has not been verified, select « Unknown » in the unit list. Do not confirm an index unit from the chart alone **unless you are certain which unit to use**.\n\nSelect a unit, optionally enter a device UUID, then choose whether to finish, return to the meter list, or return to the main menu. The changes are saved before navigating.",
         "data": {
           "unit": "Confirmed source unit",
-          "device_uuid": "Trybatec device UUID (optional)"
+          "device_uuid": "Trybatec device UUID (optional)",
+          "after_submit": "After validation"
         }
       },
       "history_overview": {
@@ -141,10 +140,10 @@
       },
       "diagnostics": {
         "title": "Diagnostics and logging",
-        "description": "Choose the Trybatec log severity. This level applies to all Trybatec hubs in the Home Assistant instance. WARNING is recommended normally; DEBUG is for temporary troubleshooting. Raw portal responses, passwords and tokens must never be logged.\n\n[Open Trybatec logs]({logs_url})",
+        "description": "Choose the Trybatec log severity. This level applies to all Trybatec hubs in the Home Assistant instance. WARNING is recommended normally; DEBUG is for temporary troubleshooting. Raw portal responses, passwords and tokens must never be logged.\n\n[Open Trybatec logs]({logs_url})\n\nChoose the logging level. 'Save and return to main menu' applies the selected level before navigating.",
         "data": {
           "log_level": "Logging level",
-          "return_to_menu": "← Back to main menu"
+          "after_submit": "After validation"
         }
       }
     },
@@ -154,7 +153,10 @@
       "invalid_meter_unit": "Unsupported unit for this fluid.",
       "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value.",
       "invalid_device_uuid": "Invalid device UUID. Enter the Trybatec device-detail identifier.",
-      "invalid_log_level": "Invalid logging level."
+      "invalid_log_level": "Invalid logging level.",
+      "invalid_settings": "Invalid settings. Check the polling interval, annual tariffs and destination.",
+      "confirmation_required": "Tick the required confirmation before recording the decision or returning to the main menu.",
+      "invalid_confirmation_navigation": "Returning to the decision without saving is incompatible with a checked confirmation."
     },
     "abort": {
       "history_preview_required": "First run a new history preview from Developer Tools → Actions.",
