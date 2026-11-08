@@ -176,7 +176,12 @@ class TrybatecOptionsFlow(OptionsFlow):
     @staticmethod
     def _actions_url() -> str:
         """Instance-relative Home Assistant route; never embed a user's URL."""
-        return "/config/developer-tools/action"
+        # Official My Home Assistant redirect selects, but does not execute,
+        # the read-only preview action. Never include credentials or local URLs.
+        return (
+            "https://my.home-assistant.io/redirect/tools_perform_action/"
+            "?service=trybatec.preview_history"
+        )
 
     @staticmethod
     def _logs_url() -> str:
@@ -590,19 +595,12 @@ class TrybatecOptionsFlow(OptionsFlow):
         lot, fluid, serial, meter = matches[0]
         first = meter["first"].astimezone(ZONE).strftime("%d/%m/%Y")
         last = meter["last"].astimezone(ZONE).strftime("%d/%m/%Y")
-        choices = {
-            "overview": self._nav_text("← Retour aux compteurs", "← Back to meter list"),
-            "review": self._nav_text("Examiner les relevés", "Review readings"),
-            "main": self._nav_text("← Menu principal", "← Main menu"),
-        }
         source_unit = meter.get("portal_unit")
         if source_unit in (None, "conflict", "unverified"):
             source_unit = self._nav_text("non confirmée", "not verified")
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="history_meter_detail",
-            data_schema=vol.Schema({
-                vol.Required("navigation", default="overview"): self._radio_choices(choices),
-            }),
+            menu_options=["history_meters", "history_start_review", "init"],
             description_placeholders={
                 "meter": f"{fluid} · {serial}",
                 "lot": lot,
@@ -709,21 +707,35 @@ class TrybatecOptionsFlow(OptionsFlow):
             self._return_after_confirmation = False
             self._pending_review = {"action": choice}
             return await self.async_step_history_confirm()
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="history_decision",
-            data_schema=vol.Schema({vol.Required("choice"): self._radio_choices({
-                "accept": "Accept unchanged / Accepter",
-                "correct": "Correct and accept / Corriger",
-                "reject": "Exclude / Exclure",
-                "postpone": "Postpone / Reporter",
-                RETURN_TO_READINGS: self._nav_text(
-                    "← Retour à la liste des relevés", "← Back to reading list"
-                ),
-                RETURN_TO_MENU: self._nav_text(
-                    "← Retour au menu principal", "← Back to main menu"
-                ),
-            })}),
+            menu_options=[
+                "history_decision_accept", "history_decision_correct",
+                "history_decision_reject", "history_decision_postpone",
+                "history_review", "init",
+            ],
         )
+
+    async def async_step_history_decision_accept(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_history_decision({"choice": "accept"})
+
+    async def async_step_history_decision_correct(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_history_decision({"choice": "correct"})
+
+    async def async_step_history_decision_reject(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_history_decision({"choice": "reject"})
+
+    async def async_step_history_decision_postpone(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_history_decision({"choice": "postpone"})
+
 
     async def async_step_history_correction(
         self, user_input: dict | None = None
