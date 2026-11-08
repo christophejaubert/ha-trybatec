@@ -44,6 +44,18 @@ async def setup_fake(hass, monkeypatch, *, valid_unit=True):
         return deepcopy(payload)
 
     monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+
+    async def synthetic_enrich_meter_units(self, payloads, deal_id, **kwargs):
+        """No real /devices lookup; index-unit fields remain unmodified."""
+        return {"matched_lines": 0, "ambiguous_lines": 0, "unmatched_lines": 0}
+
+    # The candidate can enrich device metadata during initial coordinator setup,
+    # whereas the published baseline does not have that method. Prevent actual
+    # vendor authentication in either revision without fabricating unit evidence.
+    monkeypatch.setattr(
+        TrybatecClient, "enrich_meter_units",
+        synthetic_enrich_meter_units, raising=False,
+    )
     entry = MockConfigEntry(
         domain=DOMAIN, title="Synthetic Recorder E2E",
         unique_id="ci-synthetic-recorder-account",
