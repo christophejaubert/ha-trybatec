@@ -66,7 +66,9 @@ async def test_real_recorder_import_readback_and_idempotency(recorder_mock, hass
     snapshot = [[item["start"].isoformat(), item["sum"]] for item in expected]
     assert verified_snapshot(
         snapshot,
-        [{"start": item["start"].isoformat(), "sum": item["sum"]}
+        [{"start": datetime.fromtimestamp(item["start"], tz=UTC).isoformat()
+          if isinstance(item["start"], (int, float)) else item["start"].isoformat(),
+          "sum": item["sum"]}
          for item in rows],
     ) == (True, 0)
 
