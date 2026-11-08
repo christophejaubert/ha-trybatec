@@ -256,6 +256,11 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     flow_id = initial["flow_id"]
+    meter_menu = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "meter_units_menu"}
+    )
+    assert meter_menu["type"] == "menu"
+    assert meter_menu["menu_options"] == ["meter_units", "init"]
     meters = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "meter_units"}
     )
@@ -267,8 +272,14 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     assert isinstance(meter_selector, SelectSelector)
     assert meter_selector.config["mode"] == SelectSelectorMode.LIST
 
-    details = await hass.config_entries.options.async_configure(
+    selected_menu = await hass.config_entries.options.async_configure(
         flow_id, {"meter": key}
+    )
+    assert selected_menu["type"] == "menu"
+    assert selected_menu["step_id"] == "meter_unit_menu"
+    assert selected_menu["menu_options"] == ["meter_unit", "meter_units", "init"]
+    details = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "meter_unit"}
     )
     assert details["step_id"] == "meter_unit"
     unit_selector = next(
@@ -290,8 +301,12 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     assert len(calls) == first_calls, "Unit save must not poll Trybatec API"
     assert coordinator.data["meters"]["MOCK-WATER-01"]["verified_unit"] == "m³"
 
-    again = await hass.config_entries.options.async_configure(
+    selected = await hass.config_entries.options.async_configure(
         flow_id, {"meter": key}
+    )
+    assert selected["step_id"] == "meter_unit_menu"
+    again = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "meter_unit"}
     )
     unit_marker = next(
         marker for marker in again["data_schema"].schema
@@ -316,6 +331,11 @@ async def test_real_options_flow_saves_diagnostics_before_main_menu(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     flow_id = initial["flow_id"]
+    menu = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "diagnostics_menu"}
+    )
+    assert menu["type"] == "menu"
+    assert menu["menu_options"] == ["diagnostics", "init"]
     form = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "diagnostics"}
     )
