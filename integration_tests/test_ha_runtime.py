@@ -70,7 +70,7 @@ async def configure_fake_account(hass, monkeypatch, unit: str | None):
 @pytest.mark.parametrize("unit", ["m3", None])
 async def test_config_entry_entity_state_and_unload(hass, monkeypatch, unit):
     """Actual Home Assistant entity lifecycle, including fail-closed unknown unit."""
-    entry, calls = await configure_fake_account(hass, monkeypatch, unit)
+    entry, _calls = await configure_fake_account(hass, monkeypatch, unit)
     meters = [
         state for state in hass.states.async_all("sensor")
         if state.attributes.get("lot") == "MOCK-LOT"
@@ -91,7 +91,9 @@ async def test_config_entry_entity_state_and_unload(hass, monkeypatch, unit):
     assert hass.services.has_service(DOMAIN, "import_history")
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get(meter.entity_id) is None
+    state_after_unload = hass.states.get(meter.entity_id)
+    # HA may retain an entity's restored state, but it must not stay active.
+    assert state_after_unload is None or state_after_unload.state == "unavailable"
 
 
 async def test_import_service_denied_without_admin_context(hass, monkeypatch):
