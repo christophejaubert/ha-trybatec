@@ -39,7 +39,7 @@ jobs:
         run: python -m compileall -q custom_components/trybatec
       - name: Test parsing, multi-customer history, service security, and API client
         run: |
-          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml
+          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml tests
       - name: Upload coverage report
         if: matrix.python-version == '3.14'
         uses: actions/upload-artifact@v7
@@ -139,6 +139,22 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
+  homeassistant-runtime-tests:
+    name: ha-runtime-and-storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install Home Assistant test framework
+        run: python -m pip install --upgrade pytest-homeassistant-custom-component
+      - name: Test entities, services and persistent decisions on isolated Home Assistant
+        run: python -m pytest -q -o asyncio_mode=auto integration_tests
+
   latest-homeassistant-import:
     runs-on: ubuntu-latest
     steps:
@@ -161,7 +177,7 @@ jobs:
   draft-release:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
-    needs: [pure-tests, lint, hassfest, hacs, secrets, latest-homeassistant-import]
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
