@@ -157,6 +157,57 @@ jobs:
       - name: Test entities, services and persistent decisions on isolated Home Assistant
         run: python -m pytest -q -o asyncio_mode=auto integration_tests
 
+  decision-persistence-process-restart:
+    name: decision-persistence (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: b6-to-b6
+            writer_ref: 0.2.0b6
+            reader_ref: 0.2.0b6
+          - case: b7-to-b7
+            writer_ref: feature/0.2.0b7
+            reader_ref: feature/0.2.0b7
+          - case: b6-to-b7
+            writer_ref: 0.2.0b6
+            reader_ref: feature/0.2.0b7
+    steps:
+      - name: Checkout CI harness (not the version under test)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          path: ci-harness
+      - name: Checkout writer integration
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.writer_ref }}
+          path: tested-writer
+      - name: Checkout reader integration
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.reader_ref }}
+          path: tested-reader
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - name: Install real Home Assistant Core (no fixture storage mocking)
+        run: python -m pip install 'homeassistant==2026.11.0'
+      - name: Process 1 - start HA and persist synthetic review decision
+        working-directory: tested-writer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-writer
+        run: python ../ci-harness/scripts/ci_decision_restart.py write "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+      - name: Process 2 - restart HA and verify persistence and resynchronization
+        working-directory: tested-reader
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-reader
+        run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+
   latest-homeassistant-import:
     runs-on: ubuntu-latest
     steps:
@@ -181,7 +232,7 @@ jobs:
   draft-release:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
-    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, latest-homeassistant-import]
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-process-restart, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write

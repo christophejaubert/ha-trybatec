@@ -14,6 +14,12 @@ Checks run for every push, pull request, a daily compatibility check, and manual
 - Import of integration modules with the latest available Home Assistant release.
 - A separate Home Assistant test runner (`ha-runtime-and-storage`) using `pytest-homeassistant-custom-component`: real integration setup, sensor states and unload, admin-only service authorization, configuration flow, and review-decision Store reads. Tests use synthetic vendor responses and do not perform external requests.
 - A real Home Assistant recorder test with an isolated SQLite database: round-trip of hourly external statistics, duplicate import retry, and bucket verification.
+- Real on-disk review-decision durability: a separate CI matrix (b6→b6,
+  b7→b7, b6→b7) starts two distinct Home Assistant Core/Python processes
+  using a shared temporary .storage directory. It validates an approved
+  synthetic accounting correction, original index fingerprint, justification,
+  re-synchronization and invalidation if the supplier changes the index.
+  No real account or personal Home Assistant instance is accessed.
 
 Runtime tests exercise real Home Assistant code and a real, isolated Recorder statistics backend. They **do not** contact a live Trybatec account, alter a personal Home Assistant installation, or yet verify every historical import/repair path end-to-end. The Home Assistant test harness virtualizes the storage directory, so the decision Store test verifies save/read via Home Assistant APIs, not physical disk endurance across a process restart.
 
@@ -65,6 +71,9 @@ complete the following in the GitHub web interface:
    - `hacs`
    - `gitleaks`
    - `ha-runtime-and-storage`
+   - `decision-persistence (b6-to-b6)`
+   - `decision-persistence (b7-to-b7)`
+   - `decision-persistence (b6-to-b7)`
    - `latest-homeassistant-import`
 6. Block force pushes and deletions; prevent bypassing the checks under normal
    operation. Decide whether requiring up-to-date branches is appropriate.
@@ -83,7 +92,7 @@ targeted at release-version tags after reviewing the required publishing identit
 
 ## Follow-up improvements
 
-- Extend real-HA tests to cover complete approved historical imports, interrupted recorder writes, cross-restart storage durability, and resynchronization of corrected readings.
+- Extend real-HA tests to cover complete approved historical imports and interrupted Recorder writes. Two-process disk persistence and synthetic resynchronization are tested separately; a full HA service/UI reboot is outside their scope.
 - Resolve observed Home Assistant sensor warnings about annual estimate sensor device/state class combinations; avoid silently changing their statistics semantics.
 - Review the baseline code-coverage report before choosing a mandatory minimum.
 - Make Ruff's full lint rules blocking after resolving existing diagnostics.
