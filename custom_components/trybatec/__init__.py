@@ -1,6 +1,8 @@
 """Unofficial Trybatec integration for Home Assistant."""
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
@@ -8,12 +10,36 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TrybatecClient
-from .const import DOMAIN, CONF_METER_UNITS, CONF_DEVICE_UUIDS
+from .const import (
+    DOMAIN, CONF_METER_UNITS, CONF_DEVICE_UUIDS, CONF_LOG_LEVEL,
+    DEFAULT_LOG_LEVEL, LOG_LEVELS,
+)
 from .coordinator import TrybatecCoordinator
 from .history_services import register_history_actions
 
 PLATFORMS = [Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+def _apply_integration_log_level(hass: HomeAssistant, entry: ConfigEntry | None = None) -> None:
+    """Set a shared Trybatec threshold; do not change other integrations.
+
+    Most verbose selected level wins for multiple hubs. Restore the native
+    Home Assistant logger when no Trybatec hub remains loaded.
+    """
+    active = [c.entry for c in hass.data.get(DOMAIN, {}).values()]
+    if entry is not None and not any(e.entry_id == entry.entry_id for e in active):
+        active.append(entry)
+    levels = [
+        logging.getLevelName(
+            value if value in LOG_LEVELS else DEFAULT_LOG_LEVEL
+        )
+        for e in active
+        for value in [e.options.get(CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL)]
+    ]
+    logging.getLogger(__package__).setLevel(
+        min(levels, default=logging.NOTSET)
+    )
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -30,7 +56,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_PASSWORD],
     )
     coordinator = TrybatecCoordinator(hass, entry, client)
-    await coordinator.async_config_entry_first_refresh()
+    _apply_integration_log_level(hass, entry)
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _apply_integration_log_level(hass)
+        raise
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -53,8 +84,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         }
         # The options wizard includes an empty device UUID dict when saving
         # a unit. This is equivalent to the previously absent option.
-        if changed.issubset({CONF_METER_UNITS}):
-            await coordinator.async_apply_meter_units_from_options()
+        if changed.issubset({CONF_METER_UNITS, CONF_LOG_LEVEL}):
+            _apply_integration_log_level(hass, entry)
+            if CONF_METER_UNITS in changed:
+                await coordinator.async_apply_meter_units_from_options()
+            else:
+                coordinator._applied_options = current
             return
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -64,4 +99,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        _apply_integration_log_level(hass)
     return unloaded
