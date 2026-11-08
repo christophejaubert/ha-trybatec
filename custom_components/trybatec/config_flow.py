@@ -339,7 +339,12 @@ class TrybatecOptionsFlow(OptionsFlow):
 
     def _unit_origin(self, meter: dict, has_user_confirmation: bool) -> str:
         """Display unit provenance without treating chart metadata as API data."""
-        if has_user_confirmation:
+        if meter.get("portal_unit") in ("conflict", "unverified"):
+            return self._nav_text(
+                "Unité API contradictoire ou non reconnue",
+                "Conflicting or unrecognized API unit",
+            )
+        if has_user_confirmation and meter.get("verified_unit") is not None:
             return self._nav_text("Confirmée manuellement", "Manually confirmed")
         if meter.get("portal_unit") in _ALLOWED[meter["fluid"]]:
             return self._nav_text("Détectée par l’API", "Detected by API")
@@ -366,19 +371,22 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self.async_step_meter_unit()
         display_label = self._nav_text("graphique", "chart")
         source_label = self._nav_text("index API", "API index")
-        verified_label = self._nav_text("unité", "unit")
-        origin_label = self._nav_text("provenance", "origin")
         saved = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         missing_label = self._nav_text("non détectée", "not detected")
-        choices = {
-            key: (
-                f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
-                f'{display_label}: {m.get("portal_display_unit") or portal_display_unit(m["fluid"]) or "—"} · '
-                f'{source_label}: {m.get("portal_unit") or missing_label} · '
-                f'{verified_label}: {m.get("verified_unit") or "—"} · '
-                f'{origin_label}: {self._unit_origin(m, key in saved)}'
-            )[:240] for key, m in mapping.items()
-        }
+        choices = {}
+        for key, meter in mapping.items():
+            verified = meter.get("verified_unit")
+            status = (
+                f'{self._unit_origin(meter, key in saved)} : {verified}'
+                if verified else self._nav_text("À confirmer", "Needs confirmation")
+            )
+            choices[key] = (
+                f'{meter["fluid"]} · {meter["serial"]} · {meter["lot"]} · '
+                f'{status} · {source_label}: '
+                f'{meter.get("portal_unit") or missing_label} · '
+                f'{display_label}: '
+                f'{meter.get("portal_display_unit") or portal_display_unit(meter["fluid"]) or "—"}'
+            )[:240]
         choices[RETURN_TO_MENU] = self._nav_text(
             "← Retour au menu principal", "← Back to main menu"
         )
