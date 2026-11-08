@@ -44,30 +44,30 @@ async def async_setup_entry(
     """Expose one index sensor per active physical meter and aggregate values."""
     coordinator: TrybatecCoordinator = hass.data[DOMAIN][entry.entry_id]
     account_key = entry.unique_id or entry.entry_id
-    known_serials: set[str] = set()
-    known_fluids: set[str] = set()
+    known_meter_versions: set[tuple[str, str | None]] = set()
+    known_metrics: set[tuple[str, str]] = set()
 
     def add_new_meters_and_metrics() -> None:
-        """Publish only fluids actually observed; supports water-only accounts."""
+        """Add newly verified meter versions without reloading or re-polling."""
         new: list[SensorEntity] = []
         active_fluids: set[str] = set()
         for serial, meter in coordinator.data["meters"].items():
             if meter["deposed"]:
                 continue
             active_fluids.add(meter["fluid"])
-            if serial not in known_serials:
-                known_serials.add(serial)
+            identity = (serial, meter.get("verified_unit"))
+            if identity not in known_meter_versions:
+                known_meter_versions.add(identity)
                 new.append(TrybatecMeterSensor(coordinator, account_key, serial))
-        for fluid in FLUIDS:
-            if fluid in active_fluids and fluid not in known_fluids:
-                known_fluids.add(fluid)
-                allowed_metrics = ("volume", "cost", "price")
-                if not coordinator.data["annual"][fluid]["unit_verified"]:
-                    allowed_metrics = ("volume",)
-                new.extend(
-                    TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric)
-                    for metric in allowed_metrics
-                )
+        for fluid in active_fluids:
+            allowed_metrics = ("volume", "cost", "price")
+            if not coordinator.data["annual"][fluid]["unit_verified"]:
+                allowed_metrics = ("volume",)
+            for metric in allowed_metrics:
+                identity = (fluid, metric)
+                if identity not in known_metrics:
+                    known_metrics.add(identity)
+                    new.append(TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric))
         if new:
             async_add_entities(new)
 
@@ -131,8 +131,8 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             "source_index_unit_origin": meter.get("index_unit_origin"),
             "device_unit_source": meter.get("device_unit_source"),
             "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
-            "source_unit": meter.get("verified_unit"),
-            "unit_verified": meter.get("verified_unit") is not None,
+            "source_unit": self._source_unit,
+            "unit_verified": self._source_unit is not None and meter.get("verified_unit") == self._source_unit,
             "location": meter["location"],
             "reading_time": meter["last"][0].isoformat() if meter["last"] else None,
             "deposed": meter["deposed"],
@@ -173,7 +173,9 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
         elif metric == "cost":
             self._attr_native_unit_of_measurement = "EUR"
             self._attr_device_class = SensorDeviceClass.MONETARY
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+            # Monetary year-to-date estimates are revisable; HA disallows
+            # MEASUREMENT for the MONETARY device class.
+            self._attr_state_class = None
         else:
             self._attr_native_unit_of_measurement = FLUID_RATE_UNITS[fluid]
             self._attr_state_class = SensorStateClass.MEASUREMENT

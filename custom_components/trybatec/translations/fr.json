@@ -101,8 +101,8 @@
         }
       },
       "history_empty": {
-        "title": "Aucun relevé à examiner",
-        "description": "Aucun relevé ne nécessite actuellement une décision, ou la prévisualisation n'est pas disponible.\n\nExécutez `trybatec.preview_history` dans les outils, puis revenez ici.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
+        "title": "Aucun relevé à réviser",
+        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\\n\\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
@@ -122,6 +122,20 @@
         "description": "Choisissez le compteur à examiner parmi les {meters} compteurs physiques. Les anciens compteurs sont inclus. Cette consultation ne modifie aucun relevé.\n\n[Ouvrir Outils de développement → Actions]({actions_url})",
         "data": {
           "meter_detail": "Compteur physique"
+        }
+      },
+      "history_unavailable": {
+        "title": "Intégration Trybatec indisponible",
+        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\\n\\n[Consulter les journaux Trybatec]({logs_url})\\n\\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.",
+        "menu_options": {
+          "init": "← Retour au menu principal"
+        }
+      },
+      "history_preview_missing": {
+        "title": "Prévisualisation historique requise",
+        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\\n\\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\\n\\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).",
+        "menu_options": {
+          "init": "← Retour au menu principal"
         }
       }
     },
