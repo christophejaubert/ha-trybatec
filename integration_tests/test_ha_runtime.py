@@ -15,7 +15,8 @@ from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.trybatec.api import TrybatecClient
-from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
+from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS
+from custom_components.trybatec.units import meter_key
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -36,7 +37,7 @@ def synthetic_indexes(unit: str | None):
     return {"lines": [meter]}
 
 
-async def configure_fake_account(hass, monkeypatch, unit: str | None):
+async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None):
     payload = synthetic_indexes(unit)
     calls = []
 
@@ -54,6 +55,7 @@ async def configure_fake_account(hass, monkeypatch, unit: str | None):
         domain=DOMAIN,
         title="Trybatec synthetic CI account",
         unique_id="synthetic-ci-account",
+        options=options or {},
         data={
             CONF_USERNAME: "synthetic-ci-user",
             CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
@@ -139,3 +141,56 @@ async def test_optional_recorder_missing_keeps_sensors_but_rejects_historical_wr
         )
 
     assert "recorder" not in hass.config.components
+
+
+async def test_confirming_one_meter_unit_keeps_integration_loaded_without_portal_poll(
+    hass, monkeypatch
+):
+    """A unit option save must not unload the integration or reauthenticate."""
+    entry, calls = await configure_fake_account(hass, monkeypatch, None)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    before = len(calls)
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            CONF_METER_UNITS: {key: "m³"},
+            "device_uuids": {},
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert len(calls) == before, "Saving a unit must not contact the portal"
+    meters = [
+        state for state in hass.states.async_all("sensor")
+        if state.attributes.get("lot") == "MOCK-LOT"
+    ]
+    # A previously unverified sensor has a distinct stable unique ID. It
+    # remains unavailable while a newly verified version is added, without
+    # changing historical statistics or invoking the portal.
+    verified = [m for m in meters if m.attributes.get("unit_verified") is True]
+    assert len(verified) == 1
+    assert float(verified[0].state) == pytest.approx(15.0)
+    assert verified[0].attributes["unit_of_measurement"] == "m³"
+    unverified = [m for m in meters if m.attributes.get("unit_verified") is False]
+    assert len(unverified) == 1
+    assert unverified[0].state in ("unknown", "unavailable")
+
+
+async def test_preexisting_manual_unit_is_accepted_at_startup(hass, monkeypatch):
+    """Reboot after explicit unit confirmation must not break startup."""
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+    entry, _ = await configure_fake_account(
+        hass, monkeypatch, None, options={CONF_METER_UNITS: {key: "m³"}}
+    )
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["verified_unit"] == "m³"
+
+
+async def test_invalid_existing_unit_options_do_not_break_polling(hass, monkeypatch):
+    """Malformed prior option is ignored, never used to type recorder statistics."""
+    entry, _ = await configure_fake_account(
+        hass, monkeypatch, None, options={CONF_METER_UNITS: {"invalid": "kWh"}}
+    )
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["verified_unit"] is None

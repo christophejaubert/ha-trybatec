@@ -40,6 +40,45 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.entry = entry
+        self._applied_options = dict(entry.options)
+        # Bounded vendor data stays only in memory; no disk or Recorder writes.
+        self._last_index_payload: dict[str, Any] | None = None
+
+    def _build_state(self, payload: dict[str, Any], today: date) -> dict[str, Any]:
+        """Apply unit options without requesting or modifying vendor readings."""
+        start = date(today.year, 1, 1)
+        end = today + timedelta(days=1)
+        meters = parse_lines(payload)
+        if not meters:
+            raise TrybatecDataError("No recognized meter rows in response")
+        try:
+            overrides = validate_meter_units(self.entry.options.get(CONF_METER_UNITS, {}))
+        except (TypeError, ValueError):
+            # Fail closed for invalid local settings, not for live meter polling.
+            # Never use a malformed or contradictory override to type statistics.
+            _LOGGER.error("Trybatec meter-unit options invalid; overrides ignored")
+            overrides = {}
+        for meter in meters.values():
+            meter["verified_unit"] = resolve_meter_unit(
+                meter["lot"], meter["fluid"], meter["serial"], meter["portal_unit"], overrides
+            )
+        annual = summarize_annual(
+            payload, period_start=start, period_end=end, meter_units=overrides
+        )
+        return {
+            "meters": meters, "lots": known_lots(payload),
+            "annual": annual, "year": today.year, "date": today.isoformat(),
+        }
+
+    async def async_apply_meter_units_from_options(self) -> None:
+        """Refresh states from the last successful poll; no setup reload or API request."""
+        if self._last_index_payload is None or self.data is None:
+            await self.async_request_refresh()
+            return
+        today = date.fromisoformat(self.data["date"])
+        updated = self._build_state(self._last_index_payload, today)
+        self._applied_options = dict(self.entry.options)
+        self.async_set_updated_data(updated)
 
     async def _async_update_data(self) -> dict[str, Any]:
         today = dt_util.now().astimezone(ZoneInfo(TIMEZONE)).date()
@@ -53,20 +92,15 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 [payload], self.entry.data[CONF_DEAL_ID],
                 device_uuids=self.entry.options.get(CONF_DEVICE_UUIDS, {}),
             )
-            meters = parse_lines(payload)
-            if not meters:
-                raise TrybatecDataError("No recognized meter rows in response")
-            overrides = validate_meter_units(self.entry.options.get(CONF_METER_UNITS, {}))
-            for meter in meters.values():
-                meter["verified_unit"] = resolve_meter_unit(
-                    meter["lot"], meter["fluid"], meter["serial"], meter["portal_unit"], overrides
-                )
-            annual = summarize_annual(payload, period_start=start, period_end=end, meter_units=overrides)
-            return {
-                "meters": meters, "lots": known_lots(payload),
-                "annual": annual, "year": today.year, "date": today.isoformat(),
-            }
+            data = self._build_state(payload, today)
+            self._last_index_payload = payload
+            self._applied_options = dict(self.entry.options)
+            return data
         except TrybatecAuthError as exc:
+            _LOGGER.warning("Trybatec authentication failed; reauthentication required")
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
         except (TrybatecConnectionError, TrybatecDataError, ValueError, TypeError, OverflowError) as exc:
+            # Vendor and validation errors have sanitized messages; never log
+            # response bodies, passwords, tokens, serialized settings or IDs.
+            _LOGGER.warning("Trybatec meter update failed: %s", type(exc).__name__)
             raise UpdateFailed("Unable to update Trybatec meter indexes") from exc
