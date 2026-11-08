@@ -1,6 +1,20 @@
+# 0.2.0b11 — Corrective draft: restore direct, readable options navigation
+
+**Not released. PR draft only; no change to a running Home Assistant installation.**
+
+- Restore six direct principal destinations: Settings, Diagnostics, Meter units, History overview, Meter details and History review. Remove intermediate options menus introduced in b10 that produced blank entries in the real frontend.
+- Select a meter and open its edit form directly; keep existing verified-unit persistence, UUID validation, logging options and safe historical writes.
+- Keep mandatory explicit historical confirmation, without navigation-only commits or automatic Recorder imports.
+- Test Home Assistant's real OptionsFlow manager and French/English backend translation loader, in addition to checking the shipped locale files and code-level menu names.
+- **Publication is blocked until** the user validates the rendered menu and relevant screens on a real Home Assistant frontend. CI alone cannot establish this.
+
+No actual Trybatec API, stored history, Energy settings, notifications, or HA configuration is modified by preparing this candidate.
+
+---
+
 # 0.2.0b10 — Saved-unit consistency and native one-click navigation
 
-**Experimental candidate only.** The branch is a pull request; there is no b10 tag or release, no automatic installation and no changes to Home Assistant.
+**Released experimental beta; user-reported UI regression.** Several menu entries appeared blank in the real Home Assistant frontend even though backend CI passed. This release must not be considered visually validated.
 
 - Standardize all read-only navigation on Home Assistant native click-to-open menus with explicit links to the preceding level and to the main menu. Settings, diagnostics, meter selection and historical review have dedicated navigation menus.
 - Remove the post-submit navigation radio field from editing and confirmation forms. Validate and save entered values before moving on; meter-unit changes return to the meter list by default. Selection radios remain only for actual data choices such as measurement units and source readings.
