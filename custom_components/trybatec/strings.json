@@ -38,7 +38,8 @@
           "history_review": "Review historical readings",
           "meter_units": "Verify meter units",
           "history_overview": "Historical preview overview",
-          "history_meters": "Physical meter details"
+          "history_meters": "Physical meter details",
+          "diagnostics": "Diagnostics and logging"
         }
       },
       "history_review": {
@@ -86,7 +87,7 @@
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nIf automatic directory discovery is unavailable, enter the UUID from the `device?id=…` request. The integration fetches `unite` from the matching device detail and verifies lot/fluid/serial. Leave source unit unknown until the detail is retrieved.",
+        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nPreselected unit provenance: {selection_origin}. The chart unit is only a reference unless the API explicitly supplies the raw index unit.\n\nIf you do not have the Trybatec device UUID, leave that field empty. If the real raw index unit has not been verified, select « Unknown » in the unit list. Do not confirm an index unit from the chart alone **unless you are certain which unit to use**.",
         "data": {
           "unit": "Confirmed source unit",
           "device_uuid": "Trybatec device UUID (optional)"
@@ -102,7 +103,7 @@
       },
       "history_empty": {
         "title": "No readings to review",
-        "description": "The most recent preview does not identify any readings needing a decision. This is not an error.\\n\\nTo refresh it, [open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`.",
+        "description": "The most recent preview does not identify any readings needing a decision. This is not an error.\n\nTo refresh it, [open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Back to main menu"
         }
@@ -126,16 +127,24 @@
       },
       "history_unavailable": {
         "title": "Trybatec integration unavailable",
-        "description": "The integration has not finished loading: meter indexes could not be updated. This can be a portal connection or response-format problem; it does not mean saved review decisions were deleted.\\n\\n[Open Trybatec logs]({logs_url})\\n\\nAfter recovery, [open Developer Tools → Actions]({actions_url}) to run `trybatec.preview_history`.",
+        "description": "The integration has not finished loading: meter indexes could not be updated. This can be a portal connection or response-format problem; it does not mean saved review decisions were deleted.\n\n[Open Trybatec logs]({logs_url})\n\nAfter recovery, [open Developer Tools → Actions]({actions_url}) to run `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Back to main menu"
         }
       },
       "history_preview_missing": {
         "title": "Historical preview required",
-        "description": "No active historical preview is available (including after restart or reload). Previously saved decisions remain stored.\\n\\n[Open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`, then return here.\\n\\nIf the action fails, [open Trybatec logs]({logs_url}).",
+        "description": "No active historical preview is available (including after restart or reload). Previously saved decisions remain stored.\n\n[Open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`, then return here.\n\nIf the action fails, [open Trybatec logs]({logs_url}).",
         "menu_options": {
           "init": "← Back to main menu"
+        }
+      },
+      "diagnostics": {
+        "title": "Diagnostics and logging",
+        "description": "Choose the Trybatec log severity. This level applies to all Trybatec hubs in the Home Assistant instance. WARNING is recommended normally; DEBUG is for temporary troubleshooting. Raw portal responses, passwords and tokens must never be logged.\n\n[Open Trybatec logs]({logs_url})",
+        "data": {
+          "log_level": "Logging level",
+          "return_to_menu": "← Back to main menu"
         }
       }
     },
@@ -144,7 +153,8 @@
       "invalid_review_correction": "Invalid or ambiguous date/time (daylight saving change).",
       "invalid_meter_unit": "Unsupported unit for this fluid.",
       "conflicting_meter_unit": "Chosen unit conflicts with the explicit portal value.",
-      "invalid_device_uuid": "Invalid device UUID. Enter the Trybatec device-detail identifier."
+      "invalid_device_uuid": "Invalid device UUID. Enter the Trybatec device-detail identifier.",
+      "invalid_log_level": "Invalid logging level."
     },
     "abort": {
       "history_preview_required": "First run a new history preview from Developer Tools → Actions.",
