@@ -283,7 +283,7 @@ async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     flow_id = initial["flow_id"]
-     meters = await hass.config_entries.options.async_configure(
+    meters = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "meter_units"}
     )
     assert meters["step_id"] == "meter_units"
@@ -343,7 +343,7 @@ async def test_real_options_flow_saves_diagnostics_before_main_menu(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     flow_id = initial["flow_id"]
-     form = await hass.config_entries.options.async_configure(
+    form = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "diagnostics"}
     )
     assert form["step_id"] == "diagnostics"
