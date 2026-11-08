@@ -102,7 +102,7 @@
       },
       "history_empty": {
         "title": "No readings to review",
-        "description": "No reading currently needs a decision, or the preview is unavailable.\n\nRun `trybatec.preview_history` in Tools, then return here.\n\n[Open Settings → Tools → Actions]({actions_url})",
+        "description": "The most recent preview does not identify any readings needing a decision. This is not an error.\\n\\nTo refresh it, [open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Back to main menu"
         }
@@ -122,6 +122,20 @@
         "description": "Choose one of {meters} physical meters, including retired meters. Inspection does not change historical readings.\n\n[Open Developer Tools → Actions]({actions_url})",
         "data": {
           "meter_detail": "Physical meter"
+        }
+      },
+      "history_unavailable": {
+        "title": "Trybatec integration unavailable",
+        "description": "The integration has not finished loading: meter indexes could not be updated. This can be a portal connection or response-format problem; it does not mean saved review decisions were deleted.\\n\\n[Open Trybatec logs]({logs_url})\\n\\nAfter recovery, [open Developer Tools → Actions]({actions_url}) to run `trybatec.preview_history`.",
+        "menu_options": {
+          "init": "← Back to main menu"
+        }
+      },
+      "history_preview_missing": {
+        "title": "Historical preview required",
+        "description": "No active historical preview is available (including after restart or reload). Previously saved decisions remain stored.\\n\\n[Open Developer Tools → Actions]({actions_url}) and run `trybatec.preview_history`, then return here.\\n\\nIf the action fails, [open Trybatec logs]({logs_url}).",
+        "menu_options": {
+          "init": "← Back to main menu"
         }
       }
     },
