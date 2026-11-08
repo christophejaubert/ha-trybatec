@@ -171,24 +171,34 @@ jobs:
     name: resolve-test-refs
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Even if the PR edits its own workflow, this job never receives GITHUB_TOKEN
+    # permissions or repository secrets. Trusted executable source is a fixed SHA.
+    permissions: {}
     outputs:
       candidate_sha: ${{ steps.select.outputs.candidate_sha }}
       baseline_sha: ${{ steps.select.outputs.baseline_sha }}
     steps:
-      - name: Checkout exact candidate commit
+      - name: Checkout trusted reference resolver at audited immutable SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: 5cc64e5e58842e2eba93e4c706e6a357188dd246
+          path: ci-trusted
+      - name: Checkout exact candidate commit as untrusted data
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-candidate
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14.10"
-      - name: Resolve previous published version and immutable commit refs
+      - name: Resolve public release metadata without any GitHub token
         id: select
+        working-directory: ci-candidate
         env:
-          GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python .github/ci/resolve_refs.py
+        run: python ../ci-trusted/.github/ci/resolve_refs.py
 
   decision-persistence-process-restart:
     name: decision-persistence (${{ matrix.case }})
