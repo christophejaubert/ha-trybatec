@@ -1,3 +1,19 @@
+# 0.2.0b8 — Unit confirmation recovery and actionable history review
+
+**Experimental prerelease.** This update does not authorize historical Recorder imports or modification of Energy configuration.
+
+## Fixes
+- Confirming a unit for a physical meter now updates the active coordinator from the last successful bounded index response, without unloading the entire integration or sending another portal request. Saves with an unchanged/empty optional device UUID mapping no longer force reloads.
+- Malformed previously saved unit overrides no longer prevent live meter polling: invalid overrides are ignored safely, with an error log and unverified index units.
+- A failed initial portal fetch remains a retryable setup failure, rather than silently accepting unverified data. The sanitized exception category is logged without vendor payloads or credentials.
+- Historical-review navigation no longer terminates in a bare error dialog when the integration is unavailable, the preview is missing after a restart, or the selection has expired. Each state has a clear explanation, a return-to-menu option and direct in-app links to Developer Tools → Actions and/or Trybatec logs.
+- An actual preview with no flagged readings is explicitly distinguished from a missing preview; persisted review decisions remain unchanged.
+- Additional synthetic Home Assistant runtime and UI regression tests cover options-save lifecycle, restart with confirmed units, invalid existing overrides and navigation.
+
+**Limits:** The underlying cause of the user's live Trybatec API failure has not been confirmed without HA traceback. Vendor API connectivity and response format remain outside CI coverage. No real vendor data or production Recorder is used in these tests.
+
+---
+
 # 0.2.0b7 — Historical diagnostics, cost estimates and import safeguards
 
 **Experimental pre-release.**
