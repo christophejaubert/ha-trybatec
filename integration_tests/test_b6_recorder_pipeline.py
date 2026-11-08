@@ -43,11 +43,7 @@ async def setup_fake(hass, monkeypatch, *, valid_unit=True):
     async def indexes(self, deal_id, start, end):
         return deepcopy(payload)
 
-    async def enrich(self, payloads, deal_id, **kwargs):
-        return {"matched_lines": 0, "unmatched_lines": 1}
-
     monkeypatch.setattr(TrybatecClient, "indexes", indexes)
-    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", enrich)
     entry = MockConfigEntry(
         domain=DOMAIN, title="Synthetic b6 Recorder",
         unique_id="ci-synthetic-recorder-account",
