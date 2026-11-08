@@ -461,7 +461,7 @@ def test_recovery_menu_step_has_matching_handler_and_return_navigation(ui, step_
         ("m³", None, "m³", "Detected by API"),
         (None, None, "unverified", "Suggested by chart"),
         (None, "L", "L", "Manually confirmed"),
-        ("conflict", None, "unverified", "Suggested by chart"),
+        ("conflict", None, "unverified", "Conflicting or unrecognized API unit"),
     ],
 )
 def test_meter_unit_defaults_follow_verified_provenance(
