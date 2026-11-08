@@ -243,8 +243,34 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._correction_draft = None
         return self.async_show_menu(
             step_id="init",
-            menu_options=["settings", "diagnostics", "meter_units",
-                          "history_overview", "history_meters", "history_review"],
+            menu_options=["settings_menu", "diagnostics_menu", "meter_units_menu",
+                          "history_overview", "history_meters_menu", "history_review_menu"],
+        )
+
+    # Navigation is always a native one-click menu. Editable forms contain
+    # only fields and their validation/confirmation, not navigation radios.
+    # Future options screens must follow this same menu -> form pattern.
+    async def async_step_settings_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="settings_menu", menu_options=["settings", "init"])
+
+    async def async_step_diagnostics_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="diagnostics_menu", menu_options=["diagnostics", "init"])
+
+    async def async_step_meter_units_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="meter_units_menu", menu_options=["meter_units", "init"])
+
+    async def async_step_history_meters_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="history_meters_menu", menu_options=["history_meters", "init"])
+
+    async def async_step_history_review_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="history_review_menu", menu_options=["history_review", "init"])
+
+    async def async_step_meter_unit_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if self._selected_meter_unit_key is None:
+            return await self.async_step_meter_units_menu()
+        return self.async_show_menu(
+            step_id="meter_unit_menu",
+            menu_options=["meter_unit", "meter_units", "init"],
         )
 
     async def async_step_diagnostics(
@@ -259,11 +285,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                     or self.config_entry.options.get(CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL)
                 ),
             ): self._radio_choices({level: level for level in LOG_LEVELS}),
-            vol.Required("after_submit", default="finish"): self._save_route_schema(),
         })
         if user_input is not None:
             selected = user_input.get(CONF_LOG_LEVEL)
-            route = user_input.get("after_submit", "finish")
+            route = user_input.get("after_submit", "menu")
             if selected not in LOG_LEVELS or route not in ("finish", "menu"):
                 return self.async_show_form(
                     step_id="diagnostics", data_schema=schema,
@@ -281,7 +306,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            route = user_input.get("after_submit", "finish")
+            route = user_input.get("after_submit", "menu")
             try:
                 tariffs = user_input.get(
                     CONF_TARIFFS, self.config_entry.options.get(CONF_TARIFFS, "{}")
@@ -313,7 +338,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
-                vol.Required("after_submit", default="finish"): self._save_route_schema(),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
@@ -369,7 +393,7 @@ class TrybatecOptionsFlow(OptionsFlow):
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Select one physical meter; never silently reuse a unit from another."""
         if user_input is not None and user_input.get("meter") == RETURN_TO_MENU:
-            return await self._go_to_main_menu()
+            return await self.async_step_meter_units_menu()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self._history_notice("history_unavailable")
@@ -381,7 +405,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             if chosen not in mapping:
                 return self._history_notice("history_preview_missing")
             self._selected_meter_unit_key = chosen
-            return await self.async_step_meter_unit()
+            return await self.async_step_meter_unit_menu()
         display_label = self._nav_text("graphique", "chart")
         source_label = self._nav_text("index API", "API index")
         saved = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
@@ -400,9 +424,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                 f'{display_label}: '
                 f'{meter.get("portal_display_unit") or portal_display_unit(meter["fluid"]) or "—"}'
             )[:240]
-        choices[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
         return self.async_show_form(
             step_id="meter_units",
             data_schema=vol.Schema({vol.Required("meter"): self._radio_choices(choices)}),
@@ -437,13 +458,11 @@ class TrybatecOptionsFlow(OptionsFlow):
         schema = vol.Schema({
             vol.Required("unit", default=current_unit): self._radio_choices(allowed),
             vol.Optional("device_uuid", default=current_uuid): TextSelector(),
-            vol.Required("after_submit", default="finish"):
-                self._save_route_schema(include_meter_list=True),
         })
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
             uuid_candidate = str(user_input.get("device_uuid", current_uuid) or "").strip()
-            route = user_input.get("after_submit", "finish")
+            route = user_input.get("after_submit", "meters")
             if candidate not in allowed or route not in ("finish", "menu", "meters"):
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
             if uuid_candidate and uuid_text(uuid_candidate) is None:
@@ -656,9 +675,6 @@ class TrybatecOptionsFlow(OptionsFlow):
             )[:240]
             for item in candidates
         }
-        selections[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
         return self.async_show_form(
             step_id="history_review",
             data_schema=vol.Schema({vol.Required("reading"): self._radio_choices(selections)}),
@@ -827,24 +843,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                     "time", default=draft.get("time", original.strftime("%H:%M:%S"))
                 ): TimeSelector(),
                 vol.Optional("reason", default=draft.get("reason", "")): str,
-                vol.Required(
-                    "after_submit", default=(user_input or {}).get(
-                        "after_submit", "confirm"
-                    )
-                ): self._radio_choices({
-                    "confirm": self._nav_text(
-                        "Continuer vers la confirmation obligatoire",
-                        "Continue to mandatory confirmation",
-                    ),
-                    "confirm_menu": self._nav_text(
-                        "Confirmer puis revenir au menu principal",
-                        "Confirm, then return to main menu",
-                    ),
-                    "back": self._nav_text(
-                        "← Retour au choix de la décision (brouillon conservé)",
-                        "← Back to decision (draft retained)",
-                    ),
-                }),
+                # No navigation field: the confirmation is a separate native menu.
             }),
         )
 
@@ -897,26 +896,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         override = bool(decision.get("requires_out_of_period_confirmation"))
         fields = {
             vol.Required("confirm", default=False): BooleanSelector(),
-            vol.Required(
-                "after_submit",
-                default=(user_input or {}).get(
-                    "after_submit",
-                    "menu" if self._return_after_confirmation else "review",
-                ),
-            ): self._radio_choices({
-                "review": self._nav_text(
-                    "Après confirmation, revenir à la liste des relevés",
-                    "After approval, return to reading list",
-                ),
-                "menu": self._nav_text(
-                    "Après confirmation, revenir au menu principal",
-                    "After approval, return to main menu",
-                ),
-                "back": self._nav_text(
-                    "← Retour au choix de la décision sans enregistrer",
-                    "← Back to decision without saving",
-                ),
-            }),
+            # Navigation is offered on the preceding native confirmation menu.
         }
         if override:
             fields[vol.Required(
