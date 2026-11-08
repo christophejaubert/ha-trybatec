@@ -51,13 +51,13 @@ Trybatec API. Those remain separate functional regression coverage requirements.
 | --- | --- |
 | Python for unit tests | 3.13.18 and 3.14.10 (check labels remain 3.13 and 3.14) |
 | Python for isolated HA and persistence | 3.14.10 |
-| Pure-test direct packages | [`requirements-pure.txt`](.github/ci/requirements-pure.txt) |
-| Ruff | [`requirements-lint.txt`](.github/ci/requirements-lint.txt) |
-| HA runtime test framework | [`requirements-ha-runtime.txt`](.github/ci/requirements-ha-runtime.txt) |
+| Pure-test direct packages | [`requirements-pure.txt`](../.github/ci/requirements-pure.txt) |
+| Ruff | [`requirements-lint.txt`](../.github/ci/requirements-lint.txt) |
+| HA runtime test framework | [`requirements-ha-runtime.txt`](../.github/ci/requirements-ha-runtime.txt) |
 | Physical persistence HA Core | 2026.11.0 |
 | Latest-HA compatibility job | Intentionally installs the latest available HA and current Python 3.14 patch |
 
-The three pinned requirement files are in [`.github/ci/`](.github/ci/).
+The three pinned requirement files are in [`.github/ci/`](../.github/ci/).
 They lock **direct tools** based on versions already demonstrated to pass in
 GitHub Actions. The complete transitive Python dependency graph and
 `ubuntu-latest` image are **not locked**. Accordingly, the reference jobs are
