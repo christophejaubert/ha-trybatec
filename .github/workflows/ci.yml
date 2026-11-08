@@ -6,31 +6,56 @@ on:
   schedule:
     - cron: "21 7 * * *" # Daily compatibility check with latest published HA
   workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release creation requires manual approval; draft only"
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - prerelease
+          - stable
 
 permissions:
   contents: read
 
 jobs:
   pure-tests:
+    name: pure-tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Install pure Python test dependencies
-        run: python -m pip install pytest aiohttp
+        run: python -m pip install pytest pytest-cov aiohttp
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
       - name: Test parsing, multi-customer history, service security, and API client
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q --cov=custom_components.trybatec --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml
+      - name: Upload coverage report
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trybatec-coverage
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate manifest and public release privacy
         run: |
           python - <<'PY'
           from pathlib import Path
           import json
           manifest = json.loads(Path('custom_components/trybatec/manifest.json').read_text())
-          assert manifest['version'] == '0.2.0b7' and manifest['domain'] == 'trybatec'
+          assert manifest['domain'] == 'trybatec'
+          assert __import__('re').fullmatch(r'\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?', manifest['version'])
           published = [Path('README.md'), Path('RELEASE_NOTES_BETA.md')]
           published += list(Path('custom_components/trybatec').rglob('*.py'))
           published += list(Path('tests').glob('test_*.py'))
@@ -57,11 +82,68 @@ jobs:
               assert unpack('>II',data[16:24])==(n,n)
           PY
 
+  lint:
+    name: ruff-essential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install Ruff
+        run: python -m pip install ruff
+      - name: Enforce high-confidence lint errors
+        run: ruff check --output-format=github --select E9,F63,F7,F82 custom_components/trybatec tests
+      - name: Report general lint debt (not blocking initially)
+        continue-on-error: true
+        run: ruff check --output-format=github custom_components/trybatec tests
+      - name: Report formatting drift (not blocking initially)
+        continue-on-error: true
+        run: ruff format --check custom_components/trybatec tests
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: hacs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate integration as an HACS repository
+        uses: hacs/action@main
+        with:
+          category: integration
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect accidentally committed secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
   latest-homeassistant-import:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install latest Home Assistant (not cached/pinned)
@@ -69,29 +151,61 @@ jobs:
       - name: Display installed version and import custom component
         run: |
           python -m pip show homeassistant | grep Version
-          python -c "import custom_components.trybatec; import custom_components.trybatec.config_flow; import custom_components.trybatec.sensor; import custom_components.trybatec.history_services"
+          python - <<'PY'
+          from pathlib import Path
+          import importlib
+          for file in sorted(Path('custom_components/trybatec').glob('*.py')):
+              importlib.import_module(f'custom_components.trybatec.{file.stem}')
+          PY
 
-  publish-experimental-beta:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TRYBATEC_APPROVE_B7_RELEASE == 'true'
-    needs: [pure-tests, latest-homeassistant-import]
+  draft-release:
+    name: Prepare unpublished release draft (manual only)
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
+    needs: [pure-tests, lint, hassfest, hacs, secrets, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify beta version before publishing
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate requested version against the manifest
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
         run: |
-          python -c 'import json; assert json.load(open("custom_components/trybatec/manifest.json"))["version"] == "0.2.0b7"'
-      - name: Create experimental GitHub pre-release if missing
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          version = json.loads(Path('custom_components/trybatec/manifest.json').read_text())['version']
+          pre = re.fullmatch(r'\d+\.\d+\.\d+(?:a|b|rc)\d+', version)
+          stable = re.fullmatch(r'\d+\.\d+\.\d+', version)
+          kind = os.environ['RELEASE_TYPE']
+          if not ((kind == 'prerelease' and pre) or (kind == 'stable' and stable)):
+              raise SystemExit('Release kind and manifest version are inconsistent')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write(f'version={version}\n')
+          PY
+      - name: Create draft release only; publication requires a separate manual action
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if gh release view '0.2.0b7' > /dev/null 2>&1; then
-            echo 'The 0.2.0b7 release exists; leaving it unchanged.'
-          else
-            gh release create '0.2.0b7' \
-              --target "$GITHUB_SHA" \
-              --prerelease \
-              --title 'Trybatec 0.2.0b7 — Historical costs and diagnostics' \
-              --notes-file RELEASE_NOTES_BETA.md
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite." >&2
+            exit 1
           fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists; refusing to overwrite." >&2
+            exit 1
+          fi
+          prerelease_flag=()
+          if [[ "$RELEASE_TYPE" == 'prerelease' ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+          gh release create "$VERSION" --target "$GITHUB_SHA" --draft \
+            "${prerelease_flag[@]}" --title "Trybatec $VERSION" --generate-notes
+          echo "Draft created. Publish it explicitly in GitHub after review."
