@@ -20,6 +20,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector, DateSelector, TimeSelector, TextSelector, TextSelectorConfig, TextSelectorType,
+    SelectOptionDict, SelectSelector, SelectSelectorConfig, SelectSelectorMode,
 )
 from homeassistant.util import dt as dt_util
 
@@ -120,6 +121,56 @@ class TrybatecOptionsFlow(OptionsFlow):
     _pending_review: dict | None = None
     _selected_meter_unit_key: str | None = None
     _selected_history_meter_key: str | None = None
+    _return_after_confirmation: bool = False
+
+    @staticmethod
+    def _radio_choices(choices: dict[str, str]) -> SelectSelector:
+        """Always render a single-choice list as radio buttons, even above five items."""
+        return SelectSelector(
+            SelectSelectorConfig(
+                options=[SelectOptionDict(value=k, label=v) for k, v in choices.items()],
+                mode=SelectSelectorMode.LIST,
+            )
+        )
+
+    def _save_route_schema(self, *, include_meter_list: bool = False) -> SelectSelector:
+        choices = {
+            "finish": self._nav_text(
+                "Enregistrer et terminer", "Save and finish"
+            ),
+        }
+        if include_meter_list:
+            choices["meters"] = self._nav_text(
+                "Enregistrer et revenir à la liste des compteurs",
+                "Save and return to the meter list",
+            )
+        choices["menu"] = self._nav_text(
+            "Enregistrer et revenir au menu principal", "Save and return to main menu"
+        )
+        return self._radio_choices(choices)
+
+    async def _save_options_and_navigate(
+        self, updates: dict, route: str, *, include_meter_list: bool = False
+    ) -> ConfigFlowResult:
+        """Validate first, then store options exactly once before navigation.
+
+        Home Assistant's async_create_entry ends an options flow. An explicit
+        'save and return' therefore updates the existing entry in place while
+        the flow remains open; its existing update listener applies runtime
+        changes. No side effects occur when the user merely navigates.
+        """
+        allowed = {"finish", "menu"} | ({"meters"} if include_meter_list else set())
+        if route not in allowed:
+            raise ValueError("Unsupported post-save navigation")
+        options = {**self.config_entry.options, **updates}
+        if route == "finish":
+            return self.async_create_entry(title="", data=options)
+        if options != dict(self.config_entry.options):
+            self.hass.config_entries.async_update_entry(self.config_entry, options=options)
+        if route == "meters":
+            self._selected_meter_unit_key = None
+            return await self.async_step_meter_units()
+        return await self._go_to_main_menu()
 
     @staticmethod
     def _actions_url() -> str:
@@ -171,6 +222,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._selected_history_meter_key = None
         self._selected_reading = None
         self._pending_review = None
+        self._return_after_confirmation = False
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -184,28 +236,27 @@ class TrybatecOptionsFlow(OptionsFlow):
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
         """Configure the shared Trybatec logging threshold without reload."""
-        if user_input is not None and user_input.get("return_to_menu"):
-            return await self._go_to_main_menu()
         schema = vol.Schema({
             vol.Required(
                 CONF_LOG_LEVEL,
-                default=self.config_entry.options.get(
-                    CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL
+                default=(
+                    (user_input or {}).get(CONF_LOG_LEVEL)
+                    or self.config_entry.options.get(CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL)
                 ),
-            ): vol.In(LOG_LEVELS),
-            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+            ): self._radio_choices({level: level for level in LOG_LEVELS}),
+            vol.Required("after_submit", default="finish"): self._save_route_schema(),
         })
         if user_input is not None:
             selected = user_input.get(CONF_LOG_LEVEL)
-            if selected not in LOG_LEVELS:
+            route = user_input.get("after_submit", "finish")
+            if selected not in LOG_LEVELS or route not in ("finish", "menu"):
                 return self.async_show_form(
                     step_id="diagnostics", data_schema=schema,
                     errors={"base": "invalid_log_level"},
                     description_placeholders={"logs_url": self._logs_url()},
                 )
-            return self.async_create_entry(
-                title="",
-                data={**self.config_entry.options, CONF_LOG_LEVEL: selected},
+            return await self._save_options_and_navigate(
+                {CONF_LOG_LEVEL: selected}, route
             )
         return self.async_show_form(
             step_id="diagnostics", data_schema=schema,
@@ -213,20 +264,27 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
-        if user_input is not None and user_input.get("return_to_menu") is True:
-            return await self._go_to_main_menu()
         errors: dict[str, str] = {}
         if user_input is not None:
+            route = user_input.get("after_submit", "finish")
             try:
-                validate_tariffs(user_input[CONF_TARIFFS])
-            except (ValueError, TypeError, json.JSONDecodeError):
-                errors[CONF_TARIFFS] = "invalid_tariffs"
+                tariffs = user_input.get(
+                    CONF_TARIFFS, self.config_entry.options.get(CONF_TARIFFS, "{}")
+                )
+                poll = int(user_input.get(
+                    CONF_POLL_MINUTES,
+                    self.config_entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES),
+                ))
+                if not MIN_POLL_MINUTES <= poll <= 10080:
+                    raise ValueError("Polling interval out of bounds")
+                validate_tariffs(tariffs)
+                if route not in ("finish", "menu"):
+                    raise ValueError("Invalid navigation")
+            except (ValueError, TypeError, json.JSONDecodeError, OverflowError):
+                errors["base"] = "invalid_settings"
             else:
-                return self.async_create_entry(
-                    title="",
-                    data={**self.config_entry.options,
-                          **{key: value for key, value in user_input.items()
-                             if key != "return_to_menu"}},
+                return await self._save_options_and_navigate(
+                    {CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs}, route
                 )
         schema = vol.Schema(
             {
@@ -240,7 +298,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
-                vol.Optional("return_to_menu", default=False): BooleanSelector(),
+                vol.Required("after_submit", default="finish"): self._save_route_schema(),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
@@ -250,7 +308,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         """Current plus cached historical (including replaced) physical meters."""
         overrides = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         meters = {
-            meter_key(m["lot"], m["fluid"], m["serial"]): m
+            meter_key(m["lot"], m["fluid"], m["serial"]): dict(m)
             for m in coordinator.data.get("meters", {}).values()
         }
         cache = getattr(coordinator, "_history_review_cache", None)
@@ -267,6 +325,14 @@ class TrybatecOptionsFlow(OptionsFlow):
                         "portal_display_unit": item.get("portal_display_unit") or portal_display_unit(fluid),
                         "verified_unit": resolve_meter_unit(lot, fluid, serial, source, overrides),
                     }
+        # Read the persisted options on every screen visit. A cached coordinator
+        # snapshot can lag behind a valid OptionsFlow save; never display its
+        # outdated verified_unit as if the operator's choice were lost.
+        for meter in meters.values():
+            meter["verified_unit"] = resolve_meter_unit(
+                meter["lot"], meter["fluid"], meter["serial"],
+                meter.get("portal_unit"), overrides,
+            )
         return meters
 
     def _unit_origin(self, meter: dict, has_user_confirmation: bool) -> str:
@@ -316,16 +382,11 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(
             step_id="meter_units",
-            data_schema=vol.Schema({vol.Required("meter"): vol.In(choices)}),
+            data_schema=vol.Schema({vol.Required("meter"): self._radio_choices(choices)}),
         )
 
     async def async_step_meter_unit(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Persist only a single verified unit override, with conflict prevention."""
-        if user_input is not None and user_input.get("unit") == RETURN_TO_MENU:
-            return await self._go_to_main_menu()
-        if user_input is not None and user_input.get("unit") == RETURN_TO_METERS:
-            self._selected_meter_unit_key = None
-            return await self.async_step_meter_units()
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is None:
             return self._history_notice("history_unavailable")
@@ -350,20 +411,17 @@ class TrybatecOptionsFlow(OptionsFlow):
         device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
         current_uuid = device_uuids.get(self._selected_meter_unit_key, "") if isinstance(device_uuids, dict) else ""
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
-        allowed[RETURN_TO_METERS] = self._nav_text(
-            "← Retour à la liste des compteurs", "← Back to meter list"
-        )
-        allowed[RETURN_TO_MENU] = self._nav_text(
-            "← Retour au menu principal", "← Back to main menu"
-        )
         schema = vol.Schema({
-            vol.Required("unit", default=current_unit): vol.In(allowed),
+            vol.Required("unit", default=current_unit): self._radio_choices(allowed),
             vol.Optional("device_uuid", default=current_uuid): TextSelector(),
+            vol.Required("after_submit", default="finish"):
+                self._save_route_schema(include_meter_list=True),
         })
         if user_input is not None:
             candidate = user_input.get("unit", "unverified")
             uuid_candidate = str(user_input.get("device_uuid") or "").strip()
-            if candidate not in allowed:
+            route = user_input.get("after_submit", "finish")
+            if candidate not in allowed or route not in ("finish", "menu", "meters"):
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
             if uuid_candidate and uuid_text(uuid_candidate) is None:
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_device_uuid"}, data_schema=schema)
@@ -383,12 +441,9 @@ class TrybatecOptionsFlow(OptionsFlow):
                 updated_uuids[self._selected_meter_unit_key] = uuid_text(uuid_candidate)
             else:
                 updated_uuids.pop(self._selected_meter_unit_key, None)
-            return self.async_create_entry(
-                title="", data={
-                    **self.config_entry.options,
-                    CONF_METER_UNITS: current,
-                    CONF_DEVICE_UUIDS: updated_uuids,
-                }
+            return await self._save_options_and_navigate(
+                {CONF_METER_UNITS: current, CONF_DEVICE_UUIDS: updated_uuids},
+                route, include_meter_list=True,
             )
         return self.async_show_form(
             step_id="meter_unit",
@@ -485,7 +540,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="history_meters",
             data_schema=vol.Schema({
-                vol.Required("meter_detail"): vol.In(meter_choices),
+                vol.Required("meter_detail"): self._radio_choices(meter_choices),
             }),
             description_placeholders={
                 "meters": str(len(meter_choices)),
@@ -536,7 +591,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="history_meter_detail",
             data_schema=vol.Schema({
-                vol.Required("navigation", default="overview"): vol.In(choices),
+                vol.Required("navigation", default="overview"): self._radio_choices(choices),
             }),
             description_placeholders={
                 "meter": f"{fluid} · {serial}",
@@ -590,7 +645,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(
             step_id="history_review",
-            data_schema=vol.Schema({vol.Required("reading"): vol.In(selections)}),
+            data_schema=vol.Schema({vol.Required("reading"): self._radio_choices(selections)}),
             description_placeholders={"actions_url": self._actions_url()},
         )
 
@@ -638,7 +693,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self.async_step_history_confirm()
         return self.async_show_form(
             step_id="history_decision",
-            data_schema=vol.Schema({vol.Required("choice"): vol.In({
+            data_schema=vol.Schema({vol.Required("choice"): self._radio_choices({
                 "accept": "Accept unchanged / Accepter",
                 "correct": "Correct and accept / Corriger",
                 "reject": "Exclude / Exclure",
