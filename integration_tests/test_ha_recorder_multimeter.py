@@ -209,3 +209,41 @@ async def test_three_meters_recover_after_integration_reload(
     second = await history_services.async_verify_history(hass, service_call())
     assert second["status"] == "verified"
     assert second["verified"] == second["pending"] == []
+
+
+
+@pytest.mark.parametrize("where", [
+    "before_ledger", "before_first_queue",
+    "before_second_queue", "after_third_queue",
+])
+async def test_historical_recovery_across_independent_ha_core_processes(
+    tmp_path, where
+):
+    """Start and stop two actual HA Core processes sharing HA .storage + SQLite.
+
+    The queue is a deterministic SQLite adapter in this test. Genuine Recorder
+    is checked separately above, so do not conflate these two validations.
+    """
+    import asyncio
+    import os
+    from pathlib import Path
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    runner = root / "scripts" / "ci_multimeter_restart.py"
+    config = tmp_path / f"ha-process-{where}"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root)
+    for stage in ("write", "verify"):
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, str(runner), stage, str(config), where,
+            cwd=str(root), env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(process.communicate(), timeout=95)
+        assert process.returncode == 0, (
+            f"{where} / {stage}: exit={process.returncode}\n"
+            f"{out.decode(errors='replace')}\n{err.decode(errors='replace')}"
+        )
+        assert stage.upper() in out.decode()
