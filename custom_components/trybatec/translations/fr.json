@@ -24,7 +24,7 @@
     "step": {
       "settings": {
         "title": "Options Trybatec",
-        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.\n\nValidez pour enregistrer. La navigation s’effectue dans les menus cliquables ; fermer avec × abandonne la saisie.",
+        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.\n\nValidez pour enregistrer et revenir au menu principal. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
           "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
@@ -62,7 +62,7 @@
       },
       "history_correction": {
         "title": "Corriger ou imputer un relevé",
-        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.\n\nLa correction saisie est un brouillon tant que la confirmation obligatoire n'a pas été validée. Après validation des champs, un menu vous permet de confirmer ou de revenir en arrière sans enregistrer.",
+        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.\n\nAprès validation des champs, l’écran de confirmation obligatoire s’affiche. Aucun brouillon n’est enregistré comme décision tant que vous ne l’avez pas explicitement approuvé.",
         "data": {
           "mode": "Type de correction",
           "date": "Date",
@@ -72,7 +72,7 @@
       },
       "history_confirm": {
         "title": "Confirmer le traitement du relevé",
-        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.  \\n**Avertissement :** {outside_interval_warning}\n\nLa décision n'est enregistrée que si la case de confirmation est cochée, avec l'accord supplémentaire requis en cas de date comptable hors période. La navigation sans enregistrement se fait sur le menu précédent.",
+        "description": "**Relevé :** {reading}  \n**Écart entre les deux index (indicatif) :** {interval_quantity}  \n**Décision :** {decision}  \nCet écart ne constitue pas forcément une consommation fiable, ni une répartition quotidienne. Aucune statistique n’est modifiée ici ; réexécutez la prévisualisation avant importation.\n**Avertissement :** {outside_interval_warning}\n\nLa décision n’est enregistrée qu’après une confirmation explicite, ainsi que l’accord supplémentaire éventuellement nécessaire pour une date hors période. Fermer la fenêtre sans confirmer ne sauvegarde aucune décision.",
         "data": {
           "confirm": "Je confirme cette décision",
           "confirm_outside_period": "Je confirme explicitement l'imputation hors de la période des relevés"
@@ -87,7 +87,7 @@
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.\n\nSélectionnez l’unité, saisissez éventuellement l’UUID et validez. L’enregistrement précède le retour à la liste. Les liens de retour en un clic se trouvent dans le menu du compteur.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.\n\nSélectionnez l’unité, saisissez éventuellement l’UUID et validez : les valeurs sont enregistrées avant le retour à la liste des compteurs. Pour abandonner sans enregistrer, fermez avec ×.",
         "data": {
           "unit": "Unité source confirmée",
           "device_uuid": "UUID de la fiche Trybatec (facultatif)"
@@ -143,7 +143,7 @@
       },
       "diagnostics": {
         "title": "Diagnostics et journalisation",
-        "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nValidez pour appliquer le niveau choisi. Les retours en un clic se trouvent dans le menu précédent.",
+        "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nValidez pour appliquer le niveau choisi et revenir au menu principal. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
         "data": {
           "log_level": "Niveau de journalisation"
         }
