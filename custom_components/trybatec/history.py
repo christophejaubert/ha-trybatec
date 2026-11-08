@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
+import json
 from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -193,6 +194,30 @@ def build_history(
     day, even with allow_gaps=True. One physical serial = one series.
     """
     meters, conflicts = combine_payloads(payloads, allowed_lots, start, end)
+    # Freeze the unmodified physical source before applying review decisions.
+    # A retry must reject vendor index/date changes even if the resulting
+    # hourly Recorder sums happen to remain identical.
+    raw_fingerprints = {}
+    for key, meter in meters.items():
+        lot, fluid, serial = key
+        source = {
+            "indexes": [
+                [stamp.isoformat(), value]
+                for stamp, value in sorted(meter["indexes"].items())
+            ],
+            "portal_unit": meter["portal_unit"],
+            "unit_source": meter["unit_source"],
+            "retired": meter["retired"],
+            "conflicts": [
+                conflict for conflict in conflicts
+                if conflict.get("lot") == lot
+                and conflict.get("fluid") == fluid
+                and conflict.get("meter_serial") == serial
+            ],
+        }
+        raw_fingerprints[key] = sha256(json.dumps(
+            source, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
     decisions = decisions or {}
     # Capture raw observations before processing user decisions; never overwrite
     # a source record in the in-memory API representation.
@@ -226,6 +251,7 @@ def build_history(
             "lot": lot, "fluid": fluid, "serial": serial,
             "retired": meter["retired"], "portal_unit": meter["portal_unit"],
             "unit_source": meter["unit_source"],
+            "source_fingerprint": raw_fingerprints[key],
             "portal_display_unit": meter["portal_display_unit"],
             "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],
