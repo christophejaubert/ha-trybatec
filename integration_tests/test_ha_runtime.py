@@ -6,6 +6,7 @@ lightweight module stubs for pure-Python unit tests.
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -194,3 +195,50 @@ async def test_invalid_existing_unit_options_do_not_break_polling(hass, monkeypa
     )
     coordinator = hass.data[DOMAIN][entry.entry_id]
     assert coordinator.data["meters"]["MOCK-WATER-01"]["verified_unit"] is None
+
+
+@pytest.mark.parametrize(
+    "menu_step", ("history_overview", "history_meters", "history_review")
+)
+async def test_missing_history_preview_is_real_navigable_options_flow(
+    hass, monkeypatch, menu_step
+):
+    """Test HA's real FlowManager, not just a mocked async_show_menu result."""
+    entry, _ = await configure_fake_account(hass, monkeypatch, None)
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] == "menu"
+    flow_id = initial["flow_id"]
+    missing = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": menu_step}
+    )
+    assert missing["type"] == "menu"
+    assert missing["step_id"] == "history_preview_missing"
+    assert missing["menu_options"] == ["init"]
+    assert missing["description_placeholders"]["actions_url"] == "/config/developer-tools/action"
+    returned = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "init"}
+    )
+    assert returned["type"] == "menu" and returned["step_id"] == "init"
+
+
+async def test_log_level_option_applies_without_portal_poll_or_reload(
+    hass, monkeypatch
+):
+    """A debug level save changes only the logger and leaves the coordinator live."""
+    entry, calls = await configure_fake_account(hass, monkeypatch, None)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    count = len(calls)
+    root = logging.getLogger("custom_components.trybatec")
+    assert root.level == logging.WARNING
+    hass.config_entries.async_update_entry(entry, options={"log_level": "DEBUG"})
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert len(calls) == count
+    assert root.level == logging.DEBUG
+    hass.config_entries.async_update_entry(entry, options={"log_level": "ERROR"})
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert root.level == logging.ERROR
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert root.level == logging.NOTSET

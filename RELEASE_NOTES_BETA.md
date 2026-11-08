@@ -1,3 +1,20 @@
+# 0.2.0b9 — Historical menu recovery, explicit unit provenance and diagnostics
+
+**Experimental prerelease candidate.** Never automatically import real Recorder statistics or alter the Energy dashboard; approval for a future b9 GitHub release and a real Home Assistant installation remains a separate control.
+
+## Changes
+- Fix a Home Assistant flow-manager UnknownStep regression: all three historical no-preview/unavailable/empty menus now have actual handler methods, so they remain navigable instead of returning a bare error. The action and log links remain instance-relative and clickable.
+- Replace escaped literal line breaks in translated historical recovery messages with real paragraphs.
+- Preserve a previously confirmed meter unit when consistent with the API; otherwise preselect a clearly detected explicit API index unit. A chart display-unit reference is never auto-confirmed. A conflict or unrecognized API unit remains unverified.
+- Clearly label the unit's origin (manual confirmation / explicit API detection / chart-only suggestion); provide revised French and English guidance for the optional device UUID and the unverified unit.
+- Add **Configure → Diagnostics and logging** with ERROR / WARNING (default) / INFO / DEBUG. This is a shared Trybatec logger threshold on the Home Assistant instance, and is applied without reloading the integration when that is the only option changed.
+- Add sanitized INFO/DEBUG diagnostics identifying portal fetch stage, elapsed time and number of meters, without response bodies, usernames, raw readings or tokens.
+- Regression tests for Home Assistant's actual options-flow manager, blank-menu recovery navigation, API-first defaults, and logging option updates.
+
+**Validation boundary:** Tests use simulated Home Assistant and invented meter data; real Trybatec API failures and future self-updating in the user's Home Assistant are not confirmed by CI.
+
+---
+
 # 0.2.0b8 — Unit confirmation recovery and actionable history review
 
 **Experimental prerelease.** This update does not authorize historical Recorder imports or modification of Energy configuration.

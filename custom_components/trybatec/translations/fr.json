@@ -38,7 +38,8 @@
           "history_review": "Réviser les relevés historiques",
           "meter_units": "Vérifier les unités des compteurs",
           "history_overview": "Synthèse graphique de l’historique",
-          "history_meters": "Détails des compteurs"
+          "history_meters": "Détails des compteurs",
+          "diagnostics": "Diagnostics et journalisation"
         }
       },
       "history_review": {
@@ -86,7 +87,7 @@
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nSi l'API ne permet pas de retrouver automatiquement la fiche, indiquez ici son UUID extrait de la requête `device?id=…`. L'intégration récupérera le champ `unite` directement dans la fiche et vérifiera la correspondance lot/fluide/numéro de série. Laissez « Inconnue » pour l'unité tant que la fiche n'a pas été chargée.",
+        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.",
         "data": {
           "unit": "Unité source confirmée",
           "device_uuid": "UUID de la fiche Trybatec (facultatif)"
@@ -102,7 +103,7 @@
       },
       "history_empty": {
         "title": "Aucun relevé à réviser",
-        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\\n\\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.",
+        "description": "La dernière prévisualisation disponible ne signale aucun relevé nécessitant une décision. Il ne s'agit pas d'une erreur.\n\nPour actualiser l'analyse, [ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
@@ -126,16 +127,24 @@
       },
       "history_unavailable": {
         "title": "Intégration Trybatec indisponible",
-        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\\n\\n[Consulter les journaux Trybatec]({logs_url})\\n\\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.",
+        "description": "L'intégration n'a pas terminé son chargement : les index n'ont pas pu être actualisés. Cette situation peut venir de la connexion au portail ou du format des données, et ne signifie pas que tes décisions précédentes ont été supprimées.\n\n[Consulter les journaux Trybatec]({logs_url})\n\nAprès résolution, [ouvrir Outils de développement → Actions]({actions_url}) pour exécuter `trybatec.preview_history`.",
         "menu_options": {
           "init": "← Retour au menu principal"
         }
       },
       "history_preview_missing": {
         "title": "Prévisualisation historique requise",
-        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\\n\\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\\n\\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).",
+        "description": "Aucune prévisualisation historique active n'est disponible (notamment après un redémarrage ou un rechargement). Les décisions déjà enregistrées restent conservées.\n\n[Ouvrir Outils de développement → Actions]({actions_url}) et exécuter `trybatec.preview_history`, puis revenir ici.\n\nEn cas d'échec, [consulter les journaux Trybatec]({logs_url}).",
         "menu_options": {
           "init": "← Retour au menu principal"
+        }
+      },
+      "diagnostics": {
+        "title": "Diagnostics et journalisation",
+        "description": "Choisissez la verbosité des journaux de Trybatec. Le niveau s'applique à tous les hubs Trybatec de cette instance Home Assistant. WARNING est recommandé au quotidien ; DEBUG est destiné au diagnostic temporaire. Aucune réponse brute du portail, aucun mot de passe ou jeton ne doit être journalisé.\n\n[Consulter les journaux Trybatec]({logs_url})",
+        "data": {
+          "log_level": "Niveau de journalisation",
+          "return_to_menu": "← Retour au menu principal"
         }
       }
     },
@@ -144,7 +153,8 @@
       "invalid_review_correction": "Date/heure invalide ou ambiguë (changement d’heure).",
       "invalid_meter_unit": "Unité non prise en charge pour ce fluide.",
       "conflicting_meter_unit": "L’unité choisie contredit l’unité explicite du portail.",
-      "invalid_device_uuid": "UUID de compteur invalide. Renseignez l'identifiant de la fiche Trybatec (format UUID)."
+      "invalid_device_uuid": "UUID de compteur invalide. Renseignez l'identifiant de la fiche Trybatec (format UUID).",
+      "invalid_log_level": "Niveau de journalisation invalide."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",

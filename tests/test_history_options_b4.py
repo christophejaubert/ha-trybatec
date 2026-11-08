@@ -19,6 +19,7 @@ def ui(monkeypatch):
     class Optional:
         def __init__(self, k, *args, **kwargs):
             self.k = k
+            self.default = kwargs.get("default")
 
     class Selector:
         def __init__(self, *args, **kwargs): pass
@@ -377,3 +378,88 @@ def test_device_uuid_can_be_bound_to_exact_meter_without_unit_assumption(ui):
         assert saved["data"]["meter_units"] == {}
         assert saved["data"]["poll_minutes"] == 720
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "step_name", ("history_unavailable", "history_preview_missing", "history_empty")
+)
+def test_recovery_menu_step_has_matching_handler_and_return_navigation(ui, step_name):
+    """HA rejects any menu step id lacking a real async_step_<name> method.
+
+    Earlier stub-only tests missed this and users saw a generic blank error.
+    """
+    flow, _ = new_ui(ui)
+    assert hasattr(flow, f"async_step_{step_name}")
+    async def exercise():
+        notice = flow._history_notice(step_name)
+        assert notice["type"] == "menu" and notice["step_id"] == step_name
+        assert notice["menu_options"] == ["init"]
+        rendered = await getattr(flow, f"async_step_{step_name}")()
+        assert rendered["type"] == "menu"
+        assert rendered["step_id"] == step_name
+        home = await flow.async_step_init()
+        assert home["step_id"] == "init"
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("source_unit", "manual_unit", "expected", "expected_origin"),
+    [
+        ("m³", None, "m³", "Detected by API"),
+        (None, None, "unverified", "Suggested by chart"),
+        (None, "L", "L", "Manually confirmed"),
+        ("conflict", None, "unverified", "Suggested by chart"),
+    ],
+)
+def test_meter_unit_defaults_follow_verified_provenance(
+    ui, source_unit, manual_unit, expected, expected_origin
+):
+    """Graph units may be suggested but must never preselect a raw index unit."""
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {
+        "FAKE-UNIT": {
+            "lot": "FAKE-HOME", "fluid": "EF", "serial": "FAKE-UNIT",
+            "deposed": False, "portal_unit": source_unit,
+            "verified_unit": source_unit if source_unit == "m³" else manual_unit,
+            "portal_display_unit": "m³",
+        }
+    }}
+    key = ui.meter_key("FAKE-HOME", "EF", "FAKE-UNIT")
+    if manual_unit is not None:
+        flow.config_entry.options["meter_units"] = {key: manual_unit}
+    flow._selected_meter_unit_key = key
+    form = asyncio.run(flow.async_step_meter_unit())
+    assert form["type"] == "form" and form["step_id"] == "meter_unit"
+    unit_key = next(k for k in form["data_schema"] if k.k == "unit")
+    assert unit_key.default == expected
+    assert expected_origin in form["description_placeholders"]["selection_origin"]
+    assert flow.config_entry.options.get("meter_units", {}).get(key) == manual_unit
+
+
+def test_diagnostics_settings_preserve_other_options_and_navigation(ui):
+    flow, _ = new_ui(ui)
+    options_before = dict(flow.config_entry.options)
+    form = asyncio.run(flow.async_step_diagnostics())
+    assert form["type"] == "form" and form["step_id"] == "diagnostics"
+    assert form["description_placeholders"]["logs_url"] == "/config/logs?search=trybatec"
+    result = asyncio.run(flow.async_step_diagnostics({"log_level": "DEBUG"}))
+    assert result["type"] == "create_entry"
+    assert result["data"] == {**options_before, "log_level": "DEBUG"}
+    bad = asyncio.run(flow.async_step_diagnostics({"log_level": "verbose"}))
+    assert bad["errors"]["base"] == "invalid_log_level"
+    back = asyncio.run(flow.async_step_diagnostics({"return_to_menu": True}))
+    assert back["type"] == "menu" and back["step_id"] == "init"
+
+
+def test_all_locales_have_diagnostic_labels_and_real_history_paragraphs():
+    import json
+    from pathlib import Path
+    root = Path("custom_components/trybatec")
+    for file in (root / "strings.json", root / "translations/en.json", root / "translations/fr.json"):
+        steps = json.loads(file.read_text(encoding="utf-8"))["options"]["step"]
+        assert "diagnostics" in steps["init"]["menu_options"]
+        assert "{logs_url}" in steps["diagnostics"]["description"]
+        assert "{selection_origin}" in steps["meter_unit"]["description"]
+        for name in ("history_unavailable", "history_preview_missing", "history_empty"):
+            assert "\\n" not in steps[name]["description"]
+            assert "\n\n" in steps[name]["description"]
