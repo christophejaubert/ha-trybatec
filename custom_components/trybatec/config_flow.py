@@ -201,12 +201,16 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return self.async_show_form(
                     step_id="diagnostics", data_schema=schema,
                     errors={"base": "invalid_log_level"},
+                    description_placeholders={"logs_url": self._logs_url()},
                 )
             return self.async_create_entry(
                 title="",
                 data={**self.config_entry.options, CONF_LOG_LEVEL: selected},
             )
-        return self.async_show_form(step_id="diagnostics", data_schema=schema)
+        return self.async_show_form(
+            step_id="diagnostics", data_schema=schema,
+            description_placeholders={"logs_url": self._logs_url()},
+        )
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None and user_input.get("return_to_menu") is True:
@@ -335,8 +339,10 @@ class TrybatecOptionsFlow(OptionsFlow):
         if portal_detected not in _ALLOWED[selected["fluid"]]:
             portal_detected = None
         persisted = current.get(self._selected_meter_unit_key)
-        manual_valid = persisted in _ALLOWED[selected["fluid"]] and (
-            portal_detected is None or persisted == portal_detected
+        manual_valid = (
+            selected.get("portal_unit") not in ("conflict", "unverified")
+            and persisted in _ALLOWED[selected["fluid"]]
+            and (portal_detected is None or persisted == portal_detected)
         )
         current_unit = (
             persisted if manual_valid else portal_detected or "unverified"
