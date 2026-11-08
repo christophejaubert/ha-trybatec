@@ -233,6 +233,14 @@ class TrybatecOptionsFlow(OptionsFlow):
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
+        # Native menu selections target "init" directly, not _go_to_main_menu.
+        # Clear only in-progress state, never persisted options or decisions.
+        self._selected_meter_unit_key = None
+        self._selected_history_meter_key = None
+        self._selected_reading = None
+        self._pending_review = None
+        self._return_after_confirmation = False
+        self._correction_draft = None
         return self.async_show_menu(
             step_id="init",
             menu_options=["settings", "diagnostics", "meter_units",
