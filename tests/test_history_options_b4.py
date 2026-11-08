@@ -140,7 +140,7 @@ def test_history_review_without_preview_guides_to_actions(ui):
     assert result["type"] == "menu"
     assert result["step_id"] == "history_preview_missing"
     assert result["menu_options"] == ["init"]
-    assert result["description_placeholders"]["actions_url"] == "/config/developer-tools/action"
+    assert result["description_placeholders"]["actions_url"] == "https://my.home-assistant.io/redirect/tools_perform_action/?service=trybatec.preview_history"
     assert result["description_placeholders"]["logs_url"] == "/config/logs?search=trybatec"
 
 
@@ -184,7 +184,7 @@ def test_history_review_displays_clickable_action_link_placeholder(ui):
     result = asyncio.run(flow.async_step_history_review())
     assert result["type"] == "form"
     assert result["description_placeholders"] == {
-        "actions_url": "/config/developer-tools/action"
+        "actions_url": "https://my.home-assistant.io/redirect/tools_perform_action/?service=trybatec.preview_history"
     }
 
 
@@ -368,7 +368,8 @@ def test_history_overview_localized_translations_have_real_line_breaks():
         assert "meter_detail" in steps["history_meters"]["data"]
         assert "{first}" in steps["history_meter_detail"]["description"]
         assert "{last}" in steps["history_meter_detail"]["description"]
-        assert "navigation" in steps["history_meter_detail"]["data"]
+        assert steps["history_meter_detail"]["menu_options"]["init"]
+        assert steps["history_decision"]["menu_options"]["init"]
 
 
 def test_history_overview_single_click_navigation_never_saves(ui, monkeypatch):
@@ -599,13 +600,46 @@ def test_all_choice_selectors_use_explicit_radio_list_mode(ui):
         assert fields["after_submit"].config.mode == "list"
         await flow.async_step_history_review({"reading": "a" * 32})
         decision = await flow.async_step_history_decision()
-        fields = {k.k: v for k,v in decision["data_schema"].items()}
-        assert fields["choice"].config.mode == "list"
-        correction = await flow.async_step_history_decision({"choice": "correct"})
+        assert decision["type"] == "menu"
+        assert "init" in decision["menu_options"]
+        assert "history_decision_correct" in decision["menu_options"]
+        correction = await flow.async_step_history_decision_correct()
         fields = {k.k: v for k,v in correction["data_schema"].items()}
         assert fields["mode"].config.mode == "list"
         assert fields["after_submit"].config.mode == "list"
-        confirm = await flow.async_step_history_decision({"choice": "accept"})
+        confirm = await flow.async_step_history_decision_accept()
         fields = {k.k: v for k,v in confirm["data_schema"].items()}
         assert fields["after_submit"].config.mode == "list"
     asyncio.run(run())
+
+
+def test_native_menu_handlers_need_no_second_submit(ui, monkeypatch):
+    flow, coordinator = new_ui(ui)
+    async def exercise():
+        await flow.async_step_history_review({"reading": "a" * 32})
+        menu = await flow.async_step_history_decision()
+        assert menu["type"] == "menu"
+        assert menu["menu_options"] == [
+            "history_decision_accept", "history_decision_correct",
+            "history_decision_reject", "history_decision_postpone",
+            "history_review", "init",
+        ]
+        direct = await flow.async_step_history_decision_reject()
+        assert direct["step_id"] == "history_confirm"
+        assert flow._pending_review == {"action": "reject"}
+        back = await flow.async_step_init()
+        assert back["type"] == "menu"
+        for step_name in ("history_decision_accept", "history_decision_correct",
+                          "history_decision_reject", "history_decision_postpone"):
+            assert hasattr(flow, "async_step_" + step_name)
+    asyncio.run(exercise())
+
+
+def test_prefilled_preview_link_uses_official_redirect_and_never_calls_action(ui):
+    flow, _ = new_ui(ui)
+    url = flow._actions_url()
+    assert url == (
+        "https://my.home-assistant.io/redirect/tools_perform_action/"
+        "?service=trybatec.preview_history"
+    )
+    assert "auth" not in url.lower() and "token" not in url.lower()
