@@ -29,6 +29,7 @@ from .const import (
     CONF_POLL_MINUTES,
     CONF_HEATING_UNIT, HEATING_UNITS, CONF_METER_UNITS, CONF_DEVICE_UUIDS,
     CONF_TARIFFS,
+    CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL, LOG_LEVELS,
     DEFAULT_POLL_MINUTES,
     DOMAIN,
     MIN_POLL_MINUTES,
@@ -141,6 +142,24 @@ class TrybatecOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_history_unavailable(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Valid navigable recovery step recognized by Home Assistant."""
+        return self._history_notice("history_unavailable")
+
+    async def async_step_history_preview_missing(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Keep missing-preview navigation inside a valid flow."""
+        return self._history_notice("history_preview_missing")
+
+    async def async_step_history_empty(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Handle a valid no-anomalies menu, never a bare error."""
+        return self._history_notice("history_empty")
+
     def _nav_text(self, french: str, english: str) -> str:
         """Use Home Assistant's UI language for navigation choices."""
         language = getattr(getattr(self.hass, "config", None), "language", "en")
@@ -155,7 +174,39 @@ class TrybatecOptionsFlow(OptionsFlow):
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["settings", "meter_units", "history_overview", "history_meters", "history_review"])
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", "diagnostics", "meter_units",
+                          "history_overview", "history_meters", "history_review"],
+        )
+
+    async def async_step_diagnostics(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Configure the shared Trybatec logging threshold without reload."""
+        if user_input is not None and user_input.get("return_to_menu"):
+            return await self._go_to_main_menu()
+        schema = vol.Schema({
+            vol.Required(
+                CONF_LOG_LEVEL,
+                default=self.config_entry.options.get(
+                    CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL
+                ),
+            ): vol.In(LOG_LEVELS),
+            vol.Optional("return_to_menu", default=False): BooleanSelector(),
+        })
+        if user_input is not None:
+            selected = user_input.get(CONF_LOG_LEVEL)
+            if selected not in LOG_LEVELS:
+                return self.async_show_form(
+                    step_id="diagnostics", data_schema=schema,
+                    errors={"base": "invalid_log_level"},
+                )
+            return self.async_create_entry(
+                title="",
+                data={**self.config_entry.options, CONF_LOG_LEVEL: selected},
+            )
+        return self.async_show_form(step_id="diagnostics", data_schema=schema)
 
     async def async_step_settings(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None and user_input.get("return_to_menu") is True:
@@ -214,6 +265,17 @@ class TrybatecOptionsFlow(OptionsFlow):
                     }
         return meters
 
+    def _unit_origin(self, meter: dict, has_user_confirmation: bool) -> str:
+        """Display unit provenance without treating chart metadata as API data."""
+        if has_user_confirmation:
+            return self._nav_text("Confirmée manuellement", "Manually confirmed")
+        if meter.get("portal_unit") in _ALLOWED[meter["fluid"]]:
+            return self._nav_text("Détectée par l’API", "Detected by API")
+        return self._nav_text(
+            "Suggérée par le graphique (non confirmée)",
+            "Suggested by chart (unconfirmed)",
+        )
+
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Select one physical meter; never silently reuse a unit from another."""
         if user_input is not None and user_input.get("meter") == RETURN_TO_MENU:
@@ -232,14 +294,17 @@ class TrybatecOptionsFlow(OptionsFlow):
             return await self.async_step_meter_unit()
         display_label = self._nav_text("graphique", "chart")
         source_label = self._nav_text("index API", "API index")
-        verified_label = self._nav_text("confirmée", "confirmed")
+        verified_label = self._nav_text("unité", "unit")
+        origin_label = self._nav_text("provenance", "origin")
+        saved = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
         missing_label = self._nav_text("non détectée", "not detected")
         choices = {
             key: (
                 f'{m["fluid"]} · {m["lot"]} · {m["serial"]} · '
                 f'{display_label}: {m.get("portal_display_unit") or portal_display_unit(m["fluid"]) or "—"} · '
                 f'{source_label}: {m.get("portal_unit") or missing_label} · '
-                f'{verified_label}: {m.get("verified_unit") or "—"}'
+                f'{verified_label}: {m.get("verified_unit") or "—"} · '
+                f'{origin_label}: {self._unit_origin(m, key in saved)}'
             )[:240] for key, m in mapping.items()
         }
         choices[RETURN_TO_MENU] = self._nav_text(
@@ -264,7 +329,18 @@ class TrybatecOptionsFlow(OptionsFlow):
         if selected is None:
             return self._history_notice("history_preview_missing")
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
-        current_unit = current.get(self._selected_meter_unit_key, "unverified")
+        # Persisted manual choice wins, otherwise preselect explicit API unit.
+        # Chart-only metadata never selects an index unit.
+        portal_detected = selected.get("portal_unit")
+        if portal_detected not in _ALLOWED[selected["fluid"]]:
+            portal_detected = None
+        persisted = current.get(self._selected_meter_unit_key)
+        manual_valid = persisted in _ALLOWED[selected["fluid"]] and (
+            portal_detected is None or persisted == portal_detected
+        )
+        current_unit = (
+            persisted if manual_valid else portal_detected or "unverified"
+        )
         device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
         current_uuid = device_uuids.get(self._selected_meter_unit_key, "") if isinstance(device_uuids, dict) else ""
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
@@ -285,6 +361,11 @@ class TrybatecOptionsFlow(OptionsFlow):
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_meter_unit"}, data_schema=schema)
             if uuid_candidate and uuid_text(uuid_candidate) is None:
                 return self.async_show_form(step_id="meter_unit", errors={"base": "invalid_device_uuid"}, data_schema=schema)
+            if candidate != "unverified" and selected.get("portal_unit") in ("conflict", "unverified"):
+                return self.async_show_form(
+                    step_id="meter_unit", errors={"base": "conflicting_meter_unit"},
+                    data_schema=schema,
+                )
             if candidate != "unverified" and selected.get("portal_unit") in _ALLOWED[selected["fluid"]] and candidate != selected["portal_unit"]:
                 return self.async_show_form(step_id="meter_unit", errors={"base": "conflicting_meter_unit"}, data_schema=schema)
             if candidate == "unverified":
@@ -310,6 +391,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                 "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
                 "portal_unit": str(selected.get("portal_unit") or self._nav_text("non détectée", "not detected")),
                 "display_unit": str(selected.get("portal_display_unit") or portal_display_unit(selected["fluid"]) or "—"),
+                "selection_origin": self._unit_origin(selected, bool(manual_valid)),
             },
         )
 
