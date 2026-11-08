@@ -410,6 +410,29 @@ def test_history_overview_single_click_navigation_never_saves(ui, monkeypatch):
     asyncio.run(run())
 
 
+def test_native_main_menu_clears_transient_choices_without_saving(ui):
+    """A one-click native menu link invokes async_step_init directly."""
+    flow, _ = new_ui(ui)
+    flow._selected_meter_unit_key = "old-meter"
+    flow._selected_history_meter_key = "old-history-meter"
+    flow._selected_reading = {"key": "unconfirmed-reading"}
+    flow._pending_review = {"action": "correct"}
+    flow._return_after_confirmation = True
+    flow._correction_draft = {"reason": "draft must not survive menu exit"}
+    previous_options = dict(flow.config_entry.options)
+
+    main = asyncio.run(flow.async_step_init())
+
+    assert main["type"] == "menu" and main["step_id"] == "init"
+    assert flow._selected_meter_unit_key is None
+    assert flow._selected_history_meter_key is None
+    assert flow._selected_reading is None
+    assert flow._pending_review is None
+    assert flow._return_after_confirmation is False
+    assert flow._correction_draft is None
+    assert flow.config_entry.options == previous_options
+
+
 def test_device_uuid_can_be_bound_to_exact_meter_without_unit_assumption(ui):
     flow, coordinator = new_ui(ui)
     coordinator.data = {"meters": {
