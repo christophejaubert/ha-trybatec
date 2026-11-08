@@ -108,8 +108,11 @@ version; it checks module imports only, not the whole runtime test suite.
 
 - All third-party and first-party actions are referenced by **full 40-character
   commit SHAs**, not mutable major tags or default-branch names.
-- Global `GITHUB_TOKEN`: `contents: read`. Only the manual draft-release job
-  can request `contents: write`.
+- Global `GITHUB_TOKEN`: `contents: read`, but **all jobs executing candidate Python or HA code**
+  and the trusted reference resolver explicitly request `permissions: {}`.
+  No repository secrets are passed to these jobs. Only the manual draft-release
+  job requests `contents: write`. Some third-party validator actions retain
+  read-only scope and must remain reviewed and SHA-pinned.
 - Every checkout uses `persist-credentials: false`.
 - Manual draft creation is serialized with a concurrency group.
 - The release job validates manifest/version type, refuses an existing tag or
