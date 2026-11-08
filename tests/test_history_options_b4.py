@@ -328,7 +328,8 @@ def test_history_overview_is_compact_and_meter_details_use_local_dates(ui, monke
         # A retired meter can be selected independently, never merged.
         selected = ui.meter_key("TEST-LOT", "CET", "FAKE-HEAT")
         detail = await flow.async_step_history_meters({"meter_detail": selected})
-        assert detail["type"] == "form"
+        assert detail["type"] == "menu"
+        assert detail["menu_options"] == ["history_meters", "history_start_review", "init"]
         assert detail["step_id"] == "history_meter_detail"
         data = detail["description_placeholders"]
         assert data["meter"] == "CET · FAKE-HEAT"
