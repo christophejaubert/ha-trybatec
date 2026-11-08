@@ -103,3 +103,39 @@ async def test_import_service_denied_without_admin_context(hass, monkeypatch):
         await hass.services.async_call(
             DOMAIN, "import_history", {"confirm": True}, blocking=True,
         )
+
+
+async def test_optional_recorder_missing_keeps_sensors_but_rejects_historical_writes(
+    hass, monkeypatch
+):
+    """A missing Recorder must not prevent sensors from loading or queue data."""
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from custom_components.trybatec import history_services
+
+    assert "recorder" not in hass.config.components
+    await configure_fake_account(hass, monkeypatch, "m3")
+    meters = [
+        state for state in hass.states.async_all("sensor")
+        if state.attributes.get("lot") == "MOCK-LOT"
+    ]
+    assert len(meters) == 1 and float(meters[0].state) == pytest.approx(15.0)
+
+    # Auth is tested separately; here we exercise the Recorder-unavailable
+    # branch with a synthetic authorized call and no real vendor access.
+    monkeypatch.setattr(history_services, "_require_admin", AsyncMock(return_value=None))
+
+    async def disallowed_fetch(*args, **kwargs):
+        pytest.fail("Must refuse without fetching vendor data or writing Recorder")
+
+    monkeypatch.setattr(history_services, "_load", disallowed_fetch)
+    with pytest.raises(ServiceValidationError, match="recorder integration is not loaded"):
+        await history_services.async_import_history(
+            hass, SimpleNamespace(data={"confirm": True})
+        )
+    with pytest.raises(ServiceValidationError, match="recorder integration is not loaded"):
+        await history_services.async_verify_history(
+            hass, SimpleNamespace(data={})
+        )
+
+    assert "recorder" not in hass.config.components
