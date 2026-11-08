@@ -263,6 +263,33 @@ jobs:
             exit 1
           fi
 
+  b6-recorder-e2e:
+    name: b6-recorder-end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout CI harness
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          path: ci-harness
+      - name: Checkout immutable b6 release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: 0.2.0b6
+          path: tested-b6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - name: Install isolated HA Recorder fixture
+        run: python -m pip install --upgrade pytest-homeassistant-custom-component
+      - name: Execute b6 importer and verifier against SQLite
+        working-directory: tested-b6
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-b6
+        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/b6_recorder_pipeline_spec.py
+
   latest-homeassistant-import:
     runs-on: ubuntu-latest
     steps:
@@ -287,7 +314,7 @@ jobs:
   draft-release:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
-    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, latest-homeassistant-import]
+    needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, b6-recorder-e2e, latest-homeassistant-import]
     runs-on: ubuntu-latest
     permissions:
       contents: write
