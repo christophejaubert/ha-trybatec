@@ -499,3 +499,188 @@ def test_b7_pending_retry_rejects_changed_source_before_recorder_write(
         assert database["save_count"] == original_save_count
 
     asyncio.run(check())
+
+
+
+@pytest.mark.parametrize("interruption", [
+    "before_ledger", "before_first_queue", "during_second_queue",
+    "after_all_queues",
+])
+def test_b7_multimeter_interruption_recovery_with_isolated_persistent_ledger(
+    services, monkeypatch, interruption
+):
+    """Model restart with a fresh coordinator and a durable, reloaded ledger.
+
+    These are deterministic service fault-injection tests; a separate CI
+    integration test checks the same behavior using actual SQLite Recorder.
+    """
+    from copy import deepcopy
+
+    history = scenario(
+        ("LOT-A", "A-COLD", "EF", False, [
+            ("2026-01-01", 10), ("2026-01-02", 12), ("2026-01-03", 15),
+        ]),
+        ("LOT-A", "B-HOT", "ECS", False, [
+            ("2026-01-01", 20), ("2026-01-02", 21), ("2026-01-03", 23),
+        ]),
+        ("LOT-B", "C-COLD", "EF", False, [
+            ("2026-01-01", 5), ("2026-01-02", 7), ("2026-01-03", 10),
+        ]),
+    )
+    assert len(history["__physical_meters__"]) == 3
+    coordinator = {"current": None}
+
+    def restarted_coordinator():
+        coordinator["current"] = SimpleNamespace(
+            entry=SimpleNamespace(
+                entry_id="CI-INTERRUPT-ACCOUNT",
+                unique_id="CI-INTERRUPT-ACCOUNT",
+                options={},
+            ),
+        )
+
+    restarted_coordinator()
+
+    async def source(*_):
+        return (
+            coordinator["current"], date(2026, 1, 1), date(2026, 1, 5),
+            history, 1,
+        )
+
+    monkeypatch.setattr(services, "_coordinator", lambda *_: coordinator["current"])
+    monkeypatch.setattr(services, "_load", source)
+
+    durable = {"ledger": None, "saves": 0, "fail_save": False}
+    db = {}
+    queue = {"count": 0, "fail_at": None, "fail_after": False}
+
+    class DurableStore:
+        def __init__(self, hass, version, key):
+            assert version == 1 and "CI-INTERRUPT-ACCOUNT" not in key
+
+        async def async_load(self):
+            return deepcopy(durable["ledger"])
+
+        async def async_save(self, record):
+            if durable["fail_save"]:
+                raise OSError("Injected failure before durable pending ledger")
+            durable["ledger"] = deepcopy(record)
+            durable["saves"] += 1
+
+    def queued_recorder(hass, metadata, rows):
+        queue["count"] += 1
+        if queue["fail_at"] == queue["count"] and not queue["fail_after"]:
+            raise RuntimeError("Injected crash before queue")
+        series = metadata["statistic_id"]
+        for item in rows:
+            stamp = item["start"].isoformat()
+            key = (series, stamp)
+            value = item["sum"]
+            assert key not in db or db[key] == value
+            db[key] = value
+        if queue["fail_at"] == queue["count"] and queue["fail_after"]:
+            raise RuntimeError("Injected crash after queue")
+
+    async def read_recorder(_domain, action, params, **_kwargs):
+        assert _domain == "recorder" and action == "get_statistics"
+        ids = set(params["statistic_ids"])
+        return {"statistics": {
+            series: [
+                {"start": at, "sum": value}
+                for (stored_series, at), value in sorted(db.items())
+                if stored_series == series
+            ] for series in ids
+        }}
+
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(services.dt_util, "utcnow", lambda: datetime.now(timezone.utc), raising=False)
+    monkeypatch.setattr(services, "Store", DurableStore)
+    monkeypatch.setattr(services, "async_add_external_statistics", queued_recorder)
+    hass = SimpleNamespace(
+        auth=SimpleNamespace(async_get_user=lambda uid: asyncio.sleep(
+            0, result=SimpleNamespace(is_admin=True)
+        )),
+        config=SimpleNamespace(components={"recorder"}),
+        services=SimpleNamespace(async_call=read_recorder),
+    )
+
+    def action(**kwargs):
+        return SimpleNamespace(
+            context=SimpleNamespace(user_id="admin"),
+            data={
+                "confirm": True, "include_cold_water": True,
+                "include_hot_water": True, "include_heating": False,
+                **kwargs,
+            },
+        )
+
+    async def exercise():
+        if interruption == "before_ledger":
+            durable["fail_save"] = True
+        elif interruption == "before_first_queue":
+            queue["fail_at"] = 1
+        elif interruption == "during_second_queue":
+            queue["fail_at"] = 2
+        elif interruption == "after_all_queues":
+            queue["fail_at"] = 3
+            queue["fail_after"] = True
+
+        with pytest.raises(services.ServiceValidationError):
+            await services.async_import_history(hass, action())
+
+        if interruption == "before_ledger":
+            assert durable["ledger"] is None and db == {}
+        else:
+            assert len(durable["ledger"]["pending"]) == 3
+            assert len(durable["ledger"]["pending_fingerprint"]) == 64
+
+        # Fresh integration coordinator after a simulated crash. Only the
+        # durable journal and recorded buckets survive; all locks are new.
+        restarted_coordinator()
+        durable["fail_save"] = False
+        queue["count"], queue["fail_at"], queue["fail_after"] = 0, None, False
+
+        if durable["ledger"] is None:
+            first = await services.async_import_history(hass, action())
+            assert len(first["series"]) == 3
+        else:
+            partial = await services.async_verify_history(hass, action())
+            if interruption == "before_first_queue":
+                assert len(partial["verified"]) == 0
+                assert len(partial["pending"]) == 3
+                retried = await services.async_import_history(
+                    hass, action(retry_pending=True),
+                )
+                assert len(retried["series"]) == 3
+            elif interruption == "during_second_queue":
+                assert len(partial["verified"]) == 1
+                assert len(partial["pending"]) == 2
+                retried = await services.async_import_history(
+                    hass, action(retry_pending=True),
+                )
+                assert len(retried["series"]) == 2
+            else:
+                assert partial["status"] == "verified"
+                assert len(partial["verified"]) == 3
+                with pytest.raises(
+                    services.ServiceValidationError, match="No pending",
+                ):
+                    await services.async_import_history(
+                        hass, action(retry_pending=True),
+                    )
+        final = await services.async_verify_history(hass, action())
+        assert final["status"] == "verified"
+        assert final["pending"] == []
+        assert durable["ledger"]["pending"] == {}
+        assert len(durable["ledger"]["series"]) == 3
+        assert len(db) == 9  # Three hourly buckets for each physical meter.
+        assert len({series for series, _stamp in db}) == 3
+        assert sum(db.values()) == pytest.approx(18.0)
+        # A repeated verification must be inert and preserve all records.
+        unchanged = deepcopy(db)
+        again = await services.async_verify_history(hass, action())
+        assert again["status"] == "verified" and again["verified"] == []
+        assert db == unchanged
+
+    asyncio.run(exercise())
