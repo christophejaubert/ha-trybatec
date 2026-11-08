@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TrybatecClient
-from .const import DOMAIN
+from .const import DOMAIN, CONF_METER_UNITS, CONF_DEVICE_UUIDS
 from .coordinator import TrybatecCoordinator
 from .history_services import register_history_actions
 
@@ -38,7 +38,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload when options change."""
+    """Apply per-meter unit confirmations locally; reload only when necessary."""
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None:
+        previous = coordinator._applied_options
+        current = dict(entry.options)
+        keys = set(previous) | set(current)
+        changed = {
+            key for key in keys
+            if (previous.get(key) or {} if key in (CONF_METER_UNITS, CONF_DEVICE_UUIDS) else previous.get(key))
+            != (current.get(key) or {} if key in (CONF_METER_UNITS, CONF_DEVICE_UUIDS) else current.get(key))
+        }
+        # The options wizard includes an empty device UUID dict when saving
+        # a unit. This is equivalent to the previously absent option.
+        if changed.issubset({CONF_METER_UNITS}):
+            await coordinator.async_apply_meter_units_from_options()
+            return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
