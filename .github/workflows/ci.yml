@@ -288,7 +288,7 @@ jobs:
         working-directory: tested-b6
         env:
           PYTHONPATH: ${{ github.workspace }}/tested-b6
-        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/test_b6_recorder_pipeline.py
+        run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/b6_recorder_pipeline_spec.py
 
   latest-homeassistant-import:
     runs-on: ubuntu-latest
