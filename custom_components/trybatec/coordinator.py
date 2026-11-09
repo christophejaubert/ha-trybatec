@@ -122,7 +122,11 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_apply_meter_units_from_options(self) -> None:
         """Refresh states from the last successful poll; no setup reload or API request."""
         if self._last_index_payload is None or self.data is None:
-            await self.async_request_refresh()
+            self._applied_options = dict(self.entry.options)
+            # An options save during bootstrap must not bypass the deferred
+            # first refresh or initiate a vendor request before HA started.
+            if self.update_interval is not None:
+                await self.async_request_refresh()
             return
         today = date.fromisoformat(self.data["date"])
         updated = self._build_state(self._last_index_payload, today)
