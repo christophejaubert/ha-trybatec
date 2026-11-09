@@ -9,6 +9,7 @@ from custom_components.trybatec.history_reconstruction import (
     consolidate_consumptions,
     logical_series_id,
     propose_interval,
+    preview_sparse_intervals,
 )
 
 
@@ -151,3 +152,49 @@ def test_cross_lot_and_unit_mismatch_are_blocked():
                                  [source("x", "raw", {}, unit="m³"),
                                   source("y", "raw", {}, unit="L")],
                                  {"x": "raw", "y": "raw"})
+
+
+def test_sparse_2022_review_preview_requires_units_and_stays_read_only():
+    key = ("LOT", "EF", "old")
+    history = {"__physical_meters__": {
+        key: {"reviewed_readings": [
+            reading(2022, 1, 31, 100), reading(2022, 12, 1, 404)
+        ], "fatal_conflicts": False, "conflicts": 0},
+    }}
+    blocked = preview_sparse_intervals(history, {})
+    assert blocked["intervals"][0]["status"] == "blocked_unverified_unit"
+    ready = preview_sparse_intervals(history, {key: "m³"})
+    assert ready["total_sparse_intervals"] == 1
+    assert ready["intervals"][0]["status"] == "linear_available_after_explicit_confirmation"
+    assert ready["intervals"][0]["estimated_total"] == 304
+    assert len(ready["intervals"][0]["daily_preview"]) == 304
+    assert ready["mode"] == "read_only_no_recorder_or_energy_changes"
+
+
+def test_sparse_review_blocks_unresolved_zeros_and_decreases():
+    key = ("LOT", "EF", "old")
+    history = {"__physical_meters__": {
+        key: {"reviewed_readings": [
+            reading(2022, 1, 1, 20), reading(2022, 4, 1, 0),
+            reading(2022, 6, 1, 40),
+        ], "fatal_conflicts": False, "conflicts": 0},
+    }}
+    view = preview_sparse_intervals(history, {key: "m³"})
+    assert view["total_sparse_intervals"] == 2
+    assert all(item["status"] == "blocked_needs_explicit_review" for item in view["intervals"])
+
+
+def test_sparse_gap_preview_marks_partial_result_as_truncated():
+    key = ("LOT", "EF", "old")
+    history = {"__physical_meters__": {
+        key: {"reviewed_readings": [
+            reading(2021, 1, 1, 1), reading(2022, 1, 1, 2),
+            reading(2023, 1, 1, 3),
+        ], "fatal_conflicts": False, "conflicts": 0},
+    }}
+    view = preview_sparse_intervals(history, {key: "m³"}, max_intervals=1, max_daily_rows=5)
+    assert view["total_sparse_intervals"] == 2
+    assert view["reported_intervals"] == 1
+    assert view["truncated"] is True
+    assert view["intervals"][0]["daily_preview"] is None
+    assert view["intervals"][0]["daily_preview_truncated"] is True
