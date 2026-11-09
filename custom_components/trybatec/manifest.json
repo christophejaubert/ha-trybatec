@@ -3,7 +3,10 @@
   "name": "Trybatec (Unofficial Beta)",
   "after_dependencies": [
     "energy",
-    "recorder"
+    "recorder",
+    "http",
+    "frontend",
+    "websocket_api"
   ],
   "categories": [
     "water.meters_leak_detection",
