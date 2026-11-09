@@ -735,6 +735,8 @@ def register_history_actions(hass: HomeAssistant) -> None:
         B15_SERVICE_SCHEMA,
         async_preview_b15, async_import_b15, async_verify_b15,
         async_preview_b15_energy, async_apply_b15_energy,
+        async_archive_b15_meters, async_preview_b15_migration,
+        async_apply_b15_migration,
     )
 
     async def b15_preview(call: ServiceCall) -> dict[str, Any]:
@@ -754,7 +756,20 @@ def register_history_actions(hass: HomeAssistant) -> None:
         outcome = await async_apply_b15_energy(hass, call)
         return outcome if call.return_response else None
 
+    async def b15_archive(call: ServiceCall) -> dict[str, Any]:
+        return await async_archive_b15_meters(hass, call)
+
+    async def b15_migration_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15_migration(hass, call)
+
+    async def b15_migration_apply(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_apply_b15_migration(hass, call)
+        return outcome if call.return_response else None
+
     for name, handler, response in (
+        ("archive_b15_meters", b15_archive, SupportsResponse.ONLY),
+        ("preview_b15_migration", b15_migration_preview, SupportsResponse.ONLY),
+        ("apply_b15_migration", b15_migration_apply, SupportsResponse.OPTIONAL),
         ("preview_b15", b15_preview, SupportsResponse.ONLY),
         ("import_b15", b15_import, SupportsResponse.OPTIONAL),
         ("verify_b15", b15_verify, SupportsResponse.ONLY),
