@@ -229,6 +229,13 @@ def build_history(
         }
         meter["unreviewed_zero_times"] = unreviewed_zeros
         indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
+        # A zero becomes an eligible interpolation bound only if the
+        # administrator has explicitly accepted/corrected this exact source.
+        # Notifying after N zero-days and verifying a zero are separate acts.
+        meter["qualified_zero_times"] = {
+            at for at, value in indexes.items()
+            if value == 0 and at not in unreviewed_zeros
+        }
         # Legacy raw metering computation is unchanged: a zero may be a
         # perfectly valid physical starting index. New b15 smoothed variants
         # must obtain an explicit source qualification before using these
@@ -269,6 +276,7 @@ def build_history(
             # These are reviewed values, not fabricated daily observations.
             "reviewed_readings": readings,
             "unreviewed_zero_times": meter["unreviewed_zero_times"],
+            "qualified_zero_times": meter["qualified_zero_times"],
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
             "fatal_conflicts": meter["fatal_conflicts"],
             "total": 0.0, "importable": 0.0, "unallocated": 0.0,
