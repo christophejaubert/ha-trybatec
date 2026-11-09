@@ -728,3 +728,40 @@ def register_history_actions(hass: HomeAssistant) -> None:
         DOMAIN, DIAGNOSTICS_SERVICE, diagnose, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+    # b15 is deliberately separate from the installed b3-b14 Recorder
+    # contract. Never automatically import, migrate, or switch Energy.
+    from .history_b15_actions import (
+        B15_SERVICE_SCHEMA,
+        async_preview_b15, async_import_b15, async_verify_b15,
+        async_preview_b15_energy, async_apply_b15_energy,
+    )
+
+    async def b15_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15(hass, call)
+
+    async def b15_import(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_import_b15(hass, call)
+        return outcome if call.return_response else None
+
+    async def b15_verify(call: ServiceCall) -> dict[str, Any]:
+        return await async_verify_b15(hass, call)
+
+    async def b15_energy_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15_energy(hass, call)
+
+    async def b15_energy_apply(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_apply_b15_energy(hass, call)
+        return outcome if call.return_response else None
+
+    for name, handler, response in (
+        ("preview_b15", b15_preview, SupportsResponse.ONLY),
+        ("import_b15", b15_import, SupportsResponse.OPTIONAL),
+        ("verify_b15", b15_verify, SupportsResponse.ONLY),
+        ("preview_b15_energy", b15_energy_preview, SupportsResponse.ONLY),
+        ("activate_b15_energy", b15_energy_apply, SupportsResponse.OPTIONAL),
+    ):
+        hass.services.async_register(
+            DOMAIN, name, handler, schema=B15_SERVICE_SCHEMA,
+            supports_response=response,
+        )
