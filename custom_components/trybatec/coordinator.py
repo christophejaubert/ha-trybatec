@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import logging
+from hashlib import sha256
 from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -44,6 +46,38 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._applied_options = dict(entry.options)
         # Bounded vendor data stays only in memory; no disk or Recorder writes.
         self._last_index_payload: dict[str, Any] | None = None
+        self._consecutive_connection_failures = 0
+        self._access_notification_active = False
+        self._access_notification_id = (
+            "trybatec_access_"
+            + sha256(entry.entry_id.encode()).hexdigest()[:16]
+        )
+
+    def _notify_access_issue(self, *, authorization: bool) -> None:
+        """One safe persistent notification per config entry, never per poll."""
+        if self._access_notification_active:
+            return
+        message = (
+            "Trybatec a refusé les identifiants. Ouvrez les intégrations "
+            "Home Assistant pour réauthentifier cette connexion."
+            if authorization else
+            "Trybatec ne répond plus après plusieurs essais. "
+            "Les mesures sont indisponibles ; le système réessaiera automatiquement."
+        )
+        persistent_notification.async_create(
+            self.hass, message, title="Accès Trybatec indisponible",
+            notification_id=self._access_notification_id,
+        )
+        self._access_notification_active = True
+
+    def _clear_access_issue(self) -> None:
+        """Resolve a prior incident only after a successful meter refresh."""
+        if self._access_notification_active:
+            persistent_notification.async_dismiss(
+                self.hass, self._access_notification_id
+            )
+            self._access_notification_active = False
+        self._consecutive_connection_failures = 0
 
     def _build_state(self, payload: dict[str, Any], today: date) -> dict[str, Any]:
         """Apply unit options without requesting or modifying vendor readings."""
@@ -103,17 +137,22 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = self._build_state(payload, today)
             self._last_index_payload = payload
             self._applied_options = dict(self.entry.options)
+            self._clear_access_issue()
             _LOGGER.info(
                 "Trybatec index refresh succeeded: %d meters, duration %.2f s",
                 len(data["meters"]), monotonic() - started,
             )
             return data
         except TrybatecAuthError as exc:
+            self._notify_access_issue(authorization=True)
             _LOGGER.warning(
                 "Trybatec authentication failed at %s; reauthentication required", phase
             )
             raise ConfigEntryAuthFailed("Trybatec authentication rejected") from exc
         except (TrybatecConnectionError, TrybatecDataError, ValueError, TypeError, OverflowError) as exc:
+            self._consecutive_connection_failures += 1
+            if self._consecutive_connection_failures >= 3:
+                self._notify_access_issue(authorization=False)
             # Vendor and validation errors have sanitized messages; never log
             # response bodies, passwords, tokens, serialized settings or IDs.
             _LOGGER.warning(
