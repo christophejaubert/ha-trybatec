@@ -16,7 +16,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN, FLUIDS
 from .history_v4 import _snapshot
 from .history_versions_b15 import (
-    prepare_version, transition_version, version_summary,
+    prepare_version, transition_version,
 )
 from .recorder_guard import expected_windows, verified_snapshot
 
