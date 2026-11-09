@@ -87,7 +87,7 @@ async def save_panel_reading_decision(
             if mode not in _MODES:
                 raise ValueError("Correction requires actual-date or accounting mode")
             if not isinstance(reason,str) or not 8<=len(reason.strip())<=500:
-                raise ValueError("Correction requires a written explanation")
+                raise ValueError("Correction requires a written justification")
             target=_verified_local_timestamp(date,time)
             decision={
                 "action":"correct","mode":mode,
