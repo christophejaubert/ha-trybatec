@@ -27,7 +27,11 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .api import TrybatecDataError
-from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
+from .const import (
+    CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE,
+    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
+    CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
+)
 from .historical_costs import estimate_historical_costs
 from .history_diagnostics import diagnose_history as build_history_diagnostics
 from .parsing import validate_tariffs
@@ -200,7 +204,15 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     # Publish the review cache only once the *complete* response has been
     # validated, including physical-meter identity and observation limits.
     # A malformed final window must never replace a usable earlier preview.
-    history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+    history = build_history(
+        payloads, start, end, allowed_lots=allowed_lots, decisions=decisions,
+        sparse_interval_hours=int(coordinator.entry.options.get(
+            CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+        )),
+        zero_index_review_days=int(coordinator.entry.options.get(
+            CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+        )),
+    )
     coordinator._history_review_cache = (payloads, start, end, allowed_lots)
     coordinator._history_review_candidates = history["__review_candidates__"]
     return coordinator, start, end, history, actual_requests
