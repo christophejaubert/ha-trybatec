@@ -50,12 +50,28 @@ async def async_setup_entry(
     account_key = entry.unique_id or entry.entry_id
     known_meter_versions: set[tuple[str, str | None]] = set()
     known_metrics: set[tuple[str, str]] = set()
+    known_archived: set[tuple[str, str, str]] = set()
+
+    # An integration set up during HA startup has no vendor data until the
+    # homeassistant_started event. Load the local archive without creating
+    # duplicate retired sensors for meters still present in the live feed.
+    try:
+        archived = await load_historical_inventory(hass, entry.entry_id)
+    except ValueError:
+        # Preserve active sensors when the historical archive is corrupt;
+        # do not overwrite the damaged archive or invent retired indexes.
+        _LOGGER.error("Trybatec retired meter inventory needs manual recovery")
+        archived = {}
 
     def add_new_meters_and_metrics() -> None:
-        """Add newly verified meter versions without reloading or re-polling."""
+        """Create entities only after a successful, verified vendor refresh."""
+        data = coordinator.data
+        if data is None:
+            return
+
         new: list[SensorEntity] = []
         active_fluids: set[str] = set()
-        for serial, meter in coordinator.data["meters"].items():
+        for serial, meter in data["meters"].items():
             if not meter["deposed"]:
                 active_fluids.add(meter["fluid"])
             identity = (serial, meter.get("verified_unit"))
@@ -64,39 +80,29 @@ async def async_setup_entry(
                 new.append(TrybatecMeterSensor(coordinator, account_key, serial))
         for fluid in active_fluids:
             allowed_metrics = ("volume", "cost", "price")
-            if not coordinator.data["annual"][fluid]["unit_verified"]:
+            if not data["annual"][fluid]["unit_verified"]:
                 allowed_metrics = ("volume",)
             for metric in allowed_metrics:
                 identity = (fluid, metric)
                 if identity not in known_metrics:
                     known_metrics.add(identity)
-                    new.append(TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric))
+                    new.append(
+                        TrybatecAnnualSensor(coordinator, entry, account_key, fluid, metric)
+                    )
+
+        current_identities = {
+            (m["lot"], m["fluid"], m["serial"])
+            for m in data["meters"].values()
+        }
+        for item in archived.values():
+            identity = (item["lot"], item["fluid"], item["serial"])
+            if identity not in current_identities and identity not in known_archived:
+                known_archived.add(identity)
+                new.append(TrybatecArchivedMeterSensor(account_key, item))
         if new:
             async_add_entities(new)
 
     add_new_meters_and_metrics()
-    # Retired physical counters discovered in earlier *approved* historical
-    # inventories remain independently visible even if the portal stops
-    # including them in its current index response. They are historical-only,
-    # not active totals or extra entries in the Energy dashboard.
-    try:
-        archived = await load_historical_inventory(hass, entry.entry_id)
-    except ValueError:
-        # Preserve active sensors when the historical archive is corrupt;
-        # do not overwrite the damaged archive or invent retired indexes.
-        _LOGGER.error("Trybatec retired meter inventory needs manual recovery")
-        archived = {}
-    current_identities = {
-        (m["lot"], m["fluid"], m["serial"])
-        for m in coordinator.data.get("meters", {}).values()
-    }
-    retired_entities = [
-        TrybatecArchivedMeterSensor(account_key, item)
-        for item in archived.values()
-        if (item["lot"], item["fluid"], item["serial"]) not in current_identities
-    ]
-    if retired_entities:
-        async_add_entities(retired_entities)
     entry.async_on_unload(coordinator.async_add_listener(add_new_meters_and_metrics))
 
 

@@ -37,12 +37,16 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{entry.entry_id}",
-            update_interval=timedelta(
-                minutes=int(entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES))
-            ),
+            config_entry=entry,
+            # A platform listener must never schedule a vendor poll before
+            # Home Assistant has completed startup.
+            update_interval=None,
         )
         self.client = client
         self.entry = entry
+        self._normal_update_interval = timedelta(
+            minutes=int(entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES))
+        )
         self._applied_options = dict(entry.options)
         # Bounded vendor data stays only in memory; no disk or Recorder writes.
         self._last_index_payload: dict[str, Any] | None = None
@@ -52,6 +56,16 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "trybatec_access_"
             + sha256(entry.entry_id.encode()).hexdigest()[:16]
         )
+
+    def enable_startup_polling(self) -> None:
+        """Allow the first post-start poll and short retries on initial failure.
+
+        The coordinator's existing platform listener drives retries. Before
+        startup, update_interval=None prevents the timer from fetching early.
+        A successful poll restores the configured regular interval.
+        """
+        self.update_interval = timedelta(minutes=1)
+        _LOGGER.debug("Trybatec initial polling enabled after Home Assistant started")
 
     def _notify_access_issue(self, *, authorization: bool) -> None:
         """One safe persistent notification per config entry, never per poll."""
@@ -108,7 +122,11 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_apply_meter_units_from_options(self) -> None:
         """Refresh states from the last successful poll; no setup reload or API request."""
         if self._last_index_payload is None or self.data is None:
-            await self.async_request_refresh()
+            self._applied_options = dict(self.entry.options)
+            # An options save during bootstrap must not bypass the deferred
+            # first refresh or initiate a vendor request before HA started.
+            if self.update_interval is not None:
+                await self.async_request_refresh()
             return
         today = date.fromisoformat(self.data["date"])
         updated = self._build_state(self._last_index_payload, today)
@@ -138,6 +156,7 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_index_payload = payload
             self._applied_options = dict(self.entry.options)
             self._clear_access_issue()
+            self.update_interval = self._normal_update_interval
             _LOGGER.info(
                 "Trybatec index refresh succeeded: %d meters, duration %.2f s",
                 len(data["meters"]), monotonic() - started,

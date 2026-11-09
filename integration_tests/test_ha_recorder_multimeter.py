@@ -16,6 +16,7 @@ import pytest
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import CoreState
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -73,6 +74,8 @@ async def configure_fake(hass, monkeypatch):
             CONF_DEAL_ID: "ci-fake-deal",
         },
     )
+    # The recorder tests model an integration loaded after HA startup.
+    hass.set_state(CoreState.running)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

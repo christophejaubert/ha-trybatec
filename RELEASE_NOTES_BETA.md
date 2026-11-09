@@ -1,3 +1,28 @@
+# 0.2.0b16 — Defer first Trybatec synchronization until HA has started
+
+- The first vendor index request runs **after** Home Assistant signals
+  `homeassistant_started`, not during config-entry setup. On an integration
+  reload while HA is already running, the initial refresh still starts
+  immediately.
+- Meter entities are created from a successful vendor response, without
+  synthetic readings or speculative units. Existing entity and Recorder IDs
+  remain unchanged.
+- An initial network/data failure is retried by the coordinator after
+  approximately one minute instead of waiting for the normal polling
+  interval (default 12 hours). After success, the configured polling interval
+  resumes. Authentication failures still request reauthentication.
+- Pending first-poll listeners are canceled on integration unload; no
+  historical Recorder import, Energy write or entity migration runs at startup.
+- Isolated Home Assistant regression tests cover boot ordering, transient
+  failure and recovery, and unload before the started event.
+
+**Scope and limitations:** This targets startup timing and resilience; it
+cannot guarantee availability of the external Trybatec service. Any
+production history import, Energy switch or entity migration still requires
+independent review, backup and explicit confirmation.
+
+---
+
 # 0.2.0b15 — Experimental beta (opt-in history and Energy tools)
 
 **PR #38 was merged into `main` after successful mandatory CI. Installation or publication alone does not authorize a historical Recorder import or a change to Energy preferences on a real Home Assistant instance.**
