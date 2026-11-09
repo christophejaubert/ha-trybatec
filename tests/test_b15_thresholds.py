@@ -71,3 +71,22 @@ def test_history_daily_admission_uses_same_sparse_threshold():
 def test_invalid_review_thresholds_fail_closed(sparse, zeros):
     with pytest.raises(ValueError):
         review_candidates(meter([1, 2]), {}, sparse_hours=sparse, zero_review_days=zeros)
+
+
+def test_unreviewed_vendor_zero_suspends_affected_import_even_if_sparse_limit_allows():
+    payload = {"lines": [{
+        "lot": "synthetic-lot", "fluide": "EF", "compteur": "synthetic-meter",
+        "indexes": [
+            {"date": "2026-01-01T12:00:00+00:00", "value": 10},
+            {"date": "2026-01-02T12:00:00+00:00", "value": 0},
+            {"date": "2026-01-03T12:00:00+00:00", "value": 12},
+            {"date": "2026-01-04T12:00:00+00:00", "value": 15},
+        ],
+    }]}
+    result = build_history([payload], date(2026, 1, 1), date(2026, 1, 4),
+                           sparse_interval_hours=49, zero_index_review_days=0)
+    assert result["EF"]["importable_consumption"] == 3
+    assert result["EF"]["unallocated_consumption"] == 2
+    meter = next(iter(result["__physical_meters__"].values()))
+    assert len(meter["unreviewed_zero_times"]) == 1
+    assert 0 not in [value for _, value in meter["reviewed_readings"]]
