@@ -28,6 +28,7 @@ from .panel_energy import (
     ws_panel_entity_audit, ws_panel_energy_handoff_preview,
     ws_panel_energy_handoff_apply,
 )
+from .panel_review import ws_panel_reading_decision
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -324,3 +325,4 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_entity_audit)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_preview)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_apply)
+    websocket_api.async_register_command(hass, ws_panel_reading_decision)
