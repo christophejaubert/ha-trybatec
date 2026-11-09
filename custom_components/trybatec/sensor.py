@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 from hashlib import sha256
 import json
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -76,7 +79,13 @@ async def async_setup_entry(
     # inventories remain independently visible even if the portal stops
     # including them in its current index response. They are historical-only,
     # not active totals or extra entries in the Energy dashboard.
-    archived = await load_historical_inventory(hass, entry.entry_id)
+    try:
+        archived = await load_historical_inventory(hass, entry.entry_id)
+    except ValueError:
+        # Preserve active sensors when the historical archive is corrupt;
+        # do not overwrite the damaged archive or invent retired indexes.
+        _LOGGER.error("Trybatec retired meter inventory needs manual recovery")
+        archived = {}
     current_identities = {
         (m["lot"], m["fluid"], m["serial"])
         for m in coordinator.data.get("meters", {}).values()
