@@ -22,6 +22,7 @@ const style = [
   ".wrap{max-width:1580px;margin:0 auto;padding:24px 26px 48px}",
   ".heading{display:flex;gap:16px;align-items:center;margin:0 0 22px}",
   ".mark{display:grid;place-items:center;height:60px;width:60px;border-radius:18px;background:linear-gradient(135deg,#d9efff,#ecf5ff);color:#1273ca;font-size:27px}",
+  ".mark img{width:100%;height:100%;max-width:58px;max-height:58px;object-fit:contain}",
   "h1{font-size:30px;line-height:1.2;letter-spacing:-.7px;margin:0;font-weight:760}",
   "h2{font-size:22px;line-height:1.25;margin:0 0 7px}h3{font-size:16px;margin:0 0 7px}",
   "p{margin:0;line-height:1.45}.muted{color:var(--secondary-text-color,#67728a);font-size:13px}",
@@ -240,7 +241,7 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   _header() {
-    return '<header class="heading"><div class="mark"><ha-icon icon="mdi:water-thermometer"></ha-icon></div>' +
+    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png" alt="Trybatec" loading="eager"></div>' +
       '<div><h1>Trybatec <span class="badge">Bêta</span></h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
