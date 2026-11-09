@@ -8,6 +8,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.start import async_at_started
 
 from .api import TrybatecClient
 from .const import (
@@ -57,13 +58,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = TrybatecCoordinator(hass, entry, client)
     _apply_integration_log_level(hass, entry)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     try:
-        await coordinator.async_config_entry_first_refresh()
+        # Forward platforms without fetching vendor data: awaiting the HA
+        # started event here would deadlock startup, which waits for setup.
+        # Sensors are registered dynamically when the first refresh succeeds.
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
         _apply_integration_log_level(hass)
         raise
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def _refresh_after_ha_started(_hass: HomeAssistant) -> None:
+        # A queued callback must not resurrect an unloaded/replaced entry.
+        if hass.data.get(DOMAIN, {}).get(entry.entry_id) is not coordinator:
+            return
+        coordinator.enable_startup_polling()
+        await coordinator.async_refresh()
+
+    entry.async_on_unload(async_at_started(hass, _refresh_after_ha_started))
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
