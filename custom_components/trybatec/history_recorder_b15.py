@@ -95,6 +95,16 @@ async def queue_b15_plan(
                 source_fingerprint=item["source_fingerprint"],
                 unit=item["unit"], approve_revision=confirm_revision,
             )
+            record = stage["series"][item["logical_id"]]
+            expected_scope = {
+                "lot": item.get("lot"), "fluid": item["fluid"],
+                "kind": item["kind"], "serial": item.get("serial"),
+                "variant": item.get("variant"),
+            }
+            previous_scope = record.get("scope")
+            if previous_scope is not None and previous_scope != expected_scope:
+                raise ValueError("An existing series cannot change its physical scope")
+            record["scope"] = expected_scope
             version = decision["version"]
             if version["state"] in ("verified", "active", "archived"):
                 continue  # identical persisted history, never re-queue it
