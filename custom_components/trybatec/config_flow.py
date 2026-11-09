@@ -50,62 +50,179 @@ UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
 
 
 class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Login and validate the account + portal deal id."""
+    """Configure one unambiguous Trybatec housing without requesting an UUID."""
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
+    def _credential_form(self, step_id: str, errors: dict | None = None,
+                         *, username: str | None = None) -> ConfigFlowResult:
+        username_field = vol.Required(
+            CONF_USERNAME, default=username
+        ) if username else vol.Required(CONF_USERNAME)
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=vol.Schema({
+                username_field: TextSelector(
+                    TextSelectorConfig(autocomplete="username")
+                ),
+                vol.Required(CONF_PASSWORD): TextSelector(
+                    TextSelectorConfig(
+                        type=TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
+            }),
+            errors=errors or {},
+        )
+
+    async def _check_deal(self, client: TrybatecClient, deal_id: str) -> None:
+        today = dt_util.now().date()
+        await client.indexes(
+            deal_id, today - timedelta(days=14), today + timedelta(days=1)
+        )
+
+    async def _create_account_entry(
+        self, username: str, password: str, deal_id: str
+    ) -> ConfigFlowResult:
+        # Retain the b14 stable unique ID for existing account/deal pairs.
+        unique = hashlib.sha256(f"{username.lower()}|{deal_id}".encode()).hexdigest()
+        await self.async_set_unique_id(unique)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=f"Trybatec ({deal_id[:8]})",
+            data={
+                CONF_USERNAME: username,
+                CONF_PASSWORD: password,
+                CONF_DEAL_ID: deal_id,
+            },
+        )
+
+    async def async_step_user(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Automatic discovery for a single housing; fail closed on ambiguity."""
         errors: dict[str, str] = {}
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
-            deal_id = user_input[CONF_DEAL_ID].strip().lower()
-            if not UUID_RE.fullmatch(deal_id):
-                errors[CONF_DEAL_ID] = "invalid_deal_id"
+            password = user_input[CONF_PASSWORD]
+            client = TrybatecClient(
+                async_get_clientsession(self.hass), username, password
+            )
+            try:
+                deal_id = await client.discover_single_deal_id()
+            except TrybatecAuthError:
+                errors["base"] = "invalid_auth"
+            except (TrybatecConnectionError, TrybatecDataError):
+                # Explicit fallback: no UUID is chosen automatically.
+                self._manual_credentials = (username, password)
+                return await self.async_step_manual_url()
             else:
                 try:
-                    client = TrybatecClient(
-                        async_get_clientsession(self.hass),
-                        username,
-                        user_input[CONF_PASSWORD],
-                    )
-                    today = dt_util.now().date()
-                    await client.indexes(
-                        deal_id, today - timedelta(days=14), today + timedelta(days=1)
-                    )
+                    await self._check_deal(client, deal_id)
                 except TrybatecAuthError:
                     errors["base"] = "invalid_auth"
                 except (TrybatecConnectionError, TrybatecDataError):
                     errors["base"] = "cannot_connect"
                 else:
-                    # Do not persist email in the unique id (it is hashed).
-                    unique = hashlib.sha256(f"{username.lower()}|{deal_id}".encode()).hexdigest()
-                    await self.async_set_unique_id(unique)
-                    self._abort_if_unique_id_configured()
-                    return self.async_create_entry(
-                        title=f"Trybatec ({deal_id[:8]})",
-                        data={
-                            CONF_USERNAME: username,
-                            CONF_PASSWORD: user_input[CONF_PASSWORD],
-                            CONF_DEAL_ID: deal_id,
-                        },
+                    return await self._create_account_entry(
+                        username, password, deal_id
+                    )
+        return self._credential_form("user", errors)
+
+    async def async_step_manual_url(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Controlled fallback accepts the full Indexes URL, never an arbitrary ID."""
+        pending = getattr(self, "_manual_credentials", None)
+        if not pending:
+            return await self.async_step_user()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            from urllib.parse import urlparse
+            from uuid import UUID
+            raw = user_input.get("indexes_url", "").strip()
+            parsed = urlparse(raw)
+            match = re.fullmatch(
+                r"/indexes/([a-fA-F0-9-]{36})/?", parsed.path
+            ) if (parsed.scheme == "https"
+                   and parsed.netloc == "portail.trybatec.fr"
+                   and not parsed.query and not parsed.fragment
+                   and not parsed.username and not parsed.password) else None
+            deal_id = None
+            if match:
+                try:
+                    deal_id = str(UUID(match.group(1)))
+                    if deal_id != match.group(1).lower():
+                        deal_id = None
+                except ValueError:
+                    pass
+            if deal_id is None:
+                errors["indexes_url"] = "invalid_indexes_url"
+            else:
+                username, password = pending
+                client = TrybatecClient(
+                    async_get_clientsession(self.hass), username, password
+                )
+                try:
+                    await self._check_deal(client, deal_id)
+                except TrybatecAuthError:
+                    errors["base"] = "invalid_auth"
+                except (TrybatecConnectionError, TrybatecDataError):
+                    errors["base"] = "cannot_connect"
+                else:
+                    self._manual_credentials = None
+                    return await self._create_account_entry(
+                        username, password, deal_id
                     )
         return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_USERNAME): TextSelector(
-                        TextSelectorConfig(autocomplete="username")
-                    ),
-                    vol.Required(CONF_PASSWORD): TextSelector(
-                        TextSelectorConfig(
-                            type=TextSelectorType.PASSWORD,
-                            autocomplete="current-password",
-                        )
-                    ),
-                    vol.Required(CONF_DEAL_ID): TextSelector(),
-                }
-            ),
+            step_id="manual_url",
+            data_schema=vol.Schema({
+                vol.Required("indexes_url"): TextSelector()
+            }),
             errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict
+    ) -> ConfigFlowResult:
+        """Keep the same configuration entry, identity and historical settings."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            username = user_input[CONF_USERNAME].strip()
+            password = user_input[CONF_PASSWORD]
+            if username.lower() != entry.data[CONF_USERNAME].lower():
+                errors["base"] = "wrong_account"
+            else:
+                client = TrybatecClient(
+                    async_get_clientsession(self.hass), username, password
+                )
+                try:
+                    await self._check_deal(client, entry.data[CONF_DEAL_ID])
+                except TrybatecAuthError:
+                    errors["base"] = "invalid_auth"
+                except (TrybatecConnectionError, TrybatecDataError):
+                    errors["base"] = "cannot_connect"
+                else:
+                    unique = hashlib.sha256(
+                        f"{username.lower()}|{entry.data[CONF_DEAL_ID]}".encode()
+                    ).hexdigest()
+                    await self.async_set_unique_id(unique)
+                    self._abort_if_unique_id_mismatch()
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                        },
+                    )
+        return self._credential_form(
+            "reauth_confirm", errors, username=entry.data[CONF_USERNAME]
         )
 
     @staticmethod
