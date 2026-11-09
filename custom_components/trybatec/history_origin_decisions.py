@@ -50,8 +50,11 @@ def approval_fingerprint(
         raise ValueError("Invalid estimated origin scope")
     start = date.fromisoformat(estimated_start_date)
     observed = _aware_timestamp(first_observed_at)
-    if start >= datetime.fromisoformat(observed).date():
-        raise ValueError("Estimated origin must precede the first index")
+    span = (datetime.fromisoformat(observed).date() - start).days
+    if not 1 <= span <= 3660:
+        raise ValueError("Estimated origin span is outside the supported period")
+    if _nonnegative(estimated_start_index) > _nonnegative(first_observed_index):
+        raise ValueError("Estimated starting index exceeds first observed index")
     document = [
         lot, fluid, serial, normalized_unit(fluid), source_fingerprint,
         observed, _nonnegative(first_observed_index),
