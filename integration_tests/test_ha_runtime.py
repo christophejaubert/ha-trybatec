@@ -257,6 +257,7 @@ async def test_options_root_direct_steps_have_actual_homeassistant_translations(
     expected = [
         "settings", "diagnostics", "meter_units",
         "history_overview", "history_meters", "history_review",
+        "history_smoothing",
     ]
     assert initial["type"] == "menu"
     assert initial["step_id"] == "init"
