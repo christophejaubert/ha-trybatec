@@ -89,6 +89,7 @@ async def activate_energy_version(
     expected_before_fingerprint: str,
     confirm: bool,
     rollback_confirmed: bool = False,
+    version_store: Store | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Verified two-phase update with a pre-write durable rollback snapshot.
 
@@ -131,52 +132,63 @@ async def activate_energy_version(
     try:
         if preferences_fingerprint(manager.data) != plan["before_fingerprint"]:
             raise ValueError("Concurrent Energy change detected")
-        await manager.async_update({plan["path"][0]: plan["proposed"][plan["path"][0]]})
+        await manager.async_update({
+            plan["path"][0]: plan["proposed"][plan["path"][0]]
+        })
+        # HA normally delays its Energy preference storage write; flush it.
         await manager._store.async_save(manager.data)
-        loaded = await manager._store.async_load()
-        if not verify_energy_switch(plan, loaded, after_save=True):
+        persisted = await manager._store.async_load()
+        if not verify_energy_switch(plan, persisted, after_save=True):
             raise ValueError("Energy preferences not durably stored")
         if not verify_energy_switch(plan, manager.data, after_save=True):
             raise ValueError("Energy preferences changed during commit")
+
+        new_ledger = transition_version(
+            ledger, logical, number, expected_state=state,
+            new_state="active", energy_verified=True,
+            rollback_confirmed=rollback_confirmed,
+        )
+        selected_scope = new_ledger["series"][logical]["scope"]
+        for other_logical, record in list(new_ledger["series"].items()):
+            if other_logical == logical:
+                continue
+            scope = record["scope"]
+            if (scope["lot"], scope["fluid"]) != (
+                selected_scope["lot"], selected_scope["fluid"]
+            ):
+                continue
+            for prior in record["versions"]:
+                if prior["state"] == "active":
+                    new_ledger = transition_version(
+                        new_ledger, other_logical, prior["number"],
+                        expected_state="active", new_state="archived",
+                    )
+        # The independent version ledger must also be durable. If saving it
+        # fails, try to restore Energy instead of leaving split-brain state.
+        if version_store is not None:
+            await version_store.async_save(new_ledger)
     except Exception:
-        # Never clobber a third party's concurrent modification.
+        # Never replace concurrent changes by another integration or user.
+        # If exactly our intended switch is still selected, restore the
+        # complete prior Energy section, flush and verify the rollback.
         if (manager.data is not None
-                and preferences_fingerprint(manager.data) == plan["after_fingerprint"]):
-            await manager.async_update({plan["path"][0]: plan["previous"][plan["path"][0]]})
+                and preferences_fingerprint(manager.data)
+                == plan["after_fingerprint"]):
+            await manager.async_update({
+                plan["path"][0]: plan["previous"][plan["path"][0]]
+            })
             await manager._store.async_save(manager.data)
-            persisted = await manager._store.async_load()
-            if verify_energy_switch(plan, persisted, after_save=False):
+            restored = await manager._store.async_load()
+            if verify_energy_switch(plan, restored, after_save=False):
                 snapshot["status"] = "rolled_back"
                 await audit.async_save(snapshot)
         raise
-    # This is an actual, re-read Energy switch. Update ledger ONLY afterwards.
-    new_ledger = transition_version(
-        ledger, logical, number, expected_state=state,
-        new_state="active", energy_verified=True,
-        rollback_confirmed=rollback_confirmed,
-    )
-    # Energy selects one series per dwelling/fluid, NOT one per *logical
-    # variant*: physical alternatives and the consolidated series are
-    # mutually exclusive, even though they have different logical IDs.
-    selected_scope = new_ledger["series"][logical]["scope"]
-    for other_logical, record in list(new_ledger["series"].items()):
-        if other_logical == logical:
-            continue
-        scope = record.get("scope")
-        if (scope.get("lot"), scope.get("fluid")) != (
-            selected_scope["lot"], selected_scope["fluid"]
-        ):
-            continue
-        for old_version in record["versions"]:
-            if old_version["state"] == "active":
-                new_ledger = transition_version(
-                    new_ledger, other_logical, old_version["number"],
-                    expected_state="active", new_state="archived",
-                )
     snapshot["status"] = "verified"
     await audit.async_save(snapshot)
     return new_ledger, {
         "status": "energy_prefs_persisted_and_verified",
         "logical_id": logical, "new_statistic_id": new_statistic_id,
-        "old_statistic_id": old_statistic_id, "after_fingerprint": plan["after_fingerprint"],
+        "old_statistic_id": old_statistic_id,
+        "after_fingerprint": plan["after_fingerprint"],
+        "ledger_persisted": version_store is not None,
     }
