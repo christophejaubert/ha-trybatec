@@ -26,6 +26,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .api import TrybatecDataError
 from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
 from .historical_costs import estimate_historical_costs
 from .history_diagnostics import diagnose_history as build_history_diagnostics
@@ -47,6 +48,65 @@ IMPORT_SERVICE = "import_history"
 VERIFY_SERVICE = "verify_history"
 COSTS_SERVICE = "preview_costs"
 DIAGNOSTICS_SERVICE = "diagnose_history"
+
+# All retries are bounded. A failed subwindow is never silently dropped and
+# no preview cache/Recorder write is committed until every date is retrieved.
+MAX_HISTORY_WINDOW_ATTEMPTS = 80
+HISTORY_WINDOW_PAUSE_SECONDS = 0.2
+_SAFE_DATA_FAILURES = {
+    "Trybatec response exceeds permitted size": "response_too_large",
+    "Trybatec returned malformed JSON": "malformed_json",
+    "Missing lines in Trybatec indexes response": "missing_lines",
+    "Trybatec response exceeds safe line count": "too_many_meter_rows",
+    "Unexpected Trybatec meter row": "invalid_meter_row",
+    "Unexpected Trybatec index list": "invalid_index_list",
+    "Trybatec response exceeds safe point count": "too_many_index_points",
+}
+
+
+async def _fetch_history_payloads(client, deal_id: str, windows):
+    """Read all dates; split data-invalid windows without ever losing records.
+
+    Split only TrybatecDataError (including oversized/malformed index JSON).
+    Connection and authentication errors retain the normal fail-closed path.
+    One-day failures or exhausted budgets abort the entire preview and import.
+    The midpoint is included in both halves to preserve boundary observations
+    across APIs with unknown inclusive/exclusive end-date semantics.
+    """
+    pending = list(reversed(windows))
+    payloads = []
+    requests = 0
+    while pending:
+        begin, finish = pending.pop()
+        if requests >= MAX_HISTORY_WINDOW_ATTEMPTS:
+            raise ServiceValidationError(
+                "Trybatec history request limit reached; narrow the date range. "
+                "No partial history was accepted."
+            )
+        if requests:
+            await asyncio.sleep(HISTORY_WINDOW_PAUSE_SECONDS)
+        requests += 1
+        try:
+            payloads.append(await client.indexes(deal_id, begin, finish))
+        except TrybatecDataError as exc:
+            if (finish - begin).days <= 1:
+                reason = _SAFE_DATA_FAILURES.get(str(exc), "invalid_response")
+                _LOGGER.warning(
+                    "Trybatec history invalid in %s to %s (%s); "
+                    "no partial history accepted", begin, finish, reason,
+                )
+                raise ServiceValidationError(
+                    f"Trybatec history invalid for {begin} to {finish} "
+                    f"({reason}). No partial history was accepted."
+                ) from exc
+            middle = begin + timedelta(days=(finish - begin).days // 2)
+            _LOGGER.info(
+                "Trybatec history response invalid for %s to %s; "
+                "retrying two shorter windows", begin, finish,
+            )
+            pending.append((middle, finish))
+            pending.append((begin, middle))
+    return payloads, requests
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -125,13 +185,9 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     if not hasattr(coordinator, "_history_lock"):
         coordinator._history_lock = asyncio.Lock()
     async with coordinator._history_lock:
-        payloads: list[dict[str, Any]] = []
-        for i, (begin, finish) in enumerate(windows):
-            payloads.append(await coordinator.client.indexes(
-                coordinator.entry.data[CONF_DEAL_ID], begin, finish,
-            ))
-            if i < len(windows) - 1:
-                await asyncio.sleep(0.2)
+        payloads, actual_requests = await _fetch_history_payloads(
+            coordinator.client, coordinator.entry.data[CONF_DEAL_ID], windows,
+        )
     allowed_lots = set(coordinator.data.get("lots") or ()) or {
         str(meter["lot"]).strip()
         for meter in coordinator.data["meters"].values()
@@ -146,7 +202,7 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
     # In-memory proposals for the integration options UI, never persisted by preview.
     coordinator._history_review_candidates = history["__review_candidates__"]
-    return coordinator, start, end, history, len(windows)
+    return coordinator, start, end, history, actual_requests
 
 
 def prepare_import_plan(
