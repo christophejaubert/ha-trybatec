@@ -132,6 +132,19 @@ def test_meter_timeline_keeps_last_source_time_if_latest_index_is_unusable():
     assert meters[0]["last_source_observed_at"] == source[-1][0].isoformat()
 
 
+def test_panel_unknown_service_status_is_not_labeled_active():
+    from custom_components.trybatec.parsing import parse_lines
+
+    raw = {"lines": [{
+        "compteur": "STATUS-UNKNOWN", "lot": "LOT", "fluide": "EF",
+        "indexes": [{"date": "2026-01-01T08:00:00+01:00", "value": 1.0}],
+    }]}
+    parsed = parse_lines(raw)
+    meters = _meter_inventory({"meters": parsed}, {})
+    assert meters[0]["status"] == "inconnu"
+    assert _physical_meter_timeline(meters)[0]["meters"][0]["status"] == "inconnu"
+
+
 def test_panel_rejects_collisions_or_invalid_meter_inventory():
     ambiguous = {"meters": {
         "one": {"lot": "LOT", "fluid": "EF", "serial": "DUP", "deposed": False},
