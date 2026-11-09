@@ -105,6 +105,13 @@ async def test_initial_api_poll_is_blocked_until_homeassistant_started(hass, mon
     assert calls == []
     assert coordinator.data is None
     assert coordinator.update_interval is None
+    # Updating unit preferences during bootstrap must also remain local.
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {meter_key("MOCK-LOT", "EF", "MOCK-WATER-01"): "m³"}}
+    )
+    await hass.async_block_till_done()
+    assert calls == []
+    assert coordinator.update_interval is None
 
     # HA has now completed bootstrap; the first fetch is permitted.
     hass.set_state(CoreState.running)
