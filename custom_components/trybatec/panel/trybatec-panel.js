@@ -429,6 +429,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Consommation bornée</span><strong>'+
       safe(proposal.bounded_consumption===undefined?"Non déterminée":proposal.bounded_consumption+" "+proposal.unit)+'</strong></div>'+
+      '<div><span class="smallhead">Index avant → après</span><strong>'+safe(proposal.source_start_index+" → "+proposal.source_end_index)+'</strong></div>'+
       '<div><span class="smallhead">Jours</span><strong>'+safe(proposal.days||"À déterminer")+'</strong></div>'+
       '<div><span class="smallhead">État</span><strong>'+safe(blockers[proposal.status]||proposal.status)+'</strong></div></div>'+
       (ready?'<h3>Aperçu après lissage linéaire</h3>'+this._historyDayBars(proposal):
