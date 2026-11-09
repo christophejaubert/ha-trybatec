@@ -229,10 +229,10 @@ def build_history(
         }
         meter["unreviewed_zero_times"] = unreviewed_zeros
         indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
-        # Keep untouched source readings in raw_fingerprints; prevent an
-        # unreviewed zero from generating any imported consumption.
-        for at in unreviewed_zeros:
-            indexes.pop(at, None)
+        # Legacy raw metering computation is unchanged: a zero may be a
+        # perfectly valid physical starting index. New b15 smoothed variants
+        # must obtain an explicit source qualification before using these
+        # candidates; never discard raw observations in this pipeline.
         # A contradictory provider timestamp cannot serve as a trusted
         # baseline. Drop that particular reading from the plan, not the
         # surrounding valid observations or the entire physical meter.
@@ -339,13 +339,7 @@ def build_history(
                         "at": _bucket(target_at), "quantity": round(delta, 6),
                         "source_key": source_key,
                     })
-            # Even a gap shorter than 27h is uncertain if an unresolved
-            # source zero was encountered between the two reliable bounds.
-            zero_interrupted = any(
-                prev_at < zero_at < at
-                for zero_at in meter["unreviewed_zero_times"]
-            )
-            if 1 <= span_hours <= sparse_interval_hours and not zero_interrupted:
+            if 1 <= span_hours <= sparse_interval_hours:
                 if series["anchor"] is None:
                     series["anchor"] = {
                         "reading_at": prev_at.isoformat(),
