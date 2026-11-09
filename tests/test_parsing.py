@@ -142,3 +142,22 @@ def test_b5_same_meter_serial_in_multiple_lots_remains_isolated():
     assert {x["lot"] for x in meters.values()} == {"LOT-A","LOT-B"}
     assert summarize_annual(payload)["EF"]["value"] == 3.0
 
+
+
+def test_service_status_proof_is_separate_from_legacy_deposed_boolean():
+    """Absent vendor status must not become a verified active meter in UI."""
+    payload = {"lines": [
+        {"compteur": "KNOWN-ACTIVE", "fluide": "EF", "lot": "LOT", "depose": False},
+        {"compteur": "KNOWN-RETIRED", "fluide": "ECS", "lot": "LOT", "depose": True},
+        {"compteur": "UNKNOWN", "fluide": "CET", "lot": "LOT"},
+        {"compteur": "BAD-VALUE", "fluide": "EF", "lot": "LOT", "depose": "false"},
+    ]}
+    meters = parse_lines(payload)
+    assert meters["KNOWN-ACTIVE"]["service_status_known"] is True
+    assert meters["KNOWN-RETIRED"]["service_status_known"] is True
+    assert meters["UNKNOWN"]["service_status_known"] is False
+    assert meters["BAD-VALUE"]["service_status_known"] is False
+    # Keep the legacy behavior consumed by active sensor code, but allow
+    # the new panel to refrain from claiming a proven deployment status.
+    assert meters["UNKNOWN"]["deposed"] is False
+    assert meters["BAD-VALUE"]["deposed"] is False
