@@ -1,5 +1,5 @@
 """Pure, fake historical observations: never include real serials or lot IDs."""
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
