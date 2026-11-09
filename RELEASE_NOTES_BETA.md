@@ -1,3 +1,18 @@
+# 0.2.0b12 — Candidate corrective: default meter units and saved selections
+
+**Draft candidate only; no tag or release, no merge, no changes to running Home Assistant.**
+
+- The saved, user-confirmed unit of each physical meter (lot + fluid + serial) is the first choice when an options form is reopened, including retired meters found in the cached historical preview.
+- If no unit was saved, propose an explicit valid API index unit, otherwise the configured portal chart display unit as the selected radio choice. Clicking **Save** confirms it as a manual choice; opening the form never writes any unit.
+- Keep an explicit *Unknown* choice, strict allowed-unit validation, and existing safeguards against contradictory API index-unit evidence. Retain per-meter UUIDs and all other options.
+- Remove misleading warnings and explain that the chart reference shown is configured rather than dynamically retrieved.
+- Add focused tests for EF/ECS/CET, all saved per-meter selections, revisiting a form after a new options flow starts, and physically replaced meters.
+- **Unrelated historical preview investigation:** a November 1–9, 2026 preview succeeded with one API window, whereas an October 1 start failed, also with one API window. The 92-day chunking cannot by itself explain the October failure. This candidate does not change historical fetching.
+
+**Release gate:** all required CI controls followed by actual Home Assistant visual verification of radio defaults before approving a beta release.
+
+---
+
 # 0.2.0b11 — Corrective draft: restore direct, readable options navigation
 
 **Not released. PR draft only; no change to a running Home Assistant installation.**

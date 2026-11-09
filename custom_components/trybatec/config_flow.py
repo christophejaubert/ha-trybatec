@@ -363,8 +363,8 @@ class TrybatecOptionsFlow(OptionsFlow):
         if meter.get("portal_unit") in _ALLOWED[meter["fluid"]]:
             return self._nav_text("Détectée par l’API", "Detected by API")
         return self._nav_text(
-            "Suggérée par le graphique (non confirmée)",
-            "Suggested by chart (unconfirmed)",
+            "Proposée d’après le graphique (à confirmer)",
+            "Proposed from chart (confirm on save)",
         )
 
     async def async_step_meter_units(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -415,20 +415,30 @@ class TrybatecOptionsFlow(OptionsFlow):
         if selected is None:
             return self._history_notice("history_preview_missing")
         current = validate_meter_units(self.config_entry.options.get(CONF_METER_UNITS, {}))
-        # Persisted manual choice wins, otherwise preselect explicit API unit.
-        # Chart-only metadata never selects an index unit.
-        portal_detected = selected.get("portal_unit")
-        if portal_detected not in _ALLOWED[selected["fluid"]]:
-            portal_detected = None
+        # A saved choice belongs to one physical meter (lot/fluid/serial).
+        # Never replace a previously confirmed radio choice with "Unknown".
+        # The API index unit takes priority over a chart proposal, but NOT
+        # over a choice already saved by the user. API conflicts remain blocked
+        # by the validation below, even when the saved choice is displayed.
+        source_unit = selected.get("portal_unit")
+        portal_detected = (
+            source_unit if source_unit in _ALLOWED[selected["fluid"]] else None
+        )
         persisted = current.get(self._selected_meter_unit_key)
-        manual_valid = (
-            selected.get("portal_unit") not in ("conflict", "unverified")
-            and persisted in _ALLOWED[selected["fluid"]]
-            and (portal_detected is None or persisted == portal_detected)
+        manual_saved = persisted in _ALLOWED[selected["fluid"]]
+        chart_unit = (
+            selected.get("portal_display_unit")
+            or portal_display_unit(selected["fluid"])
         )
-        current_unit = (
-            persisted if manual_valid else portal_detected or "unverified"
+        chart_suggestion = (
+            chart_unit if chart_unit in _ALLOWED[selected["fluid"]] else None
         )
+        if manual_saved:
+            current_unit = persisted
+        elif persisted == "unverified" or source_unit in ("conflict", "unverified"):
+            current_unit = "unverified"
+        else:
+            current_unit = portal_detected or chart_suggestion or "unverified"
         device_uuids = self.config_entry.options.get(CONF_DEVICE_UUIDS, {})
         current_uuid = device_uuids.get(self._selected_meter_unit_key, "") if isinstance(device_uuids, dict) else ""
         allowed = {"unverified": "Unknown / Inconnue", **{k: k for k in _ALLOWED[selected["fluid"]]}}
@@ -471,7 +481,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                 "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
                 "portal_unit": str(selected.get("portal_unit") or self._nav_text("non détectée", "not detected")),
                 "display_unit": str(selected.get("portal_display_unit") or portal_display_unit(selected["fluid"]) or "—"),
-                "selection_origin": self._unit_origin(selected, bool(manual_valid)),
+                "selection_origin": self._unit_origin(selected, bool(manual_saved)),
             },
         )
 
