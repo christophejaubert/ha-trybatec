@@ -3,21 +3,38 @@
     "step": {
       "user": {
         "title": "Trybatec account",
-        "description": "Enter the credentials for the Trybatec portal and the UUID from your portal's /indexes/ page URL. This is an unofficial integration.",
+        "description": "Enter only the username and password of your Trybatec account. A single authorized housing is resolved automatically.",
         "data": {
           "username": "Username (email)",
-          "password": "Password",
-          "deal_id": "Deal ID (UUID from the Indexes page URL)"
+          "password": "Password"
+        }
+      },
+      "manual_url": {
+        "title": "Indexes page URL",
+        "description": "Automatic discovery could not identify one unambiguous deal. Paste the full https://portail.trybatec.fr/indexes/… URL from your account.",
+        "data": {
+          "indexes_url": "Full Indexes page URL"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Trybatec",
+        "description": "Enter valid credentials for the same account to restore access without losing stored meters or historical choices.",
+        "data": {
+          "username": "Username (email)",
+          "password": "New password"
         }
       }
     },
     "error": {
       "invalid_auth": "Login was rejected by Trybatec.",
       "cannot_connect": "Unable to retrieve data from Trybatec.",
-      "invalid_deal_id": "The deal ID must be a UUID."
+      "invalid_deal_id": "The deal ID must be a UUID.",
+      "invalid_indexes_url": "Enter a valid HTTPS Indexes page URL for Trybatec.",
+      "wrong_account": "Reauthentication must use the same Trybatec account."
     },
     "abort": {
-      "already_configured": "This Trybatec account and deal are already configured."
+      "already_configured": "This Trybatec account and deal are already configured.",
+      "unique_id_mismatch": "Credentials do not match the configured Trybatec account."
     }
   },
   "options": {
