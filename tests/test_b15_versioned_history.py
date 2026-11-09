@@ -55,11 +55,14 @@ def test_persistence_and_energy_are_independent_explicit_gates():
 
 def test_changed_data_cannot_override_v1_without_approval():
     ledger, _ = prepare()
+    ledger = transition_version(ledger, LOGICAL, 1, expected_state="prepared", new_state="imported")
+    ledger = transition_version(ledger, LOGICAL, 1, expected_state="imported", new_state="verified", recorder_verified=True)
+    ledger = transition_version(ledger, LOGICAL, 1, expected_state="verified", new_state="active", energy_verified=True)
     with pytest.raises(ValueError, match="Explicit revision approval"):
         prepare(ledger, final=2)
     next_ledger, outcome = prepare(ledger, final=2, fingerprint=FINGERPRINT_B, approve=True)
     assert outcome["version"]["number"] == 2
-    assert next_ledger["series"][LOGICAL]["versions"][0]["state"] == "prepared"
+    assert next_ledger["series"][LOGICAL]["versions"][0]["state"] == "active"
 
 
 def test_identical_repeated_plan_is_idempotent():
