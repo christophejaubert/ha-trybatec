@@ -50,9 +50,18 @@ def preview_daily_before_after(proposal: dict[str, Any]) -> dict[str, Any]:
             "before_daily_unknown": True,
             "recorder_writes": False,
         }
-    if not isinstance(source, list) or not 1 <= len(source) <= _MAX_DAYS:
+    if not isinstance(source, list) or len(source) > _MAX_DAYS:
         raise ValueError("Invalid bounded daily preview")
     bounded = _number(proposal.get("bounded_consumption"))
+    if not source:
+        if bounded != 0:
+            raise ValueError("Nonzero consumption cannot have empty daily allocation")
+        return {
+            "status": "zero_total_no_allocation",
+            "rows": [], "bounded_total": 0.0,
+            "before_daily_unknown": True,
+            "recorder_writes": False, "source_indices_unchanged": True,
+        }
     cumulative = Decimal(0)
     measured_total = Decimal(0)
     estimated_total = Decimal(0)
