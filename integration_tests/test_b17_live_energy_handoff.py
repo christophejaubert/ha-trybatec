@@ -76,7 +76,7 @@ def setup_case(monkeypatch, *, fluid="EF", source_type=None, old_unit=None,
         }
     async def get_manager(_hass):
         return manager
-    async def get_ledger(_hass, _entry):
+    def get_ledger(_hass, _entry):
         return SimpleNamespace(async_load=AsyncMock(return_value=None))
     monkeypatch.setattr(handoff, "preview_identity_migration", preview_identity)
     monkeypatch.setattr(handoff, "_metadata", read_metadata)
