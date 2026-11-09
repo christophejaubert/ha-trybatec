@@ -4,13 +4,17 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Source version on `main`: 0.2.0b7.** See [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for published versions. Version b7 remains experimental, and its publication does not authorize historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version actuelle du code / Current source version:** see `version` in [`custom_components/trybatec/manifest.json`](custom_components/trybatec/manifest.json). Published versions are listed under [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases). **All published versions remain experimental until a stable release is explicitly validated.** A release does not authorize importing historical statistics into a production Home Assistant instance; make a backup and validate the operation separately.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
 **EN:** Unofficial Home Assistant integration for meters available via the Trybatec portal (cold water, hot water, heating). Experimental beta; maintenance not guaranteed.
 
 [Français](#installation-fr) · [English](#installation-en)
+
+[![Open ha-trybatec in your Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=christophejaubert&repository=ha-trybatec&category=integration)
+
+Le raccourci Marketplace nécessite Home Assistant 2026.11 ou plus récent. Pour les versions antérieures, voir les instructions HACS plus bas. / The Marketplace shortcut requires Home Assistant 2026.11 or later; older versions can use the HACS instructions below.
 
 > **EXPERIMENTAL BETA — UNSUPPORTED / MAINTENANCE NON GARANTIE.** The service endpoints were identified from the
 > authenticated consumer portal, **not from a published Trybatec API contract**.
@@ -59,12 +63,9 @@ Dans **Configurer → Aperçu de l’historique**, la vue principale présente l
 
 Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, sans caractères littéraux `\\n`. Les relevés historiques restent accessibles uniquement après une prévisualisation et les imports Recorder nécessitent toujours une action administrateur distincte.
 
-## b7 development branch — not published
+## Historical development notes — b7 (archived)
 
-The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.
-The latest published pre-release remains **0.2.0b6**. Do not replace a working
-b6 installation with this development branch without a full backup and an
-explicit test plan. No historical data is written automatically.
+This section preserves implementation notes from the b7 development cycle. It does **not** identify the current release or recommend installing an old development branch. For the available versions, consult [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases); verify the version and release notes before upgrading. No historical data is written automatically.
 
 New administrator-only read-only Home Assistant actions:
 
@@ -334,11 +335,15 @@ dysfonctionnements détectés. Une évolution de Home Assistant ou de Trybatec
 peut rendre l'intégration inutilisable. Les contributions sont bienvenues,
 avec examen éventuel selon les disponibilités.
 
+## Marketplace preparation
+
+A separate [Marketplace readiness checklist](docs/MARKETPLACE_READINESS.md) tracks the conformity of this repository and what must still be verified before an official catalog submission. **This documentation does not authorize a stable release or catalog application.**
+
 ## Developer notes / GitHub publication
 
-`manifest.json` currently targets the intended repository `christophejaubert/ha-trybatec`. **For new maintainers and future releases**:
+`manifest.json` references the existing public repository `christophejaubert/ha-trybatec`. **For future releases and maintainers**:
 
-1. Create that exact public repository (or update `manifest.json` to match the final owner/repository name).
+1. Keep the repository public; if it is transferred or renamed, update all public metadata and documentation links.
 2. Confirm that `documentation`, `issue_tracker` and `codeowners` in `manifest.json` point to the real repository and owner.
 3. Run unit tests, syntax checks, and **Hassfest/HACS checks**, add repository
    topics, a real release, a compatible logo/brand asset as required by the
