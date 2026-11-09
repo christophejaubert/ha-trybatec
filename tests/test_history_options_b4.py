@@ -485,7 +485,7 @@ def test_recovery_menu_step_has_matching_handler_and_return_navigation(ui, step_
     ("source_unit", "manual_unit", "expected", "expected_origin"),
     [
         ("m³", None, "m³", "Detected by API"),
-        (None, None, "unverified", "Suggested by chart"),
+        (None, None, "m³", "Proposed from chart"),
         (None, "L", "L", "Manually confirmed"),
         ("conflict", None, "unverified", "Conflicting or unrecognized API unit"),
     ],
@@ -493,7 +493,7 @@ def test_recovery_menu_step_has_matching_handler_and_return_navigation(ui, step_
 def test_meter_unit_defaults_follow_verified_provenance(
     ui, source_unit, manual_unit, expected, expected_origin
 ):
-    """Graph units may be suggested but must never preselect a raw index unit."""
+    """A chart is proposed for approval; stored choices always win."""
     flow, coordinator = new_ui(ui)
     coordinator.data = {"meters": {
         "FAKE-UNIT": {
@@ -513,6 +513,117 @@ def test_meter_unit_defaults_follow_verified_provenance(
     assert unit_key.default == expected
     assert expected_origin in form["description_placeholders"]["selection_origin"]
     assert flow.config_entry.options.get("meter_units", {}).get(key) == manual_unit
+
+
+@pytest.mark.parametrize(
+    ("fluid", "chart_unit"),
+    [("EF", "m³"), ("ECS", "m³"), ("CET", "kWh")],
+)
+def test_chart_unit_is_preselected_until_user_approves_then_remains_saved(
+    ui, fluid, chart_unit,
+):
+    """No automatic write on display: Submit is the only confirmation."""
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {
+        "METER-1": {
+            "lot": "LOT-1", "fluid": fluid, "serial": "METER-1",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+            "portal_display_unit": chart_unit,
+        },
+    }}
+    key = ui.meter_key("LOT-1", fluid, "METER-1")
+    flow._selected_meter_unit_key = key
+    before = dict(flow.config_entry.options)
+    form = asyncio.run(flow.async_step_meter_unit())
+    unit_key = next(k for k in form["data_schema"] if k.k == "unit")
+    assert unit_key.default == chart_unit
+    assert flow.config_entry.options == before
+    assert "Proposed from chart" in form["description_placeholders"]["selection_origin"]
+
+    submitted = asyncio.run(flow.async_step_meter_unit({
+        "unit": chart_unit, "device_uuid": "",
+    }))
+    assert submitted["step_id"] == "meter_units"
+    assert flow.config_entry.options["meter_units"][key] == chart_unit
+
+    new_flow = ui.TrybatecOptionsFlow()
+    new_flow.config_entry = flow.config_entry
+    new_flow.hass = flow.hass
+    new_flow._selected_meter_unit_key = key
+    reopened = asyncio.run(new_flow.async_step_meter_unit())
+    reopened_unit = next(k for k in reopened["data_schema"] if k.k == "unit")
+    assert reopened_unit.default == chart_unit
+    assert "Manually confirmed" in reopened["description_placeholders"]["selection_origin"]
+
+
+def test_saved_values_stay_selected_for_every_distinct_meter_and_retired_history(
+    ui, monkeypatch,
+):
+    """Different serials and retired meters must not leak or lose a saved unit."""
+    flow, coordinator = new_ui(ui)
+    coordinator.data = {"meters": {
+        "CURRENT-EF": {
+            "lot": "LOT-1", "fluid": "EF", "serial": "CURRENT-EF",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+            "portal_display_unit": "m³",
+        },
+        "CURRENT-ECS": {
+            "lot": "LOT-1", "fluid": "ECS", "serial": "CURRENT-ECS",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+            "portal_display_unit": "m³",
+        },
+        "CURRENT-CET": {
+            "lot": "LOT-1", "fluid": "CET", "serial": "CURRENT-CET",
+            "deposed": False, "portal_unit": None, "verified_unit": None,
+            "portal_display_unit": "kWh",
+        },
+    }}
+    coordinator._history_review_cache = ([], date(2025, 1, 1), date(2025, 2, 1), {"LOT-1"})
+    monkeypatch.setattr(ui, "build_history", lambda *a, **kw: {
+        "__physical_meters__": {
+            ("LOT-1", "EF", "OLD-EF"): {
+                "retired": True, "portal_unit": None, "portal_display_unit": "m³",
+            },
+        },
+    })
+    originals = {
+        ("LOT-1", "EF", "CURRENT-EF"): "m³",
+        ("LOT-1", "ECS", "CURRENT-ECS"): "L",
+        ("LOT-1", "CET", "CURRENT-CET"): "MWh",
+        ("LOT-1", "EF", "OLD-EF"): "L",
+    }
+    overrides = {
+        ui.meter_key(*identity): unit
+        for identity, unit in originals.items()
+    }
+    flow.config_entry.options["meter_units"] = dict(overrides)
+    before = dict(flow.config_entry.options)
+
+    # Simulate HA opening new option flows in an arbitrary order.
+    for identity, wanted in reversed(list(originals.items())):
+        new_flow = ui.TrybatecOptionsFlow()
+        new_flow.config_entry = flow.config_entry
+        new_flow.hass = flow.hass
+        new_flow._selected_meter_unit_key = ui.meter_key(*identity)
+        form = asyncio.run(new_flow.async_step_meter_unit())
+        assert form["step_id"] == "meter_unit" and form["type"] == "form"
+        key = next(k for k in form["data_schema"] if k.k == "unit")
+        assert key.default == wanted, identity
+        assert "Manually confirmed" in form["description_placeholders"]["selection_origin"]
+        assert flow.config_entry.options == before
+
+    # An unrelated meter gets the chart proposal, not another meter's choice.
+    coordinator.data["meters"]["NEW-EF"] = {
+        "lot": "LOT-1", "fluid": "EF", "serial": "NEW-EF",
+        "deposed": False, "portal_unit": None, "verified_unit": None,
+        "portal_display_unit": "m³",
+    }
+    another = ui.TrybatecOptionsFlow()
+    another.config_entry, another.hass = flow.config_entry, flow.hass
+    another._selected_meter_unit_key = ui.meter_key("LOT-1", "EF", "NEW-EF")
+    form = asyncio.run(another.async_step_meter_unit())
+    assert next(k for k in form["data_schema"] if k.k == "unit").default == "m³"
+    assert flow.config_entry.options == before
 
 
 def test_diagnostics_settings_preserve_other_options_and_navigation(ui):
