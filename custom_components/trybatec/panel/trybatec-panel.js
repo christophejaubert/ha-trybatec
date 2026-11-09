@@ -523,6 +523,24 @@ class TrybatecPanel extends HTMLElement {
       '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
       this._auditDetails(m)+'</div>';
   }
+  _meterTimeline() {
+    const groups=this._current?.physical_meter_timeline||[];
+    if (!groups.length) return '';
+    return '<section class="card" style="margin-top:16px"><h3>Chronologie des compteurs physiques</h3>'+
+      '<p class="muted">Par logement et fluide, fondée uniquement sur les observations. Les dates exactes de remplacement ne sont pas déduites.</p>'+
+      groups.map(g=>'<div class="line" style="margin-top:12px"><strong>'+
+        safe(FLUID[g.fluid]||g.fluid)+' · '+safe(g.lot||'Lot inconnu')+'</strong> '+
+        '<span class="badge">'+safe(g.count)+' compteur(s)</span>'+
+        '<div class="list" style="margin-top:10px">'+g.meters.map(m=>
+          '<div class="meter-row"><span class="meter-name">'+safe(m.serial)+'</span> '+
+          '<span class="pill '+(m.status==='en_service'?'on':m.status==='depose'?'off':'unknown')+'">'+
+          safe(m.status==='en_service'?'En service':m.status==='depose'?'Déposé':'Statut inconnu')+'</span>'+
+          '<div class="muted">Première observation : '+safe(m.first_observed_at||'Non connue')+
+          ' · Dernière observation source : '+safe(m.last_source_observed_at||'Non connue')+'</div></div>'
+        ).join('')+'</div></div>').join('')+
+      '<div class="notice">Un compteur déposé est un appareil historique. Une entité technique indisponible ne constitue pas un compteur supplémentaire. Aucune date de remplacement n’est inventée.</div></section>';
+  }
+
   _metersPage() {
     const meters=this._meters();
     const indexed=meters.map((m,i)=>({m,i})).filter(x=>!this._query||[
@@ -531,7 +549,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="split"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
       '<div class="scroll">'+indexed.map(x=>this._meterRow(x.m,x.i,"detail")).join("")+'</div>'+
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
-      '</section>'+this._meterDetail(meters[this._meter])+'</div>';
+      '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
   }
   async _fetchHistory() {
     if (this._historyBusy || !this._current) return;
