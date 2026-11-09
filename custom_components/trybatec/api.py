@@ -142,6 +142,58 @@ class TrybatecClient:
             return
         raise TrybatecConnectionError("Trybatec authentication temporarily unavailable")
 
+    async def discover_single_deal_id(self) -> str:
+        """Resolve an unambiguous housing-to-deal UUID, never choose a random deal.
+
+        Vendor discovery is undocumented. Ambiguous or unexpected payloads
+        require the explicit manual portal-URL fallback in the config flow.
+        """
+        from uuid import UUID
+
+        if self._token is None:
+            await self.authenticate()
+        auth_retried = False
+        for attempt in range(3):
+            try:
+                async with self._session.get(
+                    f"{API_BASE}/housings",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                    timeout=aiohttp.ClientTimeout(total=25),
+                ) as response:
+                    if response.status in (401, 403):
+                        if auth_retried:
+                            raise TrybatecAuthError("Housing discovery authorization rejected")
+                        auth_retried = True
+                        self._token = None
+                        await self.authenticate()
+                        continue
+                    if response.status in RETRYABLE_STATUSES:
+                        if attempt < 2:
+                            await asyncio.sleep(0.25 * (attempt + 1))
+                            continue
+                        raise TrybatecConnectionError("Housing discovery temporarily unavailable")
+                    if response.status >= 400:
+                        raise TrybatecConnectionError("Housing discovery unavailable")
+                    payload = await _bounded_json(response, MAX_AUTH_BYTES)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                raise TrybatecConnectionError("Housing discovery request failed") from exc
+            if not isinstance(payload, list) or len(payload) != 1:
+                raise TrybatecDataError("Housing discovery ambiguous or unavailable")
+            housing = payload[0]
+            if not isinstance(housing, dict):
+                raise TrybatecDataError("Invalid housing discovery payload")
+            uid = housing.get("dealUid")
+            if not isinstance(uid, str) or len(uid) != 36:
+                raise TrybatecDataError("Housing does not contain a valid deal UUID")
+            try:
+                canonical = str(UUID(uid))
+            except (ValueError, AttributeError) as exc:
+                raise TrybatecDataError("Housing does not contain a valid deal UUID") from exc
+            if canonical != uid.lower():
+                raise TrybatecDataError("Housing does not contain a canonical deal UUID")
+            return canonical
+        raise TrybatecConnectionError("Housing discovery retries exhausted")
+
     async def indexes(self, deal_id: str, start: date, end: date) -> dict[str, Any]:
         """Fetch one window with bounded payload size and safe transient retries."""
         if self._token is None:
