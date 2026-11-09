@@ -80,14 +80,14 @@
       },
       "meter_units": {
         "title": "Select meter",
-        "description": "Trybatec displays units on its charts (m³ or kWh), but they do not establish the raw API index scale. Select a meter to compare the illustrative chart unit and any explicitly detected source index unit. Unknown units require confirmation before import.\n\nMeters with verified units are shown prominently, even if the API does not explicitly provide a unit. Each row distinguishes API evidence from manual confirmation.",
+        "description": "Select a meter. Any previously confirmed unit is retained for that exact physical meter. Otherwise, the chart unit is proposed and can be confirmed by submitting the form. Physical meters, including replacements, remain distinct.\n\nChart display units are configured references; they do not prove the raw index unit is explicitly supplied by the API.",
         "data": {
           "meter": "Physical meter"
         }
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Chart unit reference (not dynamically fetched from the API): {display_unit}. Explicit API source index unit: {portal_unit}. If absent, confirm the raw index scale independently before assigning a unit; mistakes would corrupt statistics.\n\nPreselected unit provenance: {selection_origin}. The chart unit is only a reference unless the API explicitly supplies the raw index unit.\n\nIf you do not have the Trybatec device UUID, leave that field empty. If the real raw index unit has not been verified, select « Unknown » in the unit list. Do not confirm an index unit from the chart alone **unless you are certain which unit to use**.\n\nSelect a unit, optionally provide the device UUID, and submit. Values are saved before returning to the meter list. To discard changes without saving, close using ×.",
+        "description": "Meter: {meter}. Chart reference unit: {display_unit} (configured reference, not read live from the API). Explicit API index unit: {portal_unit}.\n\nPreselection: {selection_origin}. A saved choice for this physical meter is retained. Otherwise, the API unit is proposed, or the chart unit if the API provides none. Select Save to confirm; no additional confirmation is required. Choose Unknown when the actual unit is unknown.\n\nThe Trybatec device UUID is optional. Saving returns to the meter list. Close this window with × to discard unsaved changes.",
         "data": {
           "unit": "Confirmed source unit",
           "device_uuid": "Trybatec device UUID (optional)"
