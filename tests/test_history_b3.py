@@ -181,12 +181,14 @@ def test_forged_identifiers_are_rejected_instead_of_logged_or_registered():
         build(line("OK", "EF", days("2026-01-02", [1, 2]), lot="X" * 129))
 
 
-def test_large_untrusted_response_refused_before_costly_processing(monkeypatch):
+def test_many_valid_observations_have_no_global_count_cap(monkeypatch):
     from custom_components.trybatec import history
-    monkeypatch.setattr(history, "MAX_OBSERVATIONS", 10)
-    points = days("2026-01-01", [0] * 12)
-    with pytest.raises(ValueError, match="safe reading count"):
-        build(line("M", "EF", points))
+    # Even an obsolete globally-small cap must not truncate individually
+    # accepted historical replies. Bounds remain in api._validate_indexes.
+    monkeypatch.setattr(history, "MAX_OBSERVATIONS", 2, raising=False)
+    points = days("2026-01-01", list(range(12)))
+    result = build(line("M", "EF", points))
+    assert result["EF"]["observations"] == 12
 
 
 def test_statistic_id_is_pseudonymous_independent_of_query_period():
