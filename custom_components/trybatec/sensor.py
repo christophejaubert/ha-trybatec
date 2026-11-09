@@ -102,8 +102,10 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         self._attr_unique_id = f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
         self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (" (unit unverified)" if not self._source_unit else "")
         self._attr_native_unit_of_measurement = normalized_unit(fluid) if self._source_unit else None
-        # A retired counter is historical, never a still-increasing live source.
-        # State class is evaluated dynamically if an active meter is retired.
+        # Preserve the historical active-meter state-class declaration.
+        # The property below dynamically disables statistics for retired
+        # devices, even when an active meter later becomes deposed.
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING if self._source_unit else None
         self._attr_device_class = (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER) if self._source_unit else None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{account_key}_{physical_serial}{suffix}")},
