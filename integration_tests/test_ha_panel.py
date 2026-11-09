@@ -17,7 +17,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.trybatec.api import TrybatecClient
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
 from custom_components.trybatec.panel_api import (
-    _ledger_preview, _meter_inventory, async_panel_snapshot,
+    _ledger_preview, _meter_inventory, _physical_meter_timeline, async_panel_snapshot,
 )
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -54,6 +54,82 @@ def test_panel_inventory_retains_retired_physical_meters_without_faking_live_dat
     assert next(x for x in result if x["serial"] == "SYNTH-CET")["source"] == "archived_verified_inventory"
     assert next(x for x in result if x["serial"] == "SYNTH-EF")["last_index"] is None
     assert all(x["status"] != "en_service" for x in result if x["serial"] != "SYNTH-EF")
+
+
+def test_meter_timeline_keeps_one_record_per_physical_serial_without_guessing_changes():
+    zone = ZoneInfo("Europe/Paris")
+    first = datetime(2021, 12, 22, tzinfo=zone)
+    second = datetime(2022, 1, 20, tzinfo=zone)
+    third = datetime(2025, 1, 8, tzinfo=zone)
+    current = {"meters": {
+        "old": {
+            "lot": "LOT-1", "fluid": "EF", "serial": "OLD",
+            "verified_unit": "m³", "deposed": True,
+            "indexes": [(first, 316), (second, 332)],
+            "last": (second, 332),
+        },
+        "new": {
+            "lot": "LOT-1", "fluid": "EF", "serial": "NEW",
+            "verified_unit": "m³", "deposed": False,
+            "indexes": [(third, 0)],
+            "last": (third, 0),
+        },
+        "other_fluid": {
+            "lot": "LOT-1", "fluid": "CET", "serial": "HEAT",
+            "verified_unit": "kWh", "deposed": False,
+            "indexes": [],
+            "last": None,
+        },
+    }}
+    meters = _meter_inventory(current, {})
+    groups = _physical_meter_timeline(meters)
+    assert len(groups) == 2
+    water = next(group for group in groups if group["fluid"] == "EF")
+    assert water["count"] == 2
+    assert [m["serial"] for m in water["meters"]] == ["OLD", "NEW"]
+    assert water["meters"][0]["first_observed_at"] == first.isoformat()
+    assert water["meters"][0]["last_source_observed_at"] == second.isoformat()
+    assert all(not m["replacement_date_verified"] for m in water["meters"])
+    assert water["date_policy"] == "source_observations_only_no_inferred_replacement"
+    heat = next(group for group in groups if group["fluid"] == "CET")
+    assert heat["meters"][0]["first_observation_known"] is False
+
+
+def test_meter_timeline_retains_deposed_archive_with_unknown_first_date():
+    meters = _meter_inventory(
+        None,
+        {"key": {
+            "lot": "LOT-1", "fluid": "ECS", "serial": "ARCHIVED",
+            "last_reading_at": "2022-05-01T00:00:00+02:00",
+            "canonical_index": 120, "source_unit": "m³",
+        }},
+    )
+    timeline = _physical_meter_timeline(meters)
+    assert timeline[0]["meters"][0]["status"] == "depose"
+    assert timeline[0]["meters"][0]["first_observed_at"] is None
+    assert timeline[0]["meters"][0]["last_source_observed_at"] == (
+        "2022-05-01T00:00:00+02:00"
+    )
+    assert timeline[0]["meters"][0]["replacement_date_verified"] is False
+
+
+def test_meter_timeline_keeps_last_source_time_if_latest_index_is_unusable():
+    zone = ZoneInfo("Europe/Paris")
+    source = [
+        (datetime(2025, 1, 1, tzinfo=zone), 150),
+        (datetime(2025, 1, 2, tzinfo=zone), 149),
+    ]
+    meters = _meter_inventory(
+        {"meters": {"one": {
+            "lot": "LOT-1", "fluid": "EF", "serial": "METER",
+            "deposed": False, "indexes": source,
+            "last": None, "verified_unit": "m³",
+        }}},
+        {},
+    )
+    assert meters[0]["last_index"] is None
+    assert meters[0]["last_observed_at"] is None
+    assert meters[0]["last_source_observed_at"] == source[-1][0].isoformat()
 
 
 def test_panel_rejects_collisions_or_invalid_meter_inventory():
