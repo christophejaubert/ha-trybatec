@@ -46,6 +46,11 @@ def _apply_integration_log_level(hass: HomeAssistant, entry: ConfigEntry | None 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register opt-in historical actions; no recorder writes at startup."""
     register_history_actions(hass)
+    # A second interface only. The legacy OptionsFlow and its actions remain
+    # registered and unchanged. No API call, recorder import or migration.
+    from .panel_api import async_register_panel
+
+    await async_register_panel(hass)
     return True
 
 
