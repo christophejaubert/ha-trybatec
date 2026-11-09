@@ -12,11 +12,14 @@ import json
 from typing import Any, Iterable
 
 # Verified against Home Assistant frontend src/data/energy.ts (9 Nov 2026).
-# Gas and water belong to energy_sources; there is NO device_consumption_gas.
+# Gas/water main sources belong to energy_sources. Newer HA also
+# provides an optional device_consumption_gas section.
 _FIELDS_BY_SECTION = {
     "energy_sources": ("stat_energy_from", "stat_energy_to"),
     "device_consumption": ("stat_consumption",),
     "device_consumption_water": ("stat_consumption",),
+    # Introduced later than the original three-section Energy schema.
+    "device_consumption_gas": ("stat_consumption",),
 }
 _MAX_PREF_BYTES = 1024 * 1024
 
@@ -34,6 +37,9 @@ def preferences_fingerprint(prefs: dict[str, Any]) -> str:
 def _selected_references(prefs: dict[str, Any]) -> list[tuple[str, int, str, str]]:
     found = []
     for section, fields in _FIELDS_BY_SECTION.items():
+        if section == "device_consumption_gas" and section not in prefs:
+            # HA older versions do not have gas appliance preferences.
+            continue
         sources = prefs.get(section)
         if not isinstance(sources, list):
             raise ValueError("Energy preferences section missing/invalid: " + section)
@@ -41,7 +47,7 @@ def _selected_references(prefs: dict[str, Any]) -> list[tuple[str, int, str, str
             if not isinstance(item, dict):
                 raise ValueError("Invalid Energy preference entry")
             if section == "energy_sources" and item.get("type") not in (
-                "grid", "solar", "battery", "gas", "water"
+                "grid", "solar", "home", "battery", "gas", "water"
             ):
                 raise ValueError("Unknown Energy source type")
             for key in fields:
