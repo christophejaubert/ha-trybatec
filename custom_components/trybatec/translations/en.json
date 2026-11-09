@@ -44,7 +44,9 @@
         "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.\n\nSubmit to save and return to the main menu. To discard changes without saving, close this dialog using ×.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)"
+          "annual_tariffs": "Annual tariffs (JSON, optional)",
+          "sparse_interval_hours": "Sparse reading threshold (hours, default 27)",
+          "zero_index_review_days": "Zero readings: request review after N consecutive days (0 disables, default 1)"
         }
       },
       "init": {

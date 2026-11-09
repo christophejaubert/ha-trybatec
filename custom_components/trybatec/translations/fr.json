@@ -44,7 +44,9 @@
         "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.\n\nValidez pour enregistrer et revenir au menu principal. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
-          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)"
+          "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
+          "sparse_interval_hours": "Seuil de relevés espacés (heures, défaut 27)",
+          "zero_index_review_days": "Index nul : solliciter après N jours consécutifs (0 désactive, défaut 1)"
         }
       },
       "init": {
