@@ -104,6 +104,12 @@ class TrybatecPanel extends HTMLElement {
     this._historyReason="manual_periodic";
     this._historyError="";
     this._historyMessage="";
+    this._originMeter="";
+    this._originDate="2021-01-01";
+    this._originIndex="0";
+    this._originPreview=null;
+    this._originBusy=false;
+    this._originError="";
     this._meterAudit=null;
     this._meterAuditBusy=false;
     this._meterAuditError="";
@@ -157,6 +163,7 @@ class TrybatecPanel extends HTMLElement {
       this._historySelected=btn.dataset.historySelect;this._render();return;
     }
     if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
+    if (btn.dataset.originPreview !== undefined) {this._previewOrigin();return;}
     if (btn.dataset.entityAudit !== undefined) {
       this._auditMeterEntity(btn.dataset.entityAudit);return;
     }
@@ -169,6 +176,14 @@ class TrybatecPanel extends HTMLElement {
     }
     if (event.target.dataset.energyBackup!==undefined) {
       this._energyBackup=event.target.checked;this._render();return;
+    }
+    const originField=event.target.dataset.originField;
+    if (originField) {
+      if (originField==="meter") this._originMeter=event.target.value;
+      if (originField==="date") this._originDate=event.target.value;
+      if (originField==="index") this._originIndex=event.target.value;
+      this._originPreview=null;
+      this._render();return;
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
@@ -492,6 +507,65 @@ class TrybatecPanel extends HTMLElement {
       this._historyBusy=false;this._render();
     }
   }
+  async _previewOrigin() {
+    if (!this._current || this._originBusy || !this._originMeter) return;
+    const meters=this._meters();
+    const m=meters.find(x=>x.physical_key===this._originMeter);
+    if (!m) return;
+    if (this._originIndex.trim()==="" || !Number.isFinite(Number(this._originIndex))
+        || Number(this._originIndex)<0) {
+      this._originError="L’index initial estimé doit être un nombre positif ou nul.";
+      this._render();return;
+    }
+    if (!window.confirm(
+      "Confirmer que la date et l’index initial sont des HYPOTHÈSES, pas des relevés mesurés ?"+
+      "\\n\\nCet aperçu n’enregistre aucune décision et ne modifie ni Recorder ni Énergie."
+    )) return;
+    this._originBusy=true;this._originError="";this._originPreview=null;this._render();
+    try {
+      this._originPreview=await this._hass.callWS({
+        type:"trybatec/panel_estimated_origin_preview",
+        entry_id:this._current.entry_id,
+        lot:m.lot,fluid:m.fluid,serial:m.serial,
+        estimated_start_date:this._originDate,
+        estimated_start_index:Number(this._originIndex),
+        confirm:true
+      });
+    } catch (_) {
+      this._originError="Aperçu refusé : vérifiez la date de départ, le premier relevé, l’unité et les anomalies. Rechargez un historique couvrant l’origine choisie.";
+    } finally {
+      this._originBusy=false;this._render();
+    }
+  }
+  _originView() {
+    const meterOptions=this._meters().map(m=>'<option value="'+safe(m.physical_key)+'" '+
+      (this._originMeter===m.physical_key?"selected":"")+'>'+
+      safe((FLUID[m.fluid]||m.fluid)+" · "+m.serial+" · "+m.lot)+'</option>').join("");
+    const preview=this._originPreview;
+    return '<section class="card" style="margin-top:16px">'+
+      '<div class="panel-title"><h3>Aucune borne antérieure fiable : simuler une origine estimée</h3>'+
+      '<span class="pill audit">Hypothèse non mesurée</span></div>'+
+      '<p class="muted">Indiquez une date de début et un index initial estimé (0 par défaut, modifiable). Le premier index réellement observé servira de borne finale. La période analysée doit commencer avant la date estimée.</p>'+
+      '<div class="form-grid" style="margin-top:15px">'+
+      '<div><label for="origin-meter">Compteur physique</label><select id="origin-meter" data-origin-field="meter">'+
+      '<option value="">Choisir un compteur</option>'+meterOptions+'</select></div>'+
+      '<div><label for="origin-date">Début estimé</label><input id="origin-date" type="date" data-origin-field="date" value="'+safe(this._originDate)+'"></div>'+
+      '<div><label for="origin-index">Index initial estimé</label><input id="origin-index" type="number" min="0" step="any" data-origin-field="index" value="'+safe(this._originIndex)+'"></div></div>'+
+      '<div class="actions"><button type="button" class="secondary" data-origin-preview '+
+      (this._originBusy||!this._historyPreview?"disabled":"")+'>Calculer l’aperçu hypothétique</button></div>'+
+      (this._originError?'<div class="notice warning">'+safe(this._originError)+'</div>':"")+
+      (preview?'<div class="notice"><strong>Simulation non enregistrée.</strong> Du '+
+      safe(preview.start_date)+' au '+safe(preview.end_date)+', quantité estimée : '+
+      safe(preview.estimated_total)+' '+safe(preview.unit)+
+      '. Premier index réellement observé : '+safe(preview.first_observed_index)+
+      ' à '+safe(preview.first_observed_at)+
+      '. L’index initial '+safe(preview.estimated_initial_index)+
+      ' est une hypothèse, pas une mesure. Aucune donnée n’a été enregistrée.</div>'+
+      (preview.daily_preview?this._historyDayBars({
+        daily_preview:preview.daily_preview,unit:preview.unit
+      }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>'):"")+
+      '<p class="muted" style="margin-top:13px">La persistance de cette hypothèse et son incorporation à une version Recorder feront l’objet d’une validation distincte.</p></section>';
+  }
   _historyDayBars(proposal) {
     const rows=proposal.daily_preview;
     if (!Array.isArray(rows)||!rows.length)
@@ -566,7 +640,7 @@ class TrybatecPanel extends HTMLElement {
         this._historyBusy||(this._historyMode==="linear"&&!ready)?"disabled":"")+
       '>Confirmer la décision</button></div>':
       '<h3>Avant / après</h3><div class="empty">Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.</div>')+
-      '</section></div><div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
+      '</section></div>'+this._originView()+'<div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
