@@ -80,14 +80,14 @@
       },
       "meter_units": {
         "title": "Choisir le compteur",
-        "description": "Trybatec affiche des unités dans ses graphiques (m³ ou kWh), mais cela ne garantit pas l’unité des index transmis par l’API. Sélectionnez un compteur pour comparer la référence graphique et l’unité source explicitement détectée. Une unité inconnue reste à confirmer avant tout import.\n\nLes compteurs dont l'unité est confirmée sont indiqués en priorité, même si l'API ne fournit aucune unité explicite. Chaque ligne distingue la source API et la confirmation de l'utilisateur.",
+        "description": "Choisissez un compteur. Une unité déjà confirmée est conservée pour ce compteur précis ; sinon, l’unité du graphique est proposée, à confirmer simplement en validant le formulaire. Les compteurs physiques, y compris remplacés, restent indépendants.\n\nL’unité d’un graphique est une référence configurée et non une preuve que l’API fournit explicitement cette unité pour les index.",
         "data": {
           "meter": "Compteur physique"
         }
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Référence graphique (non extraite dynamiquement de l’API) : {display_unit}. Unité de l’index détectée explicitement dans l’API : {portal_unit}. En l’absence de donnée source, vérifiez l’échelle des index avant de la confirmer : une conversion erronée fausserait les statistiques.\n\nUnité présélectionnée : {selection_origin}. La valeur indiquée par les graphiques n'est qu'une référence, sauf si l'API fournit explicitement l'unité de l'index.\n\nSi vous ne disposez pas de l'UUID de la fiche Trybatec, laissez ce champ vide. Si l'unité réelle des index n'est pas vérifiée, sélectionnez « Inconnue » dans la liste des unités. Ne confirmez pas une unité sur la seule base du graphique **sauf si vous êtes certain de l'unité à utiliser**.\n\nSélectionnez l’unité, saisissez éventuellement l’UUID et validez : les valeurs sont enregistrées avant le retour à la liste des compteurs. Pour abandonner sans enregistrer, fermez avec ×.",
+        "description": "Compteur : {meter}. Unité de référence du graphique : {display_unit} (référence configurée, non interrogée en temps réel). Unité de l’index fournie explicitement par l’API : {portal_unit}.\n\nPrésélection : {selection_origin}. Le choix déjà enregistré pour ce compteur est conservé. Sinon, l’unité de l’API est proposée, ou à défaut celle du graphique. Cliquez sur « Valider » pour confirmer ce choix ; aucune confirmation supplémentaire n’est nécessaire. Si l’unité est inconnue, sélectionnez « Inconnue ».\n\nL’UUID de la fiche Trybatec est facultatif. Après validation, vous revenez à la liste des compteurs. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
         "data": {
           "unit": "Unité source confirmée",
           "device_uuid": "UUID de la fiche Trybatec (facultatif)"
