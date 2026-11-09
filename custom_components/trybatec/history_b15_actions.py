@@ -29,6 +29,9 @@ from .units import resolve_meter_unit, validate_meter_units
 from .energy_runtime_b15 import (
     preview_energy_activation, activate_energy_version,
 )
+from .energy_live_handoff_b17 import (
+    preview_live_energy_handoff, apply_live_energy_handoff,
+)
 
 B15_SERVICE_SCHEMA = vol.Schema({
     vol.Optional("entry_id"): str,
@@ -271,6 +274,45 @@ async def async_apply_b15_migration(hass: Any, call: Any) -> dict[str, Any]:
                 before_fingerprint=call.data["before_fingerprint"],
                 confirm=call.data.get("confirm") is True,
                 backup_confirmed=call.data.get("backup_confirmed") is True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ServiceValidationError(str(exc)) from exc
+
+
+async def async_preview_live_meter_energy(hass: Any, call: Any) -> dict[str, Any]:
+    """Show a read-only same-meter handoff with Energy and Recorder checks."""
+    from .history_services import _require_admin, _coordinator
+    await _require_admin(hass, call)
+    coordinator = _coordinator(hass, call.data)
+    try:
+        return await preview_live_energy_handoff(
+            hass, coordinator,
+            entity_id=call.data["entity_id"],
+            lot=call.data["lot"], fluid=call.data["fluid"],
+            serial=call.data["serial"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ServiceValidationError(str(exc)) from exc
+
+
+async def async_apply_live_meter_energy(hass: Any, call: Any) -> dict[str, Any]:
+    """Administrator-only, confirmed Energy handoff; no Recorder or ID writes."""
+    from .history_services import _require_admin, _coordinator
+    await _require_admin(hass, call)
+    if call.data.get("confirm") is not True or call.data.get("backup_confirmed") is not True:
+        raise ServiceValidationError("Approve backup and Energy handoff explicitly")
+    coordinator = _coordinator(hass, call.data)
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        try:
+            return await apply_live_energy_handoff(
+                hass, coordinator,
+                entity_id=call.data["entity_id"],
+                lot=call.data["lot"], fluid=call.data["fluid"],
+                serial=call.data["serial"],
+                before_fingerprint=call.data["before_fingerprint"],
+                confirm=True, backup_confirmed=True,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ServiceValidationError(str(exc)) from exc
