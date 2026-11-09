@@ -368,11 +368,32 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._correction_draft = None
         self._selected_sparse = None
         self._pending_sparse = None
+        # An explicit label mapping is supported by HA's native menu API.
+        # Supply nonempty, localized labels directly so a stale/missing
+        # frontend translation never creates an invisible clickable row.
         return self.async_show_menu(
             step_id="init",
-            menu_options=["settings", "diagnostics", "meter_units",
-                          "history_overview", "history_meters", "history_review",
-                          "history_smoothing"],
+            menu_options={
+                "settings": self._nav_text("Réglages", "Settings"),
+                "diagnostics": self._nav_text(
+                    "Diagnostics et journalisation", "Diagnostics and logging"
+                ),
+                "meter_units": self._nav_text(
+                    "Vérifier les unités des compteurs", "Verify meter units"
+                ),
+                "history_overview": self._nav_text(
+                    "Synthèse graphique de l’historique", "History overview"
+                ),
+                "history_meters": self._nav_text(
+                    "Détails des compteurs", "Meter details"
+                ),
+                "history_review": self._nav_text(
+                    "Réviser les relevés historiques", "Review historical readings"
+                ),
+                "history_smoothing": self._nav_text(
+                    "Lissage des intervalles historiques", "Review sparse intervals"
+                ),
+            },
         )
 
     # Keep the main menu direct. Home Assistant does not support native
@@ -1059,6 +1080,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             step_id="history_decision",
             menu_options=[
                 "history_decision_accept", "history_decision_correct",
+                "history_decision_smoothing",
                 "history_decision_reject", "history_decision_postpone",
                 "history_review", "init",
             ],
@@ -1073,6 +1095,35 @@ class TrybatecOptionsFlow(OptionsFlow):
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
         return await self.async_step_history_correction()
+
+    async def async_step_history_decision_smoothing(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Open the sparse interval ending at the selected physical reading.
+
+        This is a navigation-only shortcut: an unresolved source zero, unit
+        ambiguity or overlap still blocks the proposed linear allocation.
+        """
+        selected = self._selected_reading
+        if selected is None:
+            return self._history_notice("history_preview_missing")
+        candidates = await self._smoothing_candidates()
+        target = datetime.fromisoformat(selected["source_date"]).astimezone(ZONE).date().isoformat()
+        matching = [
+            item for item in candidates
+            if (
+                item["lot"], item["fluid"], item["meter_serial"],
+                item["end_date"],
+            ) == (
+                selected["lot"], selected["fluid"], selected["meter_serial"],
+                target,
+            )
+        ]
+        if len(matching) == 1:
+            self._selected_sparse = matching[0]
+            self._pending_sparse = None
+            return await self.async_step_history_smoothing_choice()
+        return await self.async_step_history_smoothing()
 
     async def async_step_history_decision_reject(
         self, user_input: dict | None = None
