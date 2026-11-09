@@ -654,6 +654,7 @@ def test_main_menu_keeps_six_readable_direct_destinations(ui):
     expected = [
         "settings", "diagnostics", "meter_units",
         "history_overview", "history_meters", "history_review",
+        "history_smoothing",
     ]
     assert menu["type"] == "menu"
     assert menu["menu_options"] == expected
