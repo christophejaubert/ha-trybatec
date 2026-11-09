@@ -13,7 +13,9 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .const import TIMEZONE
-from .history_reconstruction import preview_sparse_intervals
+from .history_reconstruction import preview_sparse_intervals, propose_interval
+from .history_origin_fingerprint import origin_fingerprint
+from .units import meter_key
 from .units import unit_factor, normalized_unit
 
 ZONE = ZoneInfo(TIMEZONE)
@@ -43,6 +45,7 @@ def variants_preview(
     confirmed_decisions: Mapping[str, Mapping[str, str]] | None = None,
     *,
     sparse_hours: int = 27,
+    estimated_origins: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Do not activate either source in Energy or enqueue Recorder rows.
 
@@ -56,6 +59,10 @@ def variants_preview(
     if not isinstance(records, dict):
         raise ValueError("Physical history unavailable")
     selections = dict(confirmed_decisions or {})
+    origins = dict(estimated_origins or {})
+    physical_keys = {meter_key(*key) for key in records}
+    if set(origins) - physical_keys:
+        raise ValueError("Estimated origin belongs to a foreign or absent physical meter")
     gaps = preview_sparse_intervals(
         dict(history), verified_units, sparse_hours=sparse_hours,
         max_intervals=100, max_daily_rows=3660,
@@ -108,6 +115,55 @@ def variants_preview(
                     raise ValueError("Measured or previously allocated day would be double counted")
                 smoothed[at] = Decimal(str(point["quantity"])) * Decimal(str(factor))
             chosen_keys.append(gap["interval_key"])
+        estimated = origins.get(meter_key(lot, fluid, serial))
+        if estimated is not None:
+            if not isinstance(estimated, Mapping):
+                raise ValueError("Malformed estimated origin decision")
+            if (estimated.get("lot"), estimated.get("fluid"), estimated.get("serial")) != key:
+                raise ValueError("Estimated origin belongs to another physical meter")
+            if estimated.get("source_fingerprint") != meter.get("source_fingerprint"):
+                raise ValueError("Estimated origin decision has stale source readings")
+            readings = meter.get("reviewed_readings", ())
+            if not readings or not isinstance(readings, (tuple, list)):
+                raise ValueError("No first source index for estimated origin")
+            first_at, first_index = readings[0]
+            initial_at = date.fromisoformat(estimated["estimated_start_date"])
+            initial_value = estimated["estimated_start_index"]
+            expected = origin_fingerprint(
+                lot=lot, fluid=fluid, serial=serial,
+                source_fingerprint=meter["source_fingerprint"],
+                first_at=first_at, first_index=first_index,
+                estimated_start_date=initial_at,
+                estimated_start_index=initial_value,
+            )
+            if expected != estimated.get("preview_fingerprint"):
+                raise ValueError("Estimated origin fingerprint does not match current source")
+            if first_at.isoformat() != estimated.get("first_observed_at"):
+                raise ValueError("First measured index date changed")
+            if float(first_index) != float(estimated.get("first_observed_index")):
+                raise ValueError("First measured index value changed")
+            if any(stamp <= first_at for stamp in meter.get("unreviewed_zero_times", ())):
+                raise ValueError("Unreviewed source zero blocks estimated origin")
+            if first_index == 0 and first_at not in meter.get("qualified_zero_times", ()):
+                raise ValueError("Unqualified first source zero blocks estimated origin")
+            allocated = propose_interval(
+                end_reading=(first_at, first_index), start_reading=None,
+                measured_by_day={}, mode="linear",
+                estimated_start_date=initial_at,
+                estimated_start_index=initial_value,
+                confirm_estimated_start=True,
+                zero_index_verified=(first_index != 0 or
+                                     first_at in meter.get("qualified_zero_times", ())),
+            )
+            # The first observed reading defines a bound, not daily usage.
+            # Reject any overlap with true measured consumption or prior
+            # approved gap allocations instead of adding estimates twice.
+            for point in allocated["allocations"]:
+                at = date.fromisoformat(point["date"])
+                if at in smoothed or at in raw:
+                    raise ValueError("Estimated origin overlaps measured/allocated consumption")
+                smoothed[at] = Decimal(str(point["quantity"])) * Decimal(str(factor))
+            chosen_keys.append("estimated-origin:" + expected)
         raw_daily = dict(sorted(raw.items()))
         smooth_daily = dict(sorted(smoothed.items()))
         result.append({
