@@ -38,7 +38,6 @@ def test_zero_review_disabled_does_not_report_zero_as_decrease():
 def test_sparse_threshold_controls_review():
     p = meter([10, 11])
     first = list(p.values())[0]
-    second = list(first["indexes"].items())[1]
     first["indexes"] = {
         datetime(2026, 1, 1, 12, tzinfo=timezone.utc): 10,
         datetime(2026, 1, 3, 12, tzinfo=timezone.utc): 11,
