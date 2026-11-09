@@ -21,7 +21,7 @@ from .units import (
     portal_index_unit, portal_display_unit, index_unit_field_paths,
     resolve_meter_unit, validate_meter_units, normalized_unit,
 )
-from .history_review import apply_review_to_meter, review_candidates
+from .history_review import apply_review_to_meter, review_candidates, reading_key
 
 MAX_DETAILS = 100
 # No aggregate cap on periods, physical meters, rows or observations:
@@ -218,7 +218,21 @@ def build_history(
         zero_review_days=zero_index_review_days,
     )
     for meter in meters.values():
+        # A vendor zero cannot become a verified measured baseline just
+        # because zero notifications were disabled. Only an explicit source-
+        # keyed review decision may qualify it or exclude it knowingly.
+        unreviewed_zeros = {
+            at for at, value in meter["indexes"].items()
+            if value == 0 and decisions.get(reading_key(
+                meter["lot"], meter["fluid"], meter["serial"], at, value
+            ), {}).get("action") not in ("accept", "correct", "reject", "postpone")
+        }
+        meter["unreviewed_zero_times"] = unreviewed_zeros
         indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
+        # Keep untouched source readings in raw_fingerprints; prevent an
+        # unreviewed zero from generating any imported consumption.
+        for at in unreviewed_zeros:
+            indexes.pop(at, None)
         # A contradictory provider timestamp cannot serve as a trusted
         # baseline. Drop that particular reading from the plan, not the
         # surrounding valid observations or the entire physical meter.
@@ -254,6 +268,7 @@ def build_history(
             # Read-only internal source for future administrator preview only.
             # These are reviewed values, not fabricated daily observations.
             "reviewed_readings": readings,
+            "unreviewed_zero_times": meter["unreviewed_zero_times"],
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
             "fatal_conflicts": meter["fatal_conflicts"],
             "total": 0.0, "importable": 0.0, "unallocated": 0.0,
@@ -324,7 +339,13 @@ def build_history(
                         "at": _bucket(target_at), "quantity": round(delta, 6),
                         "source_key": source_key,
                     })
-            if 1 <= span_hours <= sparse_interval_hours:
+            # Even a gap shorter than 27h is uncertain if an unresolved
+            # source zero was encountered between the two reliable bounds.
+            zero_interrupted = any(
+                prev_at < zero_at < at
+                for zero_at in meter["unreviewed_zero_times"]
+            )
+            if 1 <= span_hours <= sparse_interval_hours and not zero_interrupted:
                 if series["anchor"] is None:
                     series["anchor"] = {
                         "reading_at": prev_at.isoformat(),
