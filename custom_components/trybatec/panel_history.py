@@ -43,6 +43,45 @@ def _options(coordinator: Any) -> dict[str, int]:
     return {"sparse_interval_hours": sparse, "zero_index_review_days": zeros}
 
 
+def link_review_candidates_to_previous_intervals(
+    candidates: list[dict[str, Any]], intervals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Find one exact preceding gap by physical identity and full timestamp.
+
+    Never infer a match from friendly names, approximate dates or suffixes.
+    An ambiguous match is not navigable and cannot authorize a decision.
+    """
+    endings: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for item in intervals:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid interval in source review")
+        key = (
+            item.get("lot"), item.get("fluid"), item.get("meter_serial"),
+            item.get("source_end_at"),
+        )
+        endings.setdefault(key, []).append(item)
+    output = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError("Invalid reading review candidate")
+        linked = dict(candidate)
+        key = (
+            linked.get("lot"), linked.get("fluid"), linked.get("meter_serial"),
+            linked.get("source_date"),
+        )
+        matches = endings.get(key, [])
+        if len(matches) == 1 and isinstance(matches[0].get("interval_key"), str):
+            linked["preceding_interval_key"] = matches[0]["interval_key"]
+            linked["preceding_interval_status"] = matches[0].get("status")
+        else:
+            linked["preceding_interval_key"] = None
+            linked["preceding_interval_status"] = (
+                "ambiguous" if len(matches) > 1 else "not_available"
+            )
+        output.append(linked)
+    return output
+
+
 async def _proposals_from_cached_history(
     hass: HomeAssistant, coordinator: Any
 ) -> dict[str, Any]:
@@ -80,7 +119,10 @@ async def _proposals_from_cached_history(
         interval["before_after"] = preview_daily_before_after(interval)
     return {
         "proposals": proposals,
-        "review_candidates": history["__review_candidates__"][:_MAX_RESULT_ROWS],
+        "review_candidates": link_review_candidates_to_previous_intervals(
+            history["__review_candidates__"][:_MAX_RESULT_ROWS],
+            proposals["intervals"],
+        ),
         "review_candidates_truncated": len(history["__review_candidates__"]) > _MAX_RESULT_ROWS,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
