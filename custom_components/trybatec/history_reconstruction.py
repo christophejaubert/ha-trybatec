@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from hashlib import sha256
+import json
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -260,7 +261,22 @@ def preview_sparse_intervals(
             total_found += 1
             if len(proposals) >= max_intervals:
                 continue
+            # A choice is bound to the exact source endpoints and the
+            # complete physical source fingerprint. Vendor corrections
+            # invalidate it, without deleting the old raw measurements.
+            interval_identity = [
+                lot, fluid, serial,
+                first_at.isoformat(), str(first_index),
+                last_at.isoformat(), str(last_index),
+                meter.get("source_fingerprint"),
+            ]
+            interval_key = sha256(
+                json.dumps(
+                    interval_identity, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+            ).hexdigest()[:32]
             base = {
+                "interval_key": interval_key,
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
                 "start_date": _local_day(first_at).isoformat(),
                 "end_date": _local_day(last_at).isoformat(),
