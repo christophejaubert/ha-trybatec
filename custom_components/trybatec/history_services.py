@@ -26,7 +26,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .api import TrybatecDataError
+from .api import TrybatecConnectionError, TrybatecDataError
 from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
 from .historical_costs import estimate_historical_costs
 from .history_diagnostics import diagnose_history as build_history_diagnostics
