@@ -5,7 +5,6 @@ from itertools import count
 import pytest
 
 from custom_components.trybatec.history import (
-    MAX_OBSERVATIONS,
     build_history,
     combine_payloads,
     physical_statistic_id,
