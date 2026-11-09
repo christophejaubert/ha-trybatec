@@ -759,7 +759,7 @@ class TrybatecPanel extends HTMLElement {
         this._historyBusy||(this._historyMode==="linear"&&!ready)?"disabled":"")+
       '>Confirmer la décision</button></div>':
       '<h3>Avant / après</h3><div class="empty">Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.</div>')+
-      '</section></div>'+this._readingReview()++this._originView()
+      '</section></div>'+this._readingReview()+this._originView()+
       '<div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
   }
   _tariffs() {
