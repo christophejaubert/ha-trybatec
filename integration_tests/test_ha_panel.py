@@ -218,6 +218,9 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     account = snapshot["accounts"][0]
     assert account["meters"][0]["serial"] == "CI-PANEL-METER"
     assert account["meters"][0]["status"] == "en_service"
+    assert account["physical_meter_timeline"][0]["lot"] == "CI-LOT"
+    assert account["physical_meter_timeline"][0]["meters"][0]["serial"] == "CI-PANEL-METER"
+    assert account["physical_meter_timeline"][0]["meters"][0]["first_observation_known"] is True
     assert account["tariffs"]["2022"]["EF"]["rate"] == 2.5
     assert account["archived_inventory_count"] == 0
     assert account["ledger"]["status"] == "no_import"
