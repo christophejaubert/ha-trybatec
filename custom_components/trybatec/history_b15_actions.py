@@ -6,7 +6,6 @@ Every external mutation requires a separate confirmed HA service call.
 from __future__ import annotations
 
 import asyncio
-from hashlib import sha256
 from typing import Any
 
 try:
@@ -17,7 +16,7 @@ except ImportError:
 from homeassistant.exceptions import ServiceValidationError
 
 from .const import (
-    CONF_METER_UNITS, CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS, DOMAIN,
+    CONF_METER_UNITS, CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
 )
 from .history_plan_b15 import make_b15_plan
 from .history_recorder_b15 import (
