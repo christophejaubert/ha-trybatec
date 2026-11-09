@@ -13,7 +13,7 @@
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/christophejaubert/ha-trybatec#readme",
+  "documentation": "https://github.com/christophejaubert/ha-trybatec",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/christophejaubert/ha-trybatec/issues",
