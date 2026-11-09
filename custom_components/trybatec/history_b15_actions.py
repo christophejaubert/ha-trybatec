@@ -24,6 +24,7 @@ from .history_recorder_b15 import (
     ledger_store, queue_b15_plan, verify_b15_recorder,
 )
 from .history_smoothing_store import load_choices
+from .history_devices_b15 import persist_historical_inventory
 from .units import resolve_meter_unit, validate_meter_units
 from .energy_runtime_b15 import (
     preview_energy_activation, activate_energy_version,
@@ -205,3 +206,29 @@ async def async_apply_b15_energy(hass: Any, call: Any) -> dict[str, Any]:
         except (KeyError, ValueError, TypeError) as exc:
             raise ServiceValidationError(str(exc)) from exc
         return {**result, "ledger_persisted": True}
+
+
+async def async_archive_b15_meters(hass: Any, call: Any) -> dict[str, Any]:
+    """Persist only vendor-observed retired devices after an approved backup."""
+    from .history_services import _require_admin, _load, _coordinator
+    await _require_admin(hass, call)
+    if call.data.get("confirm") is not True or call.data.get("backup_confirmed") is not True:
+        raise ServiceValidationError("Historical archive requires explicit backup and approval")
+    coordinator = _coordinator(hass, call.data)
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        coordinator, start, end, history, requests = await _load(hass, call)
+        try:
+            result = await persist_historical_inventory(
+                hass, coordinator.entry.entry_id, history,
+                coordinator.entry.options.get(CONF_METER_UNITS, {}),
+                confirm=True, backup_confirmed=True,
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ServiceValidationError(str(exc)) from exc
+    return {
+        **result, "requested_start": start.isoformat(),
+        "requested_end": end.isoformat(),
+        "api_requests": requests,
+    }
