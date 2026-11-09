@@ -1,3 +1,20 @@
+# 0.2.0b13 — Candidate correction: adaptive historical preview and readable unit facts
+
+**Draft only — no tag or release; no installation or changes to Home Assistant.**
+
+- Recover long Trybatec history previews when an API index response fails with a data-format/size error by retrying smaller, overlapping periods. This directly targets the reported October 1–November 9 window failure (a 39-day request), while the November 1–9 request succeeds. The **92-day segmentation is not a proven vendor limit**.
+- Keep history integrity strict: do not omit any date, silently accept partial data, overwrite the previous preview cache, or import Recorder rows when any subwindow is invalid. The API-request budget is capped at 80 window fetches; each is separated by a brief pause.
+- When even a single day is invalid, report the exact failing date window and a fixed, nonsensitive error category. Never log vendor bodies, credentials or tokens.
+- Count actual attempted history windows, including rejected larger windows, in `api_requests`.
+- In the unit options form, show the physical meter, chart reference unit, and explicit API unit on **three separate Markdown lines** with **bold values**. Escape portal-supplied meter labels so they remain literal text.
+- Add automated regression tests for recoverable oversized windows, a persistently invalid day, strict request caps, absence of cache replacement on failure, and French/English formatted labels.
+
+**Unverified until live testing:** whether October's real API response will become recoverable through subdivision, and the exact visual line-break rendering on a live French Home Assistant frontend.
+
+No automatic history import, Recorder write, HACS install, GitHub merge or publication is authorized by preparing this candidate.
+
+---
+
 # 0.2.0b12 — Candidate corrective: default meter units and saved selections
 
 **Draft candidate only; no tag or release, no merge, no changes to running Home Assistant.**
