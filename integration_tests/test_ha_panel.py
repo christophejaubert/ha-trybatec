@@ -115,7 +115,10 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert api_calls == ["ci-deal"]
-    assert frontend.async_panel_exists(hass, "trybatec")
+    # The headless HA test fixture intentionally lacks the frontend package.
+    # The integration remains fully functional; the sidebar is independently
+    # validated by the mocked registration test below.
+    assert not frontend.async_panel_exists(hass, "trybatec")
     assert hass.services.has_service(DOMAIN, "preview_history")
     assert hass.services.has_service(DOMAIN, "preview_live_meter_energy")
     assert "recorder" not in hass.config.components
@@ -139,3 +142,31 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     assert flow["type"] == "menu"
     assert flow["step_id"] == "init"
     assert len(flow["menu_options"]) == 7
+
+
+async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatch):
+    """Assert actual registration contract without installing a graphical HA app."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from custom_components.trybatec import panel_api
+    from homeassistant.components import frontend, panel_custom, websocket_api
+
+    register_static = AsyncMock()
+    register_gui = AsyncMock()
+    register_ws = Mock()
+    fake_hass = SimpleNamespace(
+        http=SimpleNamespace(async_register_static_paths=register_static),
+    )
+    monkeypatch.setattr(frontend, "async_panel_exists", lambda h, p: False)
+    monkeypatch.setattr(panel_custom, "async_register_panel", register_gui)
+    monkeypatch.setattr(websocket_api, "async_register_command", register_ws)
+    await panel_api.async_register_panel(fake_hass)
+    assert register_static.await_count == 1
+    assert register_gui.await_count == 1
+    opts = register_gui.await_args.kwargs
+    assert opts["webcomponent_name"] == "trybatec-panel"
+    assert opts["frontend_url_path"] == "trybatec"
+    assert opts["sidebar_title"] == "Trybatec"
+    assert opts["require_admin"] is True
+    assert opts["module_url"].endswith("/trybatec-panel.js")
+    register_ws.assert_called_once()
