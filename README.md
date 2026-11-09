@@ -50,12 +50,37 @@ not constitute a production acceptance test or permission to release.
   startup. Cleaning legacy entities requires separate user-facing migration
   preview, dependency analysis and confirmation.
 
-**Remaining before b15 release:** integrate these proposals with the native
-review UI, implement all alternate Recorder series and version ledger,
-retired-meter historical devices, non-destructive entity migration, guarded
-Energy write/verification/rollback and full integration tests (including
-Home Assistant runtime). Do not merge or release while those checks remain
-open.
+**New in the ongoing b15 development branch (not yet released):**
+
+- **Configure → Review sparse intervals** guides the operator through an
+  individual interval, **no smoothing** or **linear residual smoothing**, a
+  user-declared manual/telemetry reason, and a **separate confirmation screen**.
+  Confirmed source-specific choices are stored locally with an audit timestamp.
+  They cannot themselves import Recorder data, alter Energy preferences or
+  change vendor measurements.
+- **trybatec.preview_history** with
+  `preview_linear_proposals: true` includes read-only
+  `linear_proposals` and `alternative_series`. The alternative physical
+  meter series are raw observed consumption versus observed plus individually
+  approved linear gaps. Unverified units, source conflicts, unresolved zero
+  readings and stale choices block proposals. Both variants are previews,
+  **not available as Recorder statistics yet**.
+- The V1/V2/V3 ledger module can prepare versions, require explicit revisions,
+  track `prepared/imported/verified/active/archived` and guard activation and
+  rollback. The b15 import/verification/activation orchestration is **not yet
+  connected** to this ledger; a pure-unit-test success does not constitute a
+  persisted Recorder version.
+- Meters marked `depose` **in a current API response** can now appear as
+  historical-only sensors (no increasing statistic state class); older meters
+  visible only through the full historic API remain in the detailed history
+  preview until a safe persisted historical device inventory is implemented.
+
+**Remaining before b15 release:** wire alternative series to a fully staged
+Recorder import with version verification, persistent historical devices,
+non-destructive entity-registry migration and complete dependency inventory,
+and the guarded Energy preference write/verification/rollback transaction.
+The final runtime tests and release/merge checks must then all pass at the
+exact b15 head. Do not merge or release while those checks remain open.
 
 ## Changes in 0.2.0b6 — Read before historical imports
 
