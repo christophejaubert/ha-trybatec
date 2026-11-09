@@ -32,6 +32,8 @@ from .const import (
     CONF_TARIFFS,
     CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL, LOG_LEVELS,
     DEFAULT_POLL_MINUTES,
+    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
+    CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
     DOMAIN,
     MIN_POLL_MINUTES,
 )
@@ -411,6 +413,16 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ))
                 if not MIN_POLL_MINUTES <= poll <= 10080:
                     raise ValueError("Polling interval out of bounds")
+                sparse = int(user_input.get(
+                    CONF_SPARSE_HOURS,
+                    self.config_entry.options.get(CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS),
+                ))
+                zeros = int(user_input.get(
+                    CONF_ZERO_REVIEW_DAYS,
+                    self.config_entry.options.get(CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS),
+                ))
+                if not 1 <= sparse <= 87600 or not 0 <= zeros <= 36500:
+                    raise ValueError("Invalid review thresholds")
                 validate_tariffs(tariffs)
                 if route not in ("finish", "menu"):
                     raise ValueError("Invalid navigation")
@@ -418,7 +430,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                 errors["base"] = "invalid_settings"
             else:
                 return await self._save_options_and_navigate(
-                    {CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs}, route
+                    {
+                        CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs,
+                        CONF_SPARSE_HOURS: sparse, CONF_ZERO_REVIEW_DAYS: zeros,
+                    }, route
                 )
         schema = vol.Schema(
             {
@@ -432,10 +447,33 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
+                vol.Required(
+                    CONF_SPARSE_HOURS,
+                    default=self.config_entry.options.get(
+                        CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=87600)),
+                vol.Required(
+                    CONF_ZERO_REVIEW_DAYS,
+                    default=self.config_entry.options.get(
+                        CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=36500)),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
+
+    def _history_thresholds(self) -> dict[str, int]:
+        """Use the same persisted thresholds on all history preview screens."""
+        return {
+            "sparse_interval_hours": int(self.config_entry.options.get(
+                CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+            )),
+            "zero_index_review_days": int(self.config_entry.options.get(
+                CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+            )),
+        }
 
     def _known_meter_units(self, coordinator) -> dict[str, dict]:
         """Current plus cached historical (including replaced) physical meters."""
@@ -447,7 +485,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         cache = getattr(coordinator, "_history_review_cache", None)
         if cache:
             payloads, start, end, lots = cache
-            history = build_history(payloads, start, end, allowed_lots=lots)
+            history = build_history(payloads, start, end, allowed_lots=lots, **self._history_thresholds())
             for (lot, fluid, serial), item in history["__physical_meters__"].items():
                 key = meter_key(lot, fluid, serial)
                 if key not in meters:
@@ -623,7 +661,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         meters = history["__physical_meters__"]
         flagged = history["__review_candidates__"]
         if user_input is not None and user_input.get("review") is True:
@@ -668,7 +706,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         meter_choices = {}
         fluid_names = {
             "EF": self._nav_text("Eau froide", "Cold water"),
@@ -721,7 +759,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         matches = [
             (lot, fluid, serial, meter)
             for (lot, fluid, serial), meter in history["__physical_meters__"].items()
@@ -810,7 +848,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             cache = getattr(coordinator, "_history_review_cache", None)
             if cache is not None:
                 payloads, start, end, allowed_lots = cache
-                updated = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=saved)
+                updated = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=saved, **self._history_thresholds())
                 coordinator._history_review_candidates = updated["__review_candidates__"]
             else:
                 coordinator._history_review_candidates = [
