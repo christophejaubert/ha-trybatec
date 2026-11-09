@@ -43,6 +43,8 @@ from .device_units import uuid_text
 from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
+from .history_reconstruction import preview_sparse_intervals
+from .history_smoothing_store import load_choices, save_choice
 
 RETURN_TO_MENU = "__return_to_main_menu__"
 RETURN_TO_METERS = "__return_to_meter_list__"
@@ -242,6 +244,8 @@ class TrybatecOptionsFlow(OptionsFlow):
     _selected_history_meter_key: str | None = None
     _return_after_confirmation: bool = False
     _correction_draft: dict | None = None
+    _selected_sparse: dict | None = None
+    _pending_sparse: dict | None = None
 
     @staticmethod
     def _radio_choices(choices: dict[str, str]) -> SelectSelector:
@@ -349,6 +353,8 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._pending_review = None
         self._return_after_confirmation = False
         self._correction_draft = None
+        self._selected_sparse = None
+        self._pending_sparse = None
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -360,10 +366,13 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._pending_review = None
         self._return_after_confirmation = False
         self._correction_draft = None
+        self._selected_sparse = None
+        self._pending_sparse = None
         return self.async_show_menu(
             step_id="init",
             menu_options=["settings", "diagnostics", "meter_units",
-                          "history_overview", "history_meters", "history_review"],
+                          "history_overview", "history_meters", "history_review",
+                          "history_smoothing"],
         )
 
     # Keep the main menu direct. Home Assistant does not support native
@@ -796,6 +805,172 @@ class TrybatecOptionsFlow(OptionsFlow):
         if coordinator is None:
             return []
         return list(getattr(coordinator, "_history_review_candidates", []))
+
+
+    async def _smoothing_candidates(self) -> list[dict]:
+        """Use only an already fetched administrator preview; never contact
+        Trybatec, mutate measurements or infer manual reading provenance.
+        """
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        cache = getattr(coordinator, "_history_review_cache", None) if coordinator else None
+        if cache is None:
+            return []
+        from .history_store import load_decisions
+        payloads, start, end, allowed_lots = cache
+        decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+        history = build_history(
+            payloads, start, end, allowed_lots=allowed_lots,
+            decisions=decisions, **self._history_thresholds(),
+        )
+        known = self._known_meter_units(coordinator)
+        units = {}
+        for key in history["__physical_meters__"]:
+            meter = known.get(meter_key(*key))
+            if meter is not None and meter.get("verified_unit") is not None:
+                from .units import normalized_unit
+                units[key] = normalized_unit(key[1])
+        view = preview_sparse_intervals(
+            history, units,
+            sparse_hours=self._history_thresholds()["sparse_interval_hours"],
+            max_intervals=100,
+        )
+        return view["intervals"]
+
+    async def async_step_history_smoothing(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Choose one physical-meter gap; no data changes on navigation."""
+        if user_input is not None and user_input.get("interval") == RETURN_TO_MENU:
+            return await self._go_to_main_menu()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self._history_notice("history_unavailable")
+        if getattr(coordinator, "_history_review_cache", None) is None:
+            return self._history_notice("history_preview_missing")
+        candidates = await self._smoothing_candidates()
+        if not candidates:
+            return self._history_notice("history_empty")
+        by_key = {candidate["interval_key"]: candidate for candidate in candidates}
+        if user_input is not None:
+            found = by_key.get(user_input.get("interval"))
+            if found is None:
+                return self._history_notice("history_preview_missing")
+            self._selected_sparse = found
+            self._pending_sparse = None
+            return await self.async_step_history_smoothing_choice()
+        stored = await load_choices(self.hass, self.config_entry.entry_id)
+        selections = {
+            item["interval_key"]: (
+                f'{item["fluid"]} · {item["meter_serial"]} · {item["lot"]} · '
+                f'{item["start_date"]} → {item["end_date"]} · '
+                f'{item["status"]} · '
+                f'{stored.get(item["interval_key"], {}).get("mode", "unreviewed")}'
+            )[:240]
+            for item in candidates
+        }
+        selections[RETURN_TO_MENU] = self._nav_text("Retour au menu", "Back to menu")
+        return self.async_show_form(
+            step_id="history_smoothing",
+            data_schema=vol.Schema({
+                vol.Required("interval"): self._radio_choices(selections)
+            }),
+        )
+
+    async def async_step_history_smoothing_choice(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Make a draft decision, without implicitly accepting any estimates."""
+        selected = self._selected_sparse
+        if selected is None:
+            return self._history_notice("history_preview_missing")
+        errors = {}
+        stored = await load_choices(self.hass, self.config_entry.entry_id)
+        current = stored.get(selected["interval_key"], {})
+        if user_input is not None:
+            mode = user_input.get("mode")
+            reason = user_input.get("reason")
+            if mode not in ("none", "linear") or reason not in (
+                "manual_periodic", "telemetry_failure", "other"
+            ):
+                errors["base"] = "invalid_smoothing"
+            elif mode == "linear" and selected["status"] != "linear_available_after_explicit_confirmation":
+                errors["base"] = "smoothing_blocked"
+            else:
+                self._pending_sparse = {"mode": mode, "reason": reason}
+                return await self.async_step_history_smoothing_confirm()
+        return self.async_show_form(
+            step_id="history_smoothing_choice",
+            errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("mode", default=current.get("mode", "none")):
+                    self._radio_choices({
+                        "none": self._nav_text("Sans lissage", "No smoothing"),
+                        "linear": self._nav_text("Lissage linéaire du résiduel", "Linear residual smoothing"),
+                    }),
+                vol.Required("reason", default=current.get("reason", "manual_periodic")):
+                    self._radio_choices({
+                        "manual_periodic": self._nav_text("Relève manuelle", "Periodic/manual reading"),
+                        "telemetry_failure": self._nav_text("Panne de télérelève", "Telemetry outage"),
+                        "other": self._nav_text("Autre motif", "Other reason"),
+                    }),
+            }),
+            description_placeholders={
+                "interval": f'{selected["fluid"]} · {selected["meter_serial"]} · '
+                            f'{selected["start_date"]} → {selected["end_date"]}',
+                "status": selected["status"],
+                "total": str(selected.get("bounded_consumption", "indéterminé")),
+            },
+        )
+
+    async def async_step_history_smoothing_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Explicit confirmation updates only the local decision store."""
+        selected, draft = self._selected_sparse, self._pending_sparse
+        if selected is None or draft is None:
+            return self._history_notice("history_preview_missing")
+        errors = {}
+        if user_input is not None:
+            if user_input.get("confirm") is not True:
+                errors["base"] = "confirmation_required"
+            else:
+                coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+                if coordinator is None:
+                    return self._history_notice("history_unavailable")
+                if not hasattr(coordinator, "_history_import_lock"):
+                    coordinator._history_import_lock = __import__("asyncio").Lock()
+                async with coordinator._history_import_lock:
+                    candidates = await self._smoothing_candidates()
+                    current = next(
+                        (item for item in candidates if item["interval_key"] == selected["interval_key"]),
+                        None,
+                    )
+                    if current is None or (
+                        draft["mode"] == "linear"
+                        and current["status"] != "linear_available_after_explicit_confirmation"
+                    ):
+                        errors["base"] = "smoothing_blocked"
+                    else:
+                        await save_choice(
+                            self.hass, self.config_entry.entry_id,
+                            selected["interval_key"], **draft,
+                        )
+                        self._selected_sparse = None
+                        self._pending_sparse = None
+                        return await self.async_step_history_smoothing()
+        return self.async_show_form(
+            step_id="history_smoothing_confirm",
+            errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): BooleanSelector(),
+            }),
+            description_placeholders={
+                "interval": f'{selected["fluid"]} · {selected["meter_serial"]} · '
+                            f'{selected["start_date"]} → {selected["end_date"]}',
+                "mode": draft["mode"],
+                "reason": draft["reason"],
+            },
+        )
 
     async def async_step_history_review(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Pick from the most recent administrator history preview, not arbitrary text."""
