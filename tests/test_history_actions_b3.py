@@ -858,9 +858,11 @@ def test_adaptive_history_caps_attempts_and_does_not_retry_connection_errors(
         calls.append((begin, finish))
         raise services.TrybatecDataError("SECRET_VENDOR_BODY_SHOULD_NEVER_BE_LOGGED")
 
+    from custom_components.trybatec.api import TrybatecConnectionError
+
     async def connection(_deal, begin, finish):
         calls.append((begin, finish))
-        raise services.TrybatecConnectionError("Trybatec indexes endpoint failed")
+        raise TrybatecConnectionError("Trybatec indexes endpoint failed")
 
     async def verify():
         with pytest.raises(services.ServiceValidationError, match="request limit"):
@@ -870,7 +872,7 @@ def test_adaptive_history_caps_attempts_and_does_not_retry_connection_errors(
             )
         assert len(calls) == 3
         calls.clear()
-        with pytest.raises(services.TrybatecConnectionError):
+        with pytest.raises(TrybatecConnectionError):
             await services._fetch_history_payloads(
                 SimpleNamespace(indexes=connection), "TEST-DEAL",
                 [(date(2026, 10, 1), date(2026, 11, 9))],
