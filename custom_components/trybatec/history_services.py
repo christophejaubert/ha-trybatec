@@ -42,6 +42,8 @@ from .recorder_guard import (
 )
 from .history_v4 import compose_plan, reconcile_plan
 from .history_reconstruction import preview_sparse_intervals
+from .history_variants_b15 import variants_preview
+from .history_smoothing_store import load_choices
 from .history import (
     build_history, history_windows, physical_statistic_id,
     summarize_preview,
@@ -314,6 +316,42 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
     except Exception as exc:
         _LOGGER.warning("Trybatec history preview failed: %s", type(exc).__name__)
         raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
+    # Only the requested extended preview reads local confirmed smoothing
+    # decisions; source data and Recorder remain unchanged.
+    linear_view = None
+    alternative_view = None
+    if call.data.get("preview_linear_proposals") is True:
+        verified_units = {
+            key: resolved
+            for key, meter in history["__physical_meters__"].items()
+            if (resolved := resolve_meter_unit(
+                key[0], key[1], key[2], meter.get("portal_unit"),
+                validate_meter_units(
+                    coordinator.entry.options.get(CONF_METER_UNITS, {})
+                ),
+            )) is not None
+        }
+        # Raw source unit is needed by variants_preview for correct conversion;
+        # the administrative overview exposes only normalized quantities.
+        sparse_hours = int(coordinator.entry.options.get(
+            CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+        ))
+        linear_view = preview_sparse_intervals(
+            history, {key: normalized_unit(key[1]) for key in verified_units},
+            sparse_hours=sparse_hours,
+        )
+        decisions = await load_choices(hass, coordinator.entry.entry_id)
+        try:
+            alternative_view = variants_preview(
+                history, verified_units, decisions, sparse_hours=sparse_hours,
+            )
+        except ValueError:
+            # An outdated/invalid choice or truncated inventory cannot be
+            # interpreted as a successful comprehensive variant preview.
+            alternative_view = {
+                "status": "blocked_requires_reinspection",
+                "mode": "read_only_no_import",
+            }
     return {
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
@@ -333,26 +371,8 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         },
         # Optional b15 estimate, admin-only and read-only. There is NO
         # automatic Recorder import or Energy source activation here.
-        "linear_proposals": (
-            preview_sparse_intervals(
-                history,
-                {
-                    key: normalized_unit(key[1])
-                    for key, meter in history["__physical_meters__"].items()
-                    if resolve_meter_unit(
-                        key[0], key[1], key[2],
-                        meter.get("portal_unit"),
-                        validate_meter_units(
-                            coordinator.entry.options.get(CONF_METER_UNITS, {})
-                        ),
-                    ) is not None
-                },
-                sparse_hours=int(coordinator.entry.options.get(
-                    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
-                )),
-            )
-            if call.data.get("preview_linear_proposals") is True else None
-        ),
+        "linear_proposals": linear_view,
+        "alternative_series": alternative_view,
         "meter_units": [
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
