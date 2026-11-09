@@ -2,6 +2,7 @@
   "domain": "trybatec",
   "name": "Trybatec (Unofficial Beta)",
   "after_dependencies": [
+    "energy",
     "recorder"
   ],
   "categories": [
