@@ -262,3 +262,95 @@ activate_b15_energy:
       default: false
       selector:
         boolean: {}
+
+
+archive_b15_meters:
+  name: Archive retired physical meters (b15)
+  description: Administrator-only. Save vendor-observed retired meter identities and last observed indexes for read-only historical devices across integration reloads. Requires backup and confirmation. Never changes Recorder or Energy.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      selector:
+        text: {}
+    backup_confirmed:
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}
+
+preview_b15_migration:
+  name: Preview non-destructive physical entity identity migration (b15)
+  description: Administrator-only. Requires proof of the exact lot, fluid, physical serial and verified original source unit; keeps the original Home Assistant entity_id and Recorder intact.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      required: true
+      selector:
+        text: {}
+    lot:
+      required: true
+      selector:
+        text: {}
+    fluid:
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      required: true
+      selector:
+        text: {}
+
+apply_b15_migration:
+  name: Apply approved non-destructive physical entity identity migration (b15)
+  description: Administrator-only. Updates exactly one verified Trybatec entity unique_id while preserving its entity_id, automations, dashboard references and past Recorder statistics. Requires fresh preview fingerprint, backup and confirmation.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      required: true
+      selector:
+        text: {}
+    lot:
+      required: true
+      selector:
+        text: {}
+    fluid:
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      required: true
+      selector:
+        text: {}
+    before_fingerprint:
+      required: true
+      selector:
+        text: {}
+    backup_confirmed:
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}
