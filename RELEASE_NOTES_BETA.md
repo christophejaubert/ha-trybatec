@@ -1,7 +1,6 @@
-# 0.2.0b15 — Development candidate (NOT published)
+# 0.2.0b15 — Experimental beta (opt-in history and Energy tools)
 
-**PR #38 remains DRAFT. No release, tag, merge, historical Recorder import or
-Energy preference modification is authorized merely by these notes.**
+**PR #38 was merged into `main` after successful mandatory CI. Installation or publication alone does not authorize a historical Recorder import or a change to Energy preferences on a real Home Assistant instance.**
 
 ### Changes currently implemented
 
@@ -61,7 +60,7 @@ Energy preference modification is authorized merely by these notes.**
   dashboard and automation references and Recorder history.
   Unprovable legacy identity cases remain blocked for manual review.
 
-### Mandatory release blockers — not yet validated end-to-end
+### Known validation limitations and safety requirements
 
 - Validate all new Recorder, Energy and historical-device actions on
   isolated HA, including restart/recovery and genuine Recorder persistence.
@@ -69,8 +68,9 @@ Energy preference modification is authorized merely by these notes.**
   compatibility with the schema used on the user's instance.
 - Migrate or explicitly retain any legacy technical entities whose
   physical identity or source unit cannot be proven; no unsafe cleanup.
-- Confirm all requested b15 functionality, CI and security at the exact
-  final commit before publishing any release or merging into main.
+- Mandatory automated CI checks passed for the PR and the merge on `main`; the
+  final release workflow must verify the exact tag target and the post-merge
+  main CI before publishing.
 - User-controlled acceptance of the final IHM and runtime behavior,
   with no automatic production import or settings modifications.
 
@@ -78,8 +78,9 @@ Energy preference modification is authorized merely by these notes.**
 validated as an automatic configuration scenario. Never silently select a
 housing or use a portal UUID without checking that account's authorization.
 
-These notes intentionally mark the candidate as incomplete: release and merge
-remain prohibited until every applicable gate is satisfied.
+**This is an experimental prerelease, not a claim of complete field acceptance.**
+Do not perform production history imports, Energy switching or legacy migration
+without isolated validation and backups.
 
 ---
 

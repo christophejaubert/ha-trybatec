@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Version published on `main`: 0.2.0b14.** See [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for published versions. **b15 is under development in PR #38 and is not a release.** No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version in `main`: 0.2.0b15**, merged through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -17,14 +17,10 @@
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
 > HACS, or OpenAI. Test with your own account before using it for monitoring.
 
-## b15 development status — not deployable
+## b15 experimental capabilities — opt-in; production acceptance pending
 
-**Work in progress, PR [#38](https://github.com/christophejaubert/ha-trybatec/pull/38).**
-The new `history_reconstruction.py` and `energy_switch.py` functions currently
-**only generate proposals**. They do not install an Energy source, import into
-Recorder, clean entities, alter existing statistics, switch versions or migrate
-an existing Home Assistant instance. Passing their synthetic unit tests does
-not constitute a production acceptance test or permission to release.
+**Merged in [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38).**
+The b15 integration supports read-only proposals alongside separately confirmed actions for versioned Recorder imports, Energy preference switching and conservative entity migration. None of these actions run automatically when installing or updating the integration. Passing CI tests does not constitute an acceptance test on the user's production installation.
 
 - Intended stable target: one logical **consumption** series per dwelling and
   fluid; retain separate physical counters and their raw source indexes,
@@ -39,9 +35,10 @@ not constitute a production acceptance test or permission to release.
   reconstruction. An absent previous index requires an explicit date and
   confirmation of an editable estimated initial index (initial suggestion: 0).
 - An Energy preference replacement is prepared as a complete before/after
-  preview with a fingerprint of the original settings. No preferences are
-  written. Version activation is contingent on verified Recorder persistence,
-  explicit user approval, a complete preference backup and tested rollback.
+  preview with a fingerprint of the original settings. The preview never writes
+  preferences. The separate activation action requires verified Recorder
+  persistence, explicit approval and a complete preference backup; it
+  performs a guarded write, readback and rollback on detected failure.
 - **Multi-copropriété accounts are not supported in b15's current automatic
   discovery path.** Only one unambiguous authorized dwelling is automatically
   resolved. The explicit portal Index page URL is the controlled fallback.
@@ -50,7 +47,7 @@ not constitute a production acceptance test or permission to release.
   startup. Cleaning legacy entities requires separate user-facing migration
   preview, dependency analysis and confirmation.
 
-**New in the ongoing b15 development branch (not yet released):**
+**Changes introduced in b15 (merged into `main`; consult Releases for publication):**
 
 - **Configure → Review sparse intervals** guides the operator through an
   individual interval, **no smoothing** or **linear residual smoothing**, a
@@ -89,12 +86,13 @@ not constitute a production acceptance test or permission to release.
   related UI references and past Recorder rows are preserved. Ambiguous
   legacy objects are intentionally left untouched.
 
-**Release gate:** the code paths now exist on the development branch, but
-their complete isolated Home Assistant runtime, restart/recovery, Recorder
-readback, Energy rollback, translations and real-interface tests must pass
-at the exact final SHA before publication. Unsafe/unknown legacy migrations
-require a separate manual decision. No production Home Assistant has been
-modified. Do not merge or publish while any requirement is unverified.
+**Validation scope:** all mandatory automated CI checks passed for PR #38 and
+its merge into `main`. Real Home Assistant acceptance, including restart,
+Energy rollback and user-interface checks on a representative installation,
+remains distinct from automated CI. Unsafe or unknown legacy migrations require
+a separate manual decision. No production Home Assistant was modified by the
+PR or its CI. Installation and release never authorize automatic imports or
+Energy changes.
 
 ## Changes in 0.2.0b6 — Read before historical imports
 
