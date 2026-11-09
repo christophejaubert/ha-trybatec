@@ -3,7 +3,10 @@
   "name": "Trybatec (Unofficial Beta)",
   "after_dependencies": [
     "energy",
-    "recorder"
+    "recorder",
+    "frontend",
+    "http",
+    "websocket_api"
   ],
   "categories": [
     "water.meters_leak_detection",
@@ -13,12 +16,7 @@
     "@christophejaubert"
   ],
   "config_flow": true,
-  "dependencies": [
-    "frontend",
-    "http",
-    "panel_custom",
-    "websocket_api"
-  ],
+  "dependencies": [],
   "documentation": "https://github.com/christophejaubert/ha-trybatec#readme",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
