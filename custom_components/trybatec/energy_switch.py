@@ -11,11 +11,12 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable
 
+# Verified against Home Assistant frontend src/data/energy.ts (9 Nov 2026).
+# Gas and water belong to energy_sources; there is NO device_consumption_gas.
 _FIELDS_BY_SECTION = {
-    "energy_sources": {"stat_energy_from"},
-    "device_consumption": {"stat_consumption"},
-    "device_consumption_water": {"stat_consumption"},
-    "device_consumption_gas": {"stat_consumption"},
+    "energy_sources": ("stat_energy_from", "stat_energy_to"),
+    "device_consumption": ("stat_consumption",),
+    "device_consumption_water": ("stat_consumption",),
 }
 _MAX_PREF_BYTES = 1024 * 1024
 
@@ -39,6 +40,10 @@ def _selected_references(prefs: dict[str, Any]) -> list[tuple[str, int, str, str
         for index, item in enumerate(sources):
             if not isinstance(item, dict):
                 raise ValueError("Invalid Energy preference entry")
+            if section == "energy_sources" and item.get("type") not in (
+                "grid", "solar", "battery", "gas", "water"
+            ):
+                raise ValueError("Unknown Energy source type")
             for key in fields:
                 value = item.get(key)
                 if value is not None:
