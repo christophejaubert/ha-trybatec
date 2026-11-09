@@ -32,20 +32,47 @@ Energy preference modification is authorized merely by these notes.**
 - Synthetic Python and isolated Home Assistant tests have been added. Their
   complete status must be checked at the exact final PR head.
 
-### Mandatory release blockers — not implemented end-to-end
+### Further implementation (not yet accepted on the target installation)
 
-- All historical retired meters must be indexed and exposed as durable,
-  independently consultable devices across HA restarts.
-- Recorder import of **consolidated** and per-meter alternative series must
-  be staged, verified at every persisted bucket, versioned and made recoverable
-  across restarts and failures, with no duplicate Energy selection.
-- Administrator-facing preview/approval and non-destructive migration of
-  actual entity registry references and dependent dashboards/automations.
-- Energy preference write/verification/rollback transaction must be
-  implemented and tested with the target HA API, preserving all other
-  selected sources.
-- Automated and manual runtime acceptance on an isolated HA installation,
-  security/CI status at the final commit, and explicit release validation.
+- `history_plan_b15.py` creates hourly UTC Recorder plans from Paris civil-day
+  consumption, for each verified physical meter variant and one selected
+  dwelling/fluid consolidation. Index readings are **not** combined.
+- `trybatec.preview_b15` produces a source-specific fingerprint;
+  `trybatec.import_b15` requires the same fingerprint, a confirmed backup and
+  explicit approval. This stores the import journal before enqueuing new `_vN`
+  Recorder IDs. Old generations are never overwritten or deleted.
+- `trybatec.verify_b15` reads back every persisted hourly sum and only
+  then marks imported versions as verified.
+- `trybatec.preview_b15_energy` checks the exact Energy preference snapshot,
+  Recorder verification and **all** same-dwelling physical alternatives.
+  `trybatec.activate_b15_energy` is an explicit admin-only action that
+  flushes and re-reads Home Assistant Energy preferences and the b15 version
+  ledger. Audited, guarded rollback is attempted on failure, never
+  overwriting a concurrent unrelated Energy edit.
+- `trybatec.archive_b15_meters` persistently saves the exact identities
+  and latest actual index observations of retired physical meters from the
+  complete vendor history. After an integration reload, historical-only
+  sensor devices remain consultable even if no longer returned by current
+  portal polling.
+- `trybatec.preview_b15_migration` and `trybatec.apply_b15_migration`
+  support a conservative **one-entity-at-a-time** technical unique-ID
+  migration, only if same lot/serial/fluid/unit provenance can be verified.
+  The actual Home Assistant `entity_id` is kept unchanged, preserving
+  dashboard and automation references and Recorder history.
+  Unprovable legacy identity cases remain blocked for manual review.
+
+### Mandatory release blockers — not yet validated end-to-end
+
+- Validate all new Recorder, Energy and historical-device actions on
+  isolated HA, including restart/recovery and genuine Recorder persistence.
+- Verify Energy rollback on real current-version Home Assistant and
+  compatibility with the schema used on the user's instance.
+- Migrate or explicitly retain any legacy technical entities whose
+  physical identity or source unit cannot be proven; no unsafe cleanup.
+- Confirm all requested b15 functionality, CI and security at the exact
+  final commit before publishing any release or merging into main.
+- User-controlled acceptance of the final IHM and runtime behavior,
+  with no automatic production import or settings modifications.
 
 **Compatibility limitation:** accounts managing several copropriétés are not
 validated as an automatic configuration scenario. Never silently select a
