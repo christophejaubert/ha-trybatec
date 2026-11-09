@@ -67,10 +67,16 @@ def _live_meter(serial: str, meter: dict[str, Any]) -> dict[str, Any]:
         ):
             first_observed = _timestamp(min(row[0] for row in readings))
             last_source_observed = _timestamp(max(row[0] for row in readings))
-    status = (
-        "depose" if meter.get("deposed") is True else
-        "en_service" if meter.get("deposed") is False else "inconnu"
-    )
+    # A missing or malformed `depose` flag in the vendor payload must not
+    # be silently presented as a verified active physical meter.
+    status_known = meter.get("service_status_known")
+    if status_known is False:
+        status = "inconnu"
+    else:
+        status = (
+            "depose" if meter.get("deposed") is True else
+            "en_service" if meter.get("deposed") is False else "inconnu"
+        )
     return {
         "serial": str(meter.get("serial", serial))[:128],
         "lot": str(meter.get("lot", ""))[:128],
