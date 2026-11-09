@@ -56,6 +56,31 @@ def _competing(ledger: dict, logical: str, old_stat: str, new_stat: str) -> set[
     return others
 
 
+def _validate_energy_destination(
+    ledger: dict, logical: str, path: list, prefs: dict,
+) -> None:
+    """A water series must never replace electricity, gas or grid export.
+
+    Heat in kWh can only replace an existing compatible electrical appliance
+    consumption statistic here; arbitrary new energy sources need a separate
+    reviewed schema-specific insertion flow.
+    """
+    fluid = ledger["series"][logical]["scope"]["fluid"]
+    section, index, field = path
+    if fluid in ("EF", "ECS"):
+        if section == "energy_sources":
+            if (prefs[section][index].get("type") != "water"
+                    or field != "stat_energy_from"):
+                raise ValueError("Water series requires a water consumption slot")
+        elif section != "device_consumption_water" or field != "stat_consumption":
+            raise ValueError("Water series cannot replace a non-water Energy source")
+    elif fluid == "CET":
+        if section != "device_consumption" or field != "stat_consumption":
+            raise ValueError("Heating kWh series requires a compatible consumption slot")
+    else:
+        raise ValueError("Unsupported energy fluid")
+
+
 async def preview_energy_activation(
     hass: Any, ledger: dict, old_statistic_id: str, new_statistic_id: str,
 ) -> dict[str, Any]:
@@ -68,6 +93,7 @@ async def preview_energy_activation(
         deepcopy(manager.data), old_statistic_id, new_statistic_id,
         _competing(ledger, logical, old_statistic_id, new_statistic_id),
     )
+    _validate_energy_destination(ledger, logical, plan["path"], deepcopy(manager.data))
     return {
         "mode": "read_only",
         "logical_id": logical, "version": version,
@@ -111,6 +137,7 @@ async def activate_energy_version(
     current = deepcopy(manager.data)
     alternatives = _competing(ledger, logical, old_statistic_id, new_statistic_id)
     plan = prepare_energy_switch(current, old_statistic_id, new_statistic_id, alternatives)
+    _validate_energy_destination(ledger, logical, plan["path"], current)
     if not verify_energy_switch(plan, current, after_save=False):
         raise ValueError("Energy preferences changed before approval")
     if plan["before_fingerprint"] != expected_before_fingerprint:
