@@ -115,6 +115,9 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "lot": str(line.get("lot") or ""),
             "location": str(line.get("localisation") or ""),
             "deposed": line.get("depose") is True,
+            # Preserve the existing boolean behavior for legacy consumers,
+            # but explicitly distinguish an absent/invalid vendor status.
+            "service_status_known": isinstance(line.get("depose"), bool),
             "last": last,
             "indexes": indexes,
             "has_decreasing_indexes": bool(anomalies),
