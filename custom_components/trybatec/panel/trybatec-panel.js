@@ -207,6 +207,28 @@ class TrybatecPanel extends HTMLElement {
       this._render();return;
     }
     if (btn.dataset.readingApprove!==undefined) {this._approveReading();return;}
+    if (btn.dataset.readingSmoothing!==undefined) {
+      const item=(this._historyPreview?.review_candidates||[]).find(
+        x=>x.key===this._readingSelected
+      );
+      const match=(this._historyPreview?.proposals?.intervals||[]).find(
+        x=>x.interval_key===item?.preceding_interval_key
+      );
+      if (!match || match.lot!==item.lot || match.fluid!==item.fluid ||
+          match.meter_serial!==item.meter_serial ||
+          match.source_end_at!==item.source_date) {
+        this._historyError="Aucun intervalle précédent vérifiable : actualisez l’analyse.";
+        this._render();return;
+      }
+      this._historySelected=match.interval_key;
+      this._historyMode="linear";
+      this._historyMessage="Intervalle précédent sélectionné pour examen ; aucune décision enregistrée.";
+      this._render();
+      this.shadowRoot.querySelector('[data-history-approve]')?.scrollIntoView({
+        behavior:"smooth",block:"center"
+      });
+      return;
+    }
     if (btn.dataset.entityAudit !== undefined) {
       this._auditMeterEntity(btn.dataset.entityAudit);return;
     }
@@ -787,7 +809,12 @@ class TrybatecPanel extends HTMLElement {
         "")+
       '</div>'+
       '<div class="actions"><button type="button" class="primary" data-reading-approve '+
-        (this._readingBusy?"disabled":"")+'>Confirmer la décision</button></div>':
+        (this._readingBusy?"disabled":"")+'>Confirmer la décision</button>'+
+      (item.preceding_interval_key?
+        '<button type="button" class="secondary" data-reading-smoothing>'+
+        'Examiner et éventuellement lisser les jours précédents</button>':
+        '<span class="muted">Aucun intervalle précédent vérifié dans cet aperçu.</span>')+
+      '</div>':
       '<div class="empty">Sélectionnez un relevé pour le qualifier ou corriger son attribution.</div>')+
     '</div></div></section>';
   }
