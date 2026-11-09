@@ -1,3 +1,61 @@
+# 0.2.0b15 — Development candidate (NOT published)
+
+**PR #38 remains DRAFT. No release, tag, merge, historical Recorder import or
+Energy preference modification is authorized merely by these notes.**
+
+### Changes currently implemented
+
+- Configuration from username and password for a single unambiguous housing,
+  plus a strictly validated full Index page URL fallback; native
+  reauthentication retaining the same HA config entry.
+- Persistent access problem notifications with delayed network-failure
+  threshold and recovery dismissal.
+- Configurable historical sparse-period and zero-day alert thresholds.
+- Opt-in, read-only linear residual reconstruction from actual physical
+  meter index bounds; explicit user-declared review decisions and confirmation.
+  Retain raw measured index readings, including zeros and retired devices.
+  Date-based daily proposals use Europe/Paris civil days and never represent
+  estimated consumption as a measured index.
+- A new native review path in integration options for manual/telemetry
+  explanations and individual sparse periods. Decisions are locally
+  stored against exact source fingerprints; changed source values invalidate
+  stale choices.
+- Read-only physical-meter alternative consumption variants: measured-only
+  or measured plus confirmed linear gap estimates. Separate meter generations
+  remain distinct; a logical dwelling+fluid consolidation adds consumption,
+  never cumulative indexes.
+- Experimental, **non-executing** modules to preview entity migrations,
+  track V1/V2/V3 historical revision states, and prepare exclusive Energy
+  preference replacements and rollback snapshots.
+- API-visible retired meters can appear as historical-only index sensors,
+  without being treated as continuously increasing live consumption.
+- Synthetic Python and isolated Home Assistant tests have been added. Their
+  complete status must be checked at the exact final PR head.
+
+### Mandatory release blockers — not implemented end-to-end
+
+- All historical retired meters must be indexed and exposed as durable,
+  independently consultable devices across HA restarts.
+- Recorder import of **consolidated** and per-meter alternative series must
+  be staged, verified at every persisted bucket, versioned and made recoverable
+  across restarts and failures, with no duplicate Energy selection.
+- Administrator-facing preview/approval and non-destructive migration of
+  actual entity registry references and dependent dashboards/automations.
+- Energy preference write/verification/rollback transaction must be
+  implemented and tested with the target HA API, preserving all other
+  selected sources.
+- Automated and manual runtime acceptance on an isolated HA installation,
+  security/CI status at the final commit, and explicit release validation.
+
+**Compatibility limitation:** accounts managing several copropriétés are not
+validated as an automatic configuration scenario. Never silently select a
+housing or use a portal UUID without checking that account's authorization.
+
+These notes intentionally mark the candidate as incomplete: release and merge
+remain prohibited until every applicable gate is satisfied.
+
+---
+
 # 0.2.0b14 — Unreleased candidate: full-range first, adaptive history recovery
 
 **Pull request only — no merge, release, HACS installation or Home Assistant changes.**
