@@ -23,6 +23,7 @@ from .history_recorder_b15 import (
     ledger_store, queue_b15_plan, verify_b15_recorder,
 )
 from .history_smoothing_store import load_choices
+from .history_origin_store import load_origin_choices
 from .history_devices_b15 import persist_historical_inventory
 from .migration_runtime_b15 import preview_identity_migration, apply_identity_migration
 from .units import resolve_meter_unit, validate_meter_units
@@ -80,11 +81,16 @@ async def _admin_plan(hass: Any, call: Any):
         if resolved:
             units[(lot, fluid, serial)] = resolved
     choices = await load_choices(hass, coordinator.entry.entry_id)
+    origins = await load_origin_choices(hass, coordinator.entry.entry_id)
     selected_history = {**history, "__physical_meters__": relevant}
     try:
         plan = make_b15_plan(
             selected_history, units, choices,
             coordinator.entry.unique_id or coordinator.entry.entry_id,
+            estimated_origins={
+                key: origin for key, origin in origins.items()
+                if origin["fluid"] in selected
+            },
             sparse_hours=int(coordinator.entry.options.get(
                 CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
             )),
