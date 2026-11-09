@@ -53,3 +53,14 @@ def test_trybatec_recorder_workflow_requires_explicit_bounded_actions():
     assert "this._versionImportBackup" in source
     assert "this._versionEnergyBackup" in source
     assert "window.confirm(" in source
+
+
+
+def test_trybatec_before_after_does_not_zero_fill_missing_daily_measurements():
+    """Daily blanks must remain unknown even when smoothed totals are shown."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert "this._historyComparison(proposal)" in source
+    assert "before_observed_consumption===null?'—'" in source
+    assert "cumulative_after" in source
+    assert "Un nouvel index mesuré" not in source
+    assert "Cumul après" in source
