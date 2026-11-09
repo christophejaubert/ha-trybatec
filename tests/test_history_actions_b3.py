@@ -783,3 +783,138 @@ def test_b7_recorder_partial_verification_keeps_unconfirmed_series_pending(
         assert disk["writes"] == 1
 
     asyncio.run(exercise())
+
+
+def test_adaptive_history_recovers_october_length_window_without_dropping_days(
+    services, monkeypatch,
+):
+    """If the vendor rejects 39 days but accepts shorter windows, use all dates."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
+    start, end = date(2026, 10, 1), date(2026, 11, 9)
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 12:
+            raise services.TrybatecDataError("Trybatec response exceeds permitted size")
+        return {"lines": []}
+
+    async def verify():
+        windows = services.history_windows(start, end)
+        assert len(windows) == 1  # 39 days does not reach the 92-day limit.
+        payloads, requests = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "TEST-DEAL", windows,
+        )
+        assert requests == len(calls)
+        assert len(payloads) > 1
+        assert len(payloads) < requests  # failed attempts were counted
+        success = [r for r in calls if (r[1] - r[0]).days <= 12]
+        assert success[0][0] == start and success[-1][1] == end
+        for (_, previous_end), (next_start, _) in zip(success, success[1:]):
+            assert next_start == previous_end  # midpoint overlap; no lost day
+
+    asyncio.run(verify())
+
+
+def test_adaptive_history_rejects_one_bad_day_with_safe_date_diagnostic(
+    services, monkeypatch, caplog,
+):
+    """Never present partial data as a complete or importable history."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    bad_day = date(2026, 10, 18)
+    calls = []
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if begin <= bad_day < finish:
+            raise services.TrybatecDataError("Trybatec returned malformed JSON")
+        return {"lines": []}
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError) as caught:
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=indexes), "TEST-DEAL",
+                [(date(2026, 10, 1), date(2026, 11, 9))],
+            )
+        result = str(caught.value)
+        assert "2026-10-18" in result
+        assert "malformed_json" in result
+        assert "No partial history" in result
+        assert max((b - a).days for a, b in calls) == 39
+        assert min((b - a).days for a, b in calls) == 1
+        assert "2026-10-18" in caplog.text
+
+    asyncio.run(verify())
+
+
+def test_adaptive_history_caps_attempts_and_does_not_retry_connection_errors(
+    services, monkeypatch,
+):
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    monkeypatch.setattr(services, "MAX_HISTORY_WINDOW_ATTEMPTS", 3)
+    calls = []
+
+    async def invalid(_deal, begin, finish):
+        calls.append((begin, finish))
+        raise services.TrybatecDataError("SECRET_VENDOR_BODY_SHOULD_NEVER_BE_LOGGED")
+
+    async def connection(_deal, begin, finish):
+        calls.append((begin, finish))
+        raise services.TrybatecConnectionError("Trybatec indexes endpoint failed")
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError, match="request limit"):
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=invalid), "TEST-DEAL",
+                [(date(2026, 10, 1), date(2026, 11, 9))],
+            )
+        assert len(calls) == 3
+        calls.clear()
+        with pytest.raises(services.TrybatecConnectionError):
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=connection), "TEST-DEAL",
+                [(date(2026, 10, 1), date(2026, 11, 9))],
+            )
+        assert len(calls) == 1
+
+    asyncio.run(verify())
+
+
+def test_failed_long_history_never_overwrites_previous_preview_cache(
+    services, monkeypatch,
+):
+    """Even if earlier subwindows succeeded, the in-memory review stays intact."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    bad_day = date(2026, 10, 18)
+
+    async def indexes(_deal, begin, finish):
+        if begin <= bad_day < finish:
+            raise services.TrybatecDataError("Trybatec returned malformed JSON")
+        return {"lines": []}
+
+    def cannot_build(*_args, **_kwargs):
+        raise AssertionError("A failed download must never reach build_history")
+
+    monkeypatch.setattr(services, "build_history", cannot_build)
+    entry = SimpleNamespace(
+        entry_id="MOCK-ENTRY", data={services.CONF_DEAL_ID: "MOCK-DEAL"},
+        options={},
+    )
+    coordinator = SimpleNamespace(
+        client=SimpleNamespace(indexes=indexes), entry=entry,
+        data={"lots": ["FAKE-LOT"]},
+        _history_review_cache="previous-verified-preview",
+        _history_review_candidates=["previous-verified-choice"],
+    )
+    hass = SimpleNamespace(data={services.DOMAIN: {"MOCK-ENTRY": coordinator}})
+    call = SimpleNamespace(
+        data={"start_date": "2026-10-01", "end_date": "2026-11-06"},
+    )
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError, match="2026-10-18"):
+            await services._load(hass, call)
+        assert coordinator._history_review_cache == "previous-verified-preview"
+        assert coordinator._history_review_candidates == ["previous-verified-choice"]
+
+    asyncio.run(verify())
