@@ -1,3 +1,30 @@
+# 0.2.0b17 — Preserve coexisting physical meters and safely switch Energy
+
+- Recognize a legacy Trybatec meter alongside its already registered live
+  replacement only when ownership, physical device, account, unit, lot and
+  identity are verified. Both entity IDs, unique IDs and Recorder histories
+  remain unchanged; no collision is forcibly reassigned.
+- New administrator-only `preview_live_meter_energy` read-only action and
+  `activate_live_meter_energy` explicit confirmed action for replacing one
+  Energy source with its verified active meter. It checks existing Recorder
+  sum metadata, compatible units and Energy slots, rejects competing selected
+  statistics, saves an audit snapshot, re-reads persisted preferences, and
+  rolls back on a verifiable write failure.
+- Support Recorder-verified b15 heating series in an existing gas-type Energy
+  source when the unit is kWh, consistent with HA Core's gas source schema.
+- All prior source IDs and historical Recorder rows are left intact. A source
+  reference switch does not automatically join older and newer sensor series
+  into a continuous Energy history. A verified consolidated history must be
+  imported and selected separately for that purpose.
+- Add regression tests for identity collision spoofing, cold/hot water,
+  heating, duplicate series, unit/category mismatches and stale approval.
+
+**No automatic production changes**: installing b17 does not migrate a
+registry entry, reconfigure Energy or write Recorder. Production operations
+remain separately previewed, backed up and approved.
+
+---
+
 # 0.2.0b16 — Defer first Trybatec synchronization until HA has started
 
 - The first vendor index request runs **after** Home Assistant signals
