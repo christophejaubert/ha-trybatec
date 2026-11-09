@@ -1,3 +1,20 @@
+# 0.2.0b14 — Unreleased candidate: full-range first, adaptive history recovery
+
+**Pull request only — no merge, release, HACS installation or Home Assistant changes.**
+
+- First request the **entire historical interval selected by the administrator**, without pre-splitting every 92 days or imposing a global duration/window/request ceiling.
+- If a response is oversized, malformed, missing required structure, explicitly rejected as a window (HTTP 408/413/414/422), or times out, retry shorter overlapping intervals until all are obtained or the smallest interval still fails.
+- Keep auth failures and unrelated network/HTTP errors fail-closed. Limit each individual response's bytes, lines and observations; space sequential requests. Do not log vendor payloads, tokens or credentials.
+- Combine all authorized physical meters (including replaced/retired meters), deduplicating repeated timestamp/value pairs across overlapping intervals. Reject contradictory observations instead of selecting one silently.
+- A persistently invalid one-day interval blocks the entire preview and any Recorder import; report its dates and a sanitized error reason. Preserve any previous successful review cache.
+- Expose accepted/rejected window counts and a source-window coverage flag in the read-only preview. These prove successful API responses for requested ranges, **not** independent vendor data completeness.
+- Remove aggregate history row/meter/reading ceilings that arbitrarily prevent otherwise valid multi-year collections. Keep vendor *per-response* safeguards and per-meter identity checks.
+- Regression tests cover the full-range-first behavior, multi-decade requests, seven current/retired meters and 1,497 **synthetic** observations in a single successful response, adaptive splitting of large histories, duplicate boundary readings, unresolvable days, and API error classification.
+
+**Publication gate:** all required CI checks, then explicit permission to merge/publish, followed by user-controlled live preview against the vendor. Synthetic tests cannot verify the vendor's undocumented behavior.
+
+---
+
 # 0.2.0b13 — Candidate correction: adaptive historical preview and readable unit facts
 
 **Draft only — no tag or release; no installation or changes to Home Assistant.**
