@@ -406,6 +406,11 @@ class TrybatecOptionsFlow(OptionsFlow):
             data_schema=vol.Schema({vol.Required("meter"): self._radio_choices(choices)}),
         )
 
+    @staticmethod
+    def _markdown_literal(value: str) -> str:
+        """Escape portal-supplied meter labels embedded in Markdown descriptions."""
+        return re.sub(r"([\\`*_{}\[\]()#+.!|>])", r"\\\1", str(value))
+
     async def async_step_meter_unit(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Persist only a single verified unit override, with conflict prevention."""
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
@@ -478,7 +483,9 @@ class TrybatecOptionsFlow(OptionsFlow):
             step_id="meter_unit",
             data_schema=schema,
             description_placeholders={
-                "meter": f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}',
+                "meter": self._markdown_literal(
+                    f'{selected["fluid"]} / {selected["lot"]} / {selected["serial"]}'
+                ),
                 "portal_unit": str(selected.get("portal_unit") or self._nav_text("non détectée", "not detected")),
                 "display_unit": str(selected.get("portal_display_unit") or portal_display_unit(selected["fluid"]) or "—"),
                 "selection_origin": self._unit_origin(selected, bool(manual_saved)),

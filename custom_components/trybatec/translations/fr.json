@@ -87,7 +87,7 @@
       },
       "meter_unit": {
         "title": "Unité du compteur",
-        "description": "Compteur : {meter}. Unité de référence du graphique : {display_unit} (référence configurée, non interrogée en temps réel). Unité de l’index fournie explicitement par l’API : {portal_unit}.\n\nPrésélection : {selection_origin}. Le choix déjà enregistré pour ce compteur est conservé. Sinon, l’unité de l’API est proposée, ou à défaut celle du graphique. Cliquez sur « Valider » pour confirmer ce choix ; aucune confirmation supplémentaire n’est nécessaire. Si l’unité est inconnue, sélectionnez « Inconnue ».\n\nL’UUID de la fiche Trybatec est facultatif. Après validation, vous revenez à la liste des compteurs. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
+        "description": "Compteur : **{meter}**.  \nUnité de référence du graphique : **{display_unit}** (référence configurée, non interrogée en temps réel).  \nUnité de l’index fournie explicitement par l’API : **{portal_unit}**.\n\nPrésélection : {selection_origin}. Le choix déjà enregistré pour ce compteur est conservé. Sinon, l’unité de l’API est proposée, ou à défaut celle du graphique. Cliquez sur « Valider » pour confirmer ce choix ; aucune confirmation supplémentaire n’est nécessaire. Si l’unité est inconnue, sélectionnez « Inconnue ».\n\nL’UUID de la fiche Trybatec est facultatif. Après validation, vous revenez à la liste des compteurs. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
         "data": {
           "unit": "Unité source confirmée",
           "device_uuid": "UUID de la fiche Trybatec (facultatif)"

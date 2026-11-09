@@ -270,6 +270,14 @@ async def test_options_root_direct_steps_have_actual_homeassistant_translations(
             language, step_id, key
         )
 
+    # Validate the string HA actually loads, not only the shipped JSON source.
+    detail_key = f"component.{DOMAIN}.options.step.meter_unit.description"
+    detail = translations.get(detail_key)
+    assert isinstance(detail, str) and detail.strip(), (language, detail_key)
+    assert detail.split("\n\n", 1)[0].count("  \n") == 2
+    for field in ("meter", "display_unit", "portal_unit"):
+        assert "**{" + field + "}**" in detail
+
 
 async def test_real_options_flow_saves_unit_before_return_to_meter_list(
     hass, monkeypatch

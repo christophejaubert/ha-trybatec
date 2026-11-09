@@ -24,7 +24,6 @@ from .units import (
 from .history_review import apply_review_to_meter, review_candidates
 
 MAX_REQUEST_DAYS = 92
-MAX_HISTORY_DAYS = 3660
 MAX_DETAILS = 100
 MAX_METERS = 3000
 MAX_OBSERVATIONS = 500000
@@ -37,8 +36,8 @@ LOCAL_ZONE = ZoneInfo(TIMEZONE)
 
 def history_windows(start: date, end: date) -> list[tuple[date, date]]:
     """Overlapping windows tolerate inclusive/exclusive API bounds."""
-    if end < start or (end - start).days > MAX_HISTORY_DAYS:
-        raise ValueError("Historical date range is invalid or exceeds 10 years")
+    if end < start:
+        raise ValueError("Historical date range end precedes start")
     result: list[tuple[date, date]] = []
     cursor = start
     while cursor < end:

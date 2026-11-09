@@ -87,7 +87,7 @@
       },
       "meter_unit": {
         "title": "Meter index unit",
-        "description": "Meter: {meter}. Chart reference unit: {display_unit} (configured reference, not read live from the API). Explicit API index unit: {portal_unit}.\n\nPreselection: {selection_origin}. A saved choice for this physical meter is retained. Otherwise, the API unit is proposed, or the chart unit if the API provides none. Select Save to confirm; no additional confirmation is required. Choose Unknown when the actual unit is unknown.\n\nThe Trybatec device UUID is optional. Saving returns to the meter list. Close this window with × to discard unsaved changes.",
+        "description": "Meter: **{meter}**.  \nChart reference unit: **{display_unit}** (configured reference, not fetched live from the API).  \nIndex unit explicitly supplied by the API: **{portal_unit}**.\n\nPreselection: {selection_origin}. A saved choice for this physical meter is retained. Otherwise, the API unit is proposed, or the chart unit if the API provides none. Select Save to confirm; no additional confirmation is required. Choose Unknown when the actual unit is unknown.\n\nThe Trybatec device UUID is optional. Saving returns to the meter list. Close this window with × to discard unsaved changes.",
         "data": {
           "unit": "Confirmed source unit",
           "device_uuid": "Trybatec device UUID (optional)"

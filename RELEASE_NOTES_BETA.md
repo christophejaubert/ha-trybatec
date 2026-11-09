@@ -1,3 +1,20 @@
+# 0.2.0b13 — Candidate correction: adaptive historical preview and readable unit facts
+
+**Draft only — no tag or release; no installation or changes to Home Assistant.**
+
+- Recover long Trybatec history previews when an API index response fails with a data-format/size error by retrying smaller, overlapping periods. This directly targets the reported October 1–November 9 window failure (a 39-day request), while the November 1–9 request succeeds. The **92-day segmentation is not a proven vendor limit**.
+- Keep history integrity strict: do not omit any date, silently accept partial data, overwrite the previous preview cache, or import Recorder rows when any subwindow is invalid. There is no fixed total-request ceiling; individual responses remain bounded, and requests are sequential and briefly spaced.
+- When even a single day is invalid, report the exact failing date window and a fixed, nonsensitive error category. Never log vendor bodies, credentials or tokens.
+- Remove the global 10-year and 45-window ceilings. Count actual attempted requests, including rejected larger windows, in `api_requests`. Dates must be valid, ordered and no later than today.
+- In the unit options form, show the physical meter, chart reference unit, and explicit API unit on **three separate Markdown lines** with **bold values**. Escape portal-supplied meter labels so they remain literal text.
+- Add automated regression tests for recoverable oversized windows, a persistently invalid day, retrieval spanning more than six years and seven physical meters with over 80 requests, absence of cache replacement on failure, and French/English formatted labels.
+
+**Unverified until live testing:** whether October's real API response will become recoverable through subdivision, and the exact visual line-break rendering on a live French Home Assistant frontend.
+
+No automatic history import, Recorder write, HACS install or publication is authorized by preparing this candidate. Merge is permitted only by the user's explicit instruction after full CI checks.
+
+---
+
 # 0.2.0b12 — Candidate corrective: default meter units and saved selections
 
 **Draft candidate only; no tag or release, no merge, no changes to running Home Assistant.**

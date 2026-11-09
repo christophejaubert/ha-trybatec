@@ -783,3 +783,192 @@ def test_b7_recorder_partial_verification_keeps_unconfirmed_series_pending(
         assert disk["writes"] == 1
 
     asyncio.run(exercise())
+
+
+def test_adaptive_history_recovers_october_length_window_without_dropping_days(
+    services, monkeypatch,
+):
+    """If the vendor rejects 39 days but accepts shorter windows, use all dates."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
+    start, end = date(2026, 10, 1), date(2026, 11, 9)
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 12:
+            raise services.TrybatecDataError("Trybatec response exceeds permitted size")
+        return {"lines": []}
+
+    async def verify():
+        windows = services.history_windows(start, end)
+        assert len(windows) == 1  # 39 days does not reach the 92-day limit.
+        payloads, requests = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "TEST-DEAL", windows,
+        )
+        assert requests == len(calls)
+        assert len(payloads) > 1
+        assert len(payloads) < requests  # failed attempts were counted
+        success = [r for r in calls if (r[1] - r[0]).days <= 12]
+        assert success[0][0] == start and success[-1][1] == end
+        for (_, previous_end), (next_start, _) in zip(success, success[1:]):
+            assert next_start == previous_end  # midpoint overlap; no lost day
+
+    asyncio.run(verify())
+
+
+def test_adaptive_history_rejects_one_bad_day_with_safe_date_diagnostic(
+    services, monkeypatch, caplog,
+):
+    """Never present partial data as a complete or importable history."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    bad_day = date(2026, 10, 18)
+    calls = []
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if begin <= bad_day < finish:
+            raise services.TrybatecDataError("Trybatec returned malformed JSON")
+        return {"lines": []}
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError) as caught:
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=indexes), "TEST-DEAL",
+                [(date(2026, 10, 1), date(2026, 11, 9))],
+            )
+        result = str(caught.value)
+        assert "2026-10-18" in result
+        assert "malformed_json" in result
+        assert "No partial history" in result
+        assert max((b - a).days for a, b in calls) == 39
+        assert min((b - a).days for a, b in calls) == 1
+        assert "2026-10-18" in caplog.text
+
+    asyncio.run(verify())
+
+
+def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
+    services, monkeypatch,
+):
+    """A six-year seven-meter review must not fail at an arbitrary request count."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    start, end = date(2020, 1, 1), date(2026, 11, 9)
+    identities = [
+        ("EF", "COLD-OLD", True),
+        ("EF", "COLD-NEW", False),
+        ("ECS", "HOT-OLD", True),
+        ("ECS", "HOT-NEW", False),
+        ("CET", "HEAT-OLD", True),
+        ("CET", "HEAT-2", True),
+        ("CET", "HEAT-NEW", False),
+    ]
+    calls = []
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 23:
+            raise services.TrybatecDataError("Trybatec response exceeds permitted size")
+        lines = []
+        for fluid, serial, retired in identities:
+            lines.append({
+                "lot": "FAKE-LOT",
+                "fluide": fluid,
+                "compteur": serial,
+                "depose": retired,
+                "unit": "kWh" if fluid == "CET" else "m³",
+                "indexes": [
+                    {"date": day.isoformat() + "T12:00:00+01:00",
+                     "value": float(day.toordinal())}
+                    for day in (begin, finish)
+                ],
+            })
+        return {"lines": lines}
+
+    async def verify():
+        windows = services.history_windows(start, end)
+        assert len(windows) > 20
+        payloads, request_count = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "FAKE-DEAL", windows,
+        )
+        assert request_count == len(calls) > 80
+        successful = [(begin, finish) for begin, finish in calls
+                      if (finish - begin).days <= 23]
+        assert successful[0][0] == start and successful[-1][1] == end
+        # Split midpoints overlap by zero days; adjacent 92-day base
+        # windows intentionally overlap by one day for unknown API bounds.
+        # Accept both, never an uncovered day.
+        assert all(
+            0 <= (left[1] - right[0]).days <= 1
+            for left, right in zip(successful, successful[1:])
+        )
+        assert len(payloads) == len(successful)
+        data = services.build_history(
+            payloads, start, end, allowed_lots={"FAKE-LOT"},
+        )
+        physical = data["__physical_meters__"]
+        assert len(physical) == len(identities) == 7
+        assert {(fluid, serial) for (_lot, fluid, serial) in physical} == {
+            (fluid, serial) for fluid, serial, _retired in identities
+        }
+
+    asyncio.run(verify())
+
+
+def test_adaptive_history_does_not_retry_connection_errors(services, monkeypatch):
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
+    from custom_components.trybatec.api import TrybatecConnectionError
+
+    async def connection(_deal, begin, finish):
+        calls.append((begin, finish))
+        raise TrybatecConnectionError("Trybatec indexes endpoint failed")
+
+    async def verify():
+        with pytest.raises(TrybatecConnectionError):
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=connection), "FAKE-DEAL",
+                [(date(2026, 10, 1), date(2026, 11, 9))],
+            )
+        assert len(calls) == 1
+
+    asyncio.run(verify())
+
+
+def test_failed_long_history_never_overwrites_previous_preview_cache(
+    services, monkeypatch,
+):
+    """Even if earlier subwindows succeeded, the in-memory review stays intact."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    bad_day = date(2026, 10, 18)
+
+    async def indexes(_deal, begin, finish):
+        if begin <= bad_day < finish:
+            raise services.TrybatecDataError("Trybatec returned malformed JSON")
+        return {"lines": []}
+
+    def cannot_build(*_args, **_kwargs):
+        raise AssertionError("A failed download must never reach build_history")
+
+    monkeypatch.setattr(services, "build_history", cannot_build)
+    entry = SimpleNamespace(
+        entry_id="MOCK-ENTRY", data={services.CONF_DEAL_ID: "MOCK-DEAL"},
+        options={},
+    )
+    coordinator = SimpleNamespace(
+        client=SimpleNamespace(indexes=indexes), entry=entry,
+        data={"lots": ["FAKE-LOT"]},
+        _history_review_cache="previous-verified-preview",
+        _history_review_candidates=["previous-verified-choice"],
+    )
+    hass = SimpleNamespace(data={services.DOMAIN: {"MOCK-ENTRY": coordinator}})
+    call = SimpleNamespace(
+        data={"start_date": "2026-10-01", "end_date": "2026-11-06"},
+    )
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError, match="2026-10-18"):
+            await services._load(hass, call)
+        assert coordinator._history_review_cache == "previous-verified-preview"
+        assert coordinator._history_review_candidates == ["previous-verified-choice"]
+
+    asyncio.run(verify())
