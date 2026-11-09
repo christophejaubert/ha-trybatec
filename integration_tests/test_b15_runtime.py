@@ -213,3 +213,58 @@ async def test_energy_blocks_competing_physical_variant_in_same_dwelling(hass, m
     }}
     with pytest.raises(ValueError, match="competing"):
         await energy.preview_energy_activation(hass, ledger, old, new)
+
+
+@pytest.mark.asyncio
+async def test_energy_ledger_write_failure_restores_previous_energy_preferences(
+    hass, monkeypatch
+):
+    old, new = "trybatec:original", "trybatec:logical_ef_v1"
+    before = {
+        "energy_sources": [{"type": "water", "stat_energy_from": old}],
+        "device_consumption": [], "device_consumption_water": [],
+    }
+    class FakeEnergyStore:
+        def __init__(self):
+            self.saved = deepcopy(before)
+        async def async_save(self, value):
+            self.saved = deepcopy(value)
+        async def async_load(self):
+            return deepcopy(self.saved)
+    class FakeManager:
+        def __init__(self):
+            self.data = deepcopy(before)
+            self._store = FakeEnergyStore()
+        async def async_update(self, update):
+            self.data.update(deepcopy(update))
+    manager = FakeManager()
+    async def get_manager(_hass):
+        return manager
+    monkeypatch.setattr(energy, "async_get_manager", get_manager)
+    class BrokenLedgerStore:
+        async def async_save(self, _value):
+            raise OSError("Synthetic version ledger I/O failure")
+    ledger = {"schema": 1, "series": {
+        "trybatec:logical_ef": {
+            "unit": "m³", "scope": {"lot": "LOT", "fluid": "EF", "kind": "consolidated"},
+            "versions": [{
+                "number": 1, "statistic_id": new,
+                "snapshot_hash": "a" * 64, "source_fingerprint": "b" * 64,
+                "rows": 2, "state": "verified",
+            }],
+        },
+    }}
+    preview = await energy.preview_energy_activation(hass, ledger, old, new)
+    with pytest.raises(OSError, match="Synthetic version ledger"):
+        await energy.activate_energy_version(
+            hass, "synthetic-ledger-rollback", ledger,
+            old_statistic_id=old, new_statistic_id=new,
+            expected_before_fingerprint=preview["before_fingerprint"],
+            confirm=True, version_store=BrokenLedgerStore(),
+        )
+    assert manager.data == before
+    assert manager._store.saved == before
+    recovered_audit = await energy._energy_audit_store(
+        hass, "synthetic-ledger-rollback"
+    ).async_load()
+    assert recovered_audit["status"] == "rolled_back"
