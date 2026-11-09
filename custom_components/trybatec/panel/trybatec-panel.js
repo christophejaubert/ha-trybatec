@@ -94,6 +94,15 @@ class TrybatecPanel extends HTMLElement {
     this._started = false;
     this._tariffInput = {year:2026,fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
+    this._historyStart="2021-01-01";
+    this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+    this._historyPreview=null;
+    this._historyBusy=false;
+    this._historySelected="";
+    this._historyMode="linear";
+    this._historyReason="manual_periodic";
+    this._historyError="";
+    this._historyMessage="";
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -135,10 +144,23 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
+    if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
+    if (btn.dataset.historySelect !== undefined) {
+      this._historySelected=btn.dataset.historySelect;this._render();return;
+    }
+    if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
   }
   _change(event) {
     if (event.target.dataset.query !== undefined) {
       this._query=event.target.value.trim().toLowerCase();this._render();return;
+    }
+    const historyField=event.target.dataset.historyField;
+    if (historyField) {
+      if (historyField==="start_date") this._historyStart=event.target.value;
+      if (historyField==="end_date") this._historyEnd=event.target.value;
+      if (historyField==="mode") this._historyMode=event.target.value;
+      if (historyField==="reason") this._historyReason=event.target.value;
+      this._render();return;
     }
     const field=event.target.dataset.tariffField;
     if (field) {
@@ -297,18 +319,135 @@ class TrybatecPanel extends HTMLElement {
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>';
   }
+  async _fetchHistory() {
+    if (this._historyBusy || !this._current) return;
+    this._historyBusy=true;
+    this._historyError="";this._historyMessage="";this._historyPreview=null;
+    this._historySelected="";this._render();
+    try {
+      const result=await this._hass.callWS({
+        type:"trybatec/panel_history_preview",
+        entry_id:this._current.entry_id,
+        start_date:this._historyStart,end_date:this._historyEnd
+      });
+      this._historyPreview=result;
+      this._historyMessage="Aperçu de l’historique actualisé. Aucune série Recorder n’a été modifiée.";
+    } catch (_) {
+      this._historyError="Prévisualisation impossible : vérifiez la période, la connexion et les journaux Trybatec.";
+    } finally {
+      this._historyBusy=false;this._render();
+    }
+  }
+  async _approveHistory() {
+    if (this._historyBusy || !this._current || !this._historySelected) return;
+    const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
+      item=>item.interval_key===this._historySelected
+    );
+    if (!proposal) return;
+    const eligible=proposal.status==="linear_available_after_explicit_confirmation";
+    if (this._historyMode==="linear" && !eligible) return;
+    const summary=proposal.start_date+" → "+proposal.end_date+" · "+proposal.meter_serial;
+    if (!window.confirm("Confirmer la décision pour "+summary+" ?\n\n"+
+        (this._historyMode==="linear"?
+          "Répartition linéaire du résiduel entre les index sources vérifiés.":
+          "Aucun lissage : conserver l’intervalle sans répartition.")+
+        "\n\nLes index, Recorder et Énergie ne seront pas modifiés.")) return;
+    this._historyBusy=true;this._historyError="";this._render();
+    try {
+      await this._hass.callWS({
+        type:"trybatec/panel_smoothing_choice",
+        entry_id:this._current.entry_id,
+        interval_key:proposal.interval_key,
+        mode:this._historyMode,reason:this._historyReason,
+        confirm:true,
+      });
+      const revised=(this._historyPreview.proposals.intervals||[]).find(
+        item=>item.interval_key===proposal.interval_key
+      );
+      if (revised) revised.choice={
+        mode:this._historyMode, reason:this._historyReason
+      };
+      this._historyMessage="Décision enregistrée. Les index sources et Énergie restent inchangés.";
+    } catch (_) {
+      this._historyError="Décision refusée : l’intervalle a changé ou doit être réexaminé. Actualisez l’aperçu.";
+    } finally {
+      this._historyBusy=false;this._render();
+    }
+  }
+  _historyDayBars(proposal) {
+    const rows=proposal.daily_preview;
+    if (!Array.isArray(rows)||!rows.length)
+      return '<div class="empty">Le détail journalier est indisponible pour cette période. Aucun historique fictif n’est généré.</div>';
+    const max=Math.max(0.000001,...rows.map(x=>Number(x.quantity)||0));
+    return '<div style="display:flex;align-items:end;gap:2px;height:130px;overflow-x:auto;padding:10px 4px 5px;border-bottom:1px solid #b0bcd0" role="img" aria-label="Aperçu de consommation quotidienne estimée">'+
+      rows.slice(0,400).map(x=>{
+        const fraction=Math.max(2,Math.round(100*(Number(x.quantity)||0)/max));
+        const label=safe(x.date+" : "+x.quantity+" "+proposal.unit+" ("+x.provenance+")");
+        return '<div title="'+label+'" style="flex:1 0 4px;min-width:4px;height:'+fraction+
+          '%;background:'+(x.provenance==="measured"?"#4d9f73":"#457bd2")+
+          ';border-radius:3px 3px 0 0"></div>';
+      }).join("")+'</div>'+
+      '<div class="muted" style="display:flex;justify-content:space-between;margin-top:8px">'+
+      '<span>Mesuré : vert</span><span>Estimé : bleu</span></div>';
+  }
   _history() {
-    return this._heading("Historique & lissage","Reconstitution, décisions de relevés et comparaison avant/après.")+
-      '<div class="grid-two"><section class="card"><h3>Relevés et périodes à revoir</h3>'+
-      '<p class="muted">Les relevés sources ne sont jamais modifiés par un lissage. Un index nul ou une borne inconnue nécessite une qualification explicite.</p>'+
-      '<div class="notice">La nouvelle vue interactive de répartition quotidienne et les confirmations versionnées font partie du chantier #36. Pour le moment, utilisez les actions et le flux de révision existants.</div>'+
-      '<div class="actions"><button class="secondary" type="button" data-openOptions>Options Trybatec actuelles</button>'+
-      '<button class="secondary" type="button" data-openActions>Outils de développement · Actions</button></div></section>'+
-      '<section class="card"><h3>Principes du calcul</h3><div class="list">'+
-      ['Relevés réels conservés, y compris les zéros.','Bornes de mesure vérifiées ou hypothèse explicitement estimée.',
-       'Consommation réellement mesurée prioritaire.','Lissage linéaire uniquement du résiduel non couvert.',
-       'Aucune importation Recorder ni activation Énergie sans validation.'].map(x=>'<div class="line">'+safe(x)+'</div>').join("")+
-      '</div></section></div>';
+    const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
+      x=>x.interval_key===this._historySelected
+    );
+    const ready=proposal&&proposal.status==="linear_available_after_explicit_confirmation";
+    const list=this._historyPreview?.proposals?.intervals||[];
+    const blockers={
+      blocked_source_conflict:"Conflit d’index à examiner",
+      blocked_unverified_unit:"Unité non vérifiée",
+      blocked_unreviewed_zero:"Index nul non qualifié",
+      blocked_needs_explicit_review:"Bornes à vérifier",
+      linear_available_after_explicit_confirmation:"Lissage envisageable après confirmation"
+    };
+    return this._heading("Historique & lissage",
+      "Répartition linéaire contrôlée, sans modification des relevés bruts.")+
+      '<section class="card"><div class="panel-title"><h3>Charger une période</h3>'+
+      '<span class="pill audit">Aperçu en lecture seule</span></div>'+
+      '<div class="form-grid">'+
+      '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
+      '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
+      '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
+      '>Analyser les relevés</button><button class="secondary" type="button" data-openOptions>Ancienne IHM de révision</button></div>'+
+      (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
+      (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
+      '</section><div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
+      '<p class="muted">L’analyse ne déduit jamais une origine manuelle ou automatique.</p>'+
+      (list.length?'<div class="scroll">'+list.map(item=>'<div class="meter-row">'+
+        '<button type="button" data-history-select="'+safe(item.interval_key)+'" class="'+
+        (this._historySelected===item.interval_key?"selected":"")+'">'+
+        '<span class="meter-name">'+safe(item.fluid+" · "+item.meter_serial)+'</span>'+
+        '<span class="meter-sub">'+safe(item.start_date+" → "+item.end_date+" · "+(blockers[item.status]||item.status))+
+        '</span></button></div>').join("")+'</div>':
+      '<div class="empty">'+(this._historyPreview?"Aucun intervalle à signaler sur cette période.":"Analysez une période pour afficher les intervalles concernés.")+'</div>')+
+      '</section><section class="card">'+
+      (proposal?'<h3>Reconstituer l’intervalle sélectionné</h3>'+
+      '<p class="muted">'+safe(proposal.lot+" · "+proposal.meter_serial+" · "+proposal.start_date+" → "+proposal.end_date)+'</p>'+
+      '<div class="detail-grid">'+
+      '<div><span class="smallhead">Consommation bornée</span><strong>'+
+      safe(proposal.bounded_consumption===undefined?"Non déterminée":proposal.bounded_consumption+" "+proposal.unit)+'</strong></div>'+
+      '<div><span class="smallhead">Jours</span><strong>'+safe(proposal.days||"À déterminer")+'</strong></div>'+
+      '<div><span class="smallhead">État</span><strong>'+safe(blockers[proposal.status]||proposal.status)+'</strong></div></div>'+
+      (ready?'<h3>Aperçu après lissage linéaire</h3>'+this._historyDayBars(proposal):
+        '<div class="notice warning">Le lissage est bloqué tant que les index ou les unités nécessaires ne sont pas qualifiés. La vue existante permet de réviser les anomalies.</div>')+
+      '<div class="form-grid" style="margin-top:16px">'+
+      '<div><label for="h-mode">Décision</label><select id="h-mode" data-history-field="mode">'+
+      '<option value="linear" '+(this._historyMode==="linear"?"selected":"")+'>Lisser le résiduel</option>'+
+      '<option value="none" '+(this._historyMode==="none"?"selected":"")+'>Ne pas lisser</option></select></div>'+
+      '<div><label for="h-reason">Motif déclaré</label><select id="h-reason" data-history-field="reason">'+
+      '<option value="manual_periodic" '+(this._historyReason==="manual_periodic"?"selected":"")+'>Relève périodique</option>'+
+      '<option value="telemetry_failure" '+(this._historyReason==="telemetry_failure"?"selected":"")+'>Panne de télérelève</option>'+
+      '<option value="other" '+(this._historyReason==="other"?"selected":"")+'>Autre motif</option></select></div></div>'+
+      (proposal.choice?'<p class="muted" style="margin-top:13px">Décision actuelle : '+
+        safe(proposal.choice.mode)+" · "+safe(proposal.choice.reason)+'</p>':"")+
+      '<div class="actions"><button type="button" class="primary" data-history-approve '+(
+        this._historyBusy||(this._historyMode==="linear"&&!ready)?"disabled":"")+
+      '>Confirmer la décision</button></div>':
+      '<h3>Avant / après</h3><div class="empty">Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.</div>')+
+      '</section></div><div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
