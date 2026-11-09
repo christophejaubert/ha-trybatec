@@ -13,6 +13,7 @@ from homeassistant.helpers.start import async_at_started
 from .api import TrybatecClient
 from .const import (
     DOMAIN, CONF_METER_UNITS, CONF_DEVICE_UUIDS, CONF_LOG_LEVEL,
+    CONF_TARIFFS, CONF_METER_TARIFFS,
     DEFAULT_LOG_LEVEL, LOG_LEVELS,
 )
 from .coordinator import TrybatecCoordinator
@@ -109,12 +110,18 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         }
         # The options wizard includes an empty device UUID dict when saving
         # a unit. This is equivalent to the previously absent option.
-        if changed.issubset({CONF_METER_UNITS, CONF_LOG_LEVEL}):
+        if changed.issubset({
+            CONF_METER_UNITS, CONF_LOG_LEVEL, CONF_TARIFFS, CONF_METER_TARIFFS
+        }):
             _apply_integration_log_level(hass, entry)
             if CONF_METER_UNITS in changed:
                 await coordinator.async_apply_meter_units_from_options()
             else:
                 coordinator._applied_options = current
+            if changed & {CONF_TARIFFS, CONF_METER_TARIFFS}:
+                # Rate-only edits recalculate sensor values locally; never
+                # reload HA or make an API request merely to save a tariff.
+                coordinator.async_update_listeners()
             return
     await hass.config_entries.async_reload(entry.entry_id)
 
