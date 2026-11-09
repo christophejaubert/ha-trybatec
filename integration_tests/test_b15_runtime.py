@@ -41,7 +41,7 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
     assert len(queued) == 1
     assert queued[0][0]["statistic_id"] == identity + "_v1"
 
-    with pytest.raises(ValueError, match="pending verification"):
+    with pytest.raises(ValueError, match="still needs verification"):
         await recorder.queue_b15_plan(
             hass, "synthetic-entry", plan,
             confirm_revision=False, retry_pending=False,
