@@ -1,0 +1,150 @@
+"""Guarded Home Assistant Energy preference replacement for verified b15 series.
+
+Nothing runs at startup. Only an authenticated administrator's explicit
+action calls this function. It saves a recoverable snapshot BEFORE writing,
+flushes Home Assistant Energy's delayed-save storage, and re-reads it.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from hashlib import sha256
+import json
+from typing import Any
+
+from homeassistant.components.energy.data import async_get_manager
+from homeassistant.helpers.storage import Store
+
+from .energy_switch import prepare_energy_switch, verify_energy_switch, preferences_fingerprint
+from .history_versions_b15 import transition_version, version_summary
+
+
+def _energy_audit_store(hass: Any, entry_id: str) -> Store:
+    digest = sha256(entry_id.encode("utf-8")).hexdigest()[:20]
+    return Store(hass, 1, f"trybatec.b15_energy_audit_{digest}")
+
+
+def _verified_version(ledger: dict, new_stat: str) -> tuple[str, int]:
+    for logical, record in ledger.get("series", {}).items():
+        for version in record.get("versions", []):
+            if version["statistic_id"] == new_stat:
+                if version["state"] not in ("verified", "archived"):
+                    raise ValueError("New Energy series is not Recorder-verified")
+                return logical, version["number"]
+    raise ValueError("New Energy series has no verified b15 Recorder ledger")
+
+
+def _competing(ledger: dict, logical: str, old_stat: str, new_stat: str) -> set[str]:
+    record = ledger["series"][logical]
+    others = {v["statistic_id"] for v in record["versions"]}
+    # Existing b3/b4/b5 statistics may still be selected; the replacement
+    # identifies the precise old ID, while all b15 versions stay exclusive.
+    others.update((old_stat, new_stat))
+    return others
+
+
+async def preview_energy_activation(
+    hass: Any, ledger: dict, old_statistic_id: str, new_statistic_id: str,
+) -> dict[str, Any]:
+    """Read-only plan; refuse missing/unverified target or conflicting source."""
+    logical, version = _verified_version(ledger, new_statistic_id)
+    manager = await async_get_manager(hass)
+    if manager.data is None:
+        raise ValueError("Energy dashboard has no saved preferences")
+    plan = prepare_energy_switch(
+        deepcopy(manager.data), old_statistic_id, new_statistic_id,
+        _competing(ledger, logical, old_statistic_id, new_statistic_id),
+    )
+    return {
+        "mode": "read_only",
+        "logical_id": logical, "version": version,
+        "old_statistic_id": old_statistic_id,
+        "new_statistic_id": new_statistic_id,
+        "before_fingerprint": plan["before_fingerprint"],
+        "after_fingerprint": plan["after_fingerprint"],
+        "path": plan["path"],
+        "requires_confirmation": True,
+        "requires_recorder_verified": True,
+    }
+
+
+async def activate_energy_version(
+    hass: Any, entry_id: str, ledger: dict,
+    *,
+    old_statistic_id: str,
+    new_statistic_id: str,
+    expected_before_fingerprint: str,
+    confirm: bool,
+    rollback_confirmed: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Verified two-phase update with a pre-write durable rollback snapshot.
+
+    A concurrent change causes failure, never overwriting unrelated sources.
+    A post-write mismatch triggers rollback only if it remains safe to do so.
+    A crash leaves an audit snapshot requiring manual recovery.
+    """
+    if confirm is not True:
+        raise ValueError("Explicit Energy switch confirmation required")
+    if not isinstance(expected_before_fingerprint, str) or len(expected_before_fingerprint) != 64:
+        raise ValueError("Expected Energy preference fingerprint missing")
+    logical, number = _verified_version(ledger, new_statistic_id)
+    state = ledger["series"][logical]["versions"][number - 1]["state"]
+    if state == "archived" and not rollback_confirmed:
+        raise ValueError("Restoring an archived version requires explicit rollback approval")
+    manager = await async_get_manager(hass)
+    if manager.data is None:
+        raise ValueError("Energy preferences are not configured")
+    current = deepcopy(manager.data)
+    alternatives = _competing(ledger, logical, old_statistic_id, new_statistic_id)
+    plan = prepare_energy_switch(current, old_statistic_id, new_statistic_id, alternatives)
+    if not verify_energy_switch(plan, current, after_save=False):
+        raise ValueError("Energy preferences changed before approval")
+    if plan["before_fingerprint"] != expected_before_fingerprint:
+        raise ValueError("Stale Energy preview; review and confirm again")
+    audit = _energy_audit_store(hass, entry_id)
+    previous_audit = await audit.async_load()
+    if previous_audit is not None and previous_audit.get("status") not in ("verified", "rolled_back"):
+        raise ValueError("An earlier Energy switch awaits recovery")
+    snapshot = {
+        "status": "prepared", "old": old_statistic_id,
+        "new": new_statistic_id, "logical_id": logical,
+        "before": plan["previous"], "proposed": plan["proposed"],
+        "before_fingerprint": plan["before_fingerprint"],
+        "after_fingerprint": plan["after_fingerprint"],
+    }
+    # Home Assistant's EnergyManager.async_update normally schedules its
+    # storage write 60 seconds later; force the same Energy Store to flush.
+    await audit.async_save(snapshot)
+    try:
+        if preferences_fingerprint(manager.data) != plan["before_fingerprint"]:
+            raise ValueError("Concurrent Energy change detected")
+        await manager.async_update({plan["path"][0]: plan["proposed"][plan["path"][0]]})
+        await manager._store.async_save(manager.data)
+        loaded = await manager._store.async_load()
+        if not verify_energy_switch(plan, loaded, after_save=True):
+            raise ValueError("Energy preferences not durably stored")
+        if not verify_energy_switch(plan, manager.data, after_save=True):
+            raise ValueError("Energy preferences changed during commit")
+    except Exception:
+        # Never clobber a third party's concurrent modification.
+        if (manager.data is not None
+                and preferences_fingerprint(manager.data) == plan["after_fingerprint"]):
+            await manager.async_update({plan["path"][0]: plan["previous"][plan["path"][0]]})
+            await manager._store.async_save(manager.data)
+            persisted = await manager._store.async_load()
+            if verify_energy_switch(plan, persisted, after_save=False):
+                snapshot["status"] = "rolled_back"
+                await audit.async_save(snapshot)
+        raise
+    # This is an actual, re-read Energy switch. Update ledger ONLY afterwards.
+    new_ledger = transition_version(
+        ledger, logical, number, expected_state=state,
+        new_state="active", energy_verified=True,
+        rollback_confirmed=rollback_confirmed,
+    )
+    snapshot["status"] = "verified"
+    await audit.async_save(snapshot)
+    return new_ledger, {
+        "status": "energy_prefs_persisted_and_verified",
+        "logical_id": logical, "new_statistic_id": new_statistic_id,
+        "old_statistic_id": old_statistic_id, "after_fingerprint": plan["after_fingerprint"],
+    }
