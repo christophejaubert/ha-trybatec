@@ -211,3 +211,29 @@ def test_gap_proposal_does_not_bridge_an_unreviewed_zero():
     }}
     result = preview_sparse_intervals(history, {key: "m³"})
     assert result["intervals"][0]["status"] == "blocked_unreviewed_zero"
+
+
+def test_exactly_accepted_zero_source_can_be_used_as_smoothing_origin():
+    from custom_components.trybatec.history import build_history
+    from custom_components.trybatec.history_review import reading_key
+    from datetime import timezone
+    initial = datetime(2022, 1, 31, 12, tzinfo=timezone.utc)
+    end = datetime(2022, 12, 1, 12, tzinfo=timezone.utc)
+    data = {"lines": [{
+        "compteur": "OLD", "fluide": "EF", "lot": "LOT",
+        "indexes": [
+            {"date": initial.isoformat(), "value": 0},
+            {"date": end.isoformat(), "value": 20},
+        ],
+    }]}
+    reviewed_key = reading_key("LOT", "EF", "OLD", initial, 0)
+    history = build_history(
+        [data], date(2022, 1, 1), date(2022, 12, 31),
+        allowed_lots={"LOT"}, decisions={reviewed_key: {"action": "accept"}},
+    )
+    k = ("LOT", "EF", "OLD")
+    assert not history["__physical_meters__"][k]["unreviewed_zero_times"]
+    assert initial in history["__physical_meters__"][k]["qualified_zero_times"]
+    plan = preview_sparse_intervals(history, {k: "m³"})
+    assert plan["intervals"][0]["status"] == "linear_available_after_explicit_confirmation"
+    assert plan["intervals"][0]["bounded_consumption"] == 20
