@@ -894,7 +894,13 @@ def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
         successful = [(begin, finish) for begin, finish in calls
                       if (finish - begin).days <= 23]
         assert successful[0][0] == start and successful[-1][1] == end
-        assert all(right[0] == left[1] for left, right in zip(successful, successful[1:]))
+        # Split midpoints overlap by zero days; adjacent 92-day base
+        # windows intentionally overlap by one day for unknown API bounds.
+        # Accept both, never an uncovered day.
+        assert all(
+            0 <= (left[1] - right[0]).days <= 1
+            for left, right in zip(successful, successful[1:])
+        )
         assert len(payloads) == len(successful)
         data = services.build_history(
             payloads, start, end, allowed_lots={"FAKE-LOT"},
