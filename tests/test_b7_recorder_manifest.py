@@ -10,7 +10,7 @@ def test_recorder_is_optional_and_declared_for_hassfest():
         Path("custom_components/trybatec/manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["domain"] == "trybatec"
-    assert manifest["after_dependencies"] == ["recorder"]
+    assert manifest["after_dependencies"] == ["energy", "recorder"]
     assert "recorder" not in manifest.get("dependencies", [])
 
 
