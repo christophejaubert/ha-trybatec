@@ -41,6 +41,7 @@ from .recorder_guard import (
     stage_pending, verified_snapshot, expected_windows, fingerprint_import_plan,
 )
 from .history_v4 import compose_plan, reconcile_plan
+from .history_reconstruction import preview_sparse_intervals
 from .history import (
     build_history, history_windows, physical_statistic_id,
     summarize_preview,
@@ -128,6 +129,7 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional("confirm_accounting", default=False): bool,
         vol.Optional("confirm_revision", default=False): bool,
         vol.Optional("retry_pending", default=False): bool,
+        vol.Optional("preview_linear_proposals", default=False): bool,
         vol.Optional("confirm", default=False): bool,
     },
     extra=vol.PREVENT_EXTRA,
@@ -329,6 +331,28 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "replacement_groups": {
             fluid: history[fluid]["points"] for fluid in FLUIDS
         },
+        # Optional b15 estimate, admin-only and read-only. There is NO
+        # automatic Recorder import or Energy source activation here.
+        "linear_proposals": (
+            preview_sparse_intervals(
+                history,
+                {
+                    key: normalized_unit(key[1])
+                    for key, meter in history["__physical_meters__"].items()
+                    if resolve_meter_unit(
+                        key[0], key[1], key[2],
+                        meter.get("portal_unit"),
+                        validate_meter_units(
+                            coordinator.entry.options.get(CONF_METER_UNITS, {})
+                        ),
+                    ) is not None
+                },
+                sparse_hours=int(coordinator.entry.options.get(
+                    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+                )),
+            )
+            if call.data.get("preview_linear_proposals") is True else None
+        ),
         "meter_units": [
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
