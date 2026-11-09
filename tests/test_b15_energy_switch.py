@@ -25,7 +25,6 @@ def preferences():
         ],
         "device_consumption": [{"stat_consumption": "sensor.kitchen_energy", "name": "Keep device"}],
         "device_consumption_water": [],
-        "device_consumption_gas": [],
         "unrelated_future_setting": {"keep": True},
     }
 
@@ -84,3 +83,31 @@ def test_fingerprint_tracks_all_energy_preference_sections():
     changed = deepcopy(original)
     changed["device_consumption"][0]["name"] = "Changed outside Trybatec"
     assert preferences_fingerprint(original) != preferences_fingerprint(changed)
+
+
+def test_grid_export_alternative_is_checked_for_double_counting():
+    prefs = preferences()
+    prefs["energy_sources"][0]["stat_energy_to"] = OTHER
+    with pytest.raises(ValueError, match="competing"):
+        prepare_energy_switch(prefs, OLD, NEW, {OLD, NEW, OTHER})
+
+
+def test_actual_ha_three_section_preferences_are_supported():
+    prefs = {
+        "energy_sources": [
+            {"type": "water", "stat_energy_from": OLD,
+             "stat_cost": None, "entity_energy_price": None,
+             "number_energy_price": None},
+        ],
+        "device_consumption": [],
+        "device_consumption_water": [],
+    }
+    changed = prepare_energy_switch(prefs, OLD, NEW, {OLD, NEW})
+    assert changed["proposed"]["energy_sources"][0]["stat_energy_from"] == NEW
+
+
+def test_unknown_energy_source_type_fails_closed():
+    prefs = preferences()
+    prefs["energy_sources"].append({"type": "unsupported_new_type", "stat_energy_from": OTHER})
+    with pytest.raises(ValueError, match="Unknown Energy source type"):
+        prepare_energy_switch(prefs, OLD, NEW, {OLD, NEW, OTHER})
