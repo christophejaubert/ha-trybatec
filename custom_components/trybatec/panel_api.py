@@ -84,7 +84,7 @@ def _meter_inventory(
     """Merge exact physical identities. Old meters are not obsolete entities."""
     merged: dict[tuple[str, str, str], dict[str, Any]] = {}
     if current is not None:
-        live = current.get("meters") or {}
+        live = current.get("meters", {})
         if not isinstance(live, dict) or len(live) > _MAX_METERS:
             raise ValueError("Invalid or excessive live meter inventory")
         for serial, meter in live.items():
