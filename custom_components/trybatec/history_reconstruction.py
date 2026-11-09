@@ -222,3 +222,83 @@ def consolidate_consumptions(
         "selected_meters": dict(sorted(selections.items())),
         "rows": rows, "total": float(cumulative),
     }
+
+
+def preview_sparse_intervals(
+    history: dict[str, Any],
+    verified_units: Mapping[tuple[str, str, str], str],
+    *,
+    sparse_hours: int = 27,
+    max_intervals: int = 32,
+    max_daily_rows: int = 366,
+) -> dict[str, Any]:
+    """Generate bounded, explicit administrator-only sparse-gap proposals.
+
+    Does not infer reading provenance, real daily measurements or missing
+    index values from the portal's chart. A rejected or unverified source
+    is shown as blocked, not treated as consumption. No Recorder writes.
+    """
+    if not 1 <= sparse_hours <= 87600 or not 1 <= max_intervals <= 100:
+        raise ValueError("Invalid preview limits")
+    if not 1 <= max_daily_rows <= 3660:
+        raise ValueError("Invalid daily preview limit")
+    meters = history.get("__physical_meters__")
+    if not isinstance(meters, dict):
+        raise ValueError("Missing physical meter history")
+    proposals = []
+    total_found = 0
+    for key, meter in sorted(meters.items()):
+        lot, fluid, serial = key
+        readings = meter.get("reviewed_readings", ())
+        if not isinstance(readings, (list, tuple)):
+            raise ValueError("Invalid reviewed physical index data")
+        for first, last in zip(readings, readings[1:]):
+            first_at, first_index = first
+            last_at, last_index = last
+            gap_hours = (last_at - first_at).total_seconds() / 3600
+            if gap_hours <= sparse_hours:
+                continue
+            total_found += 1
+            if len(proposals) >= max_intervals:
+                continue
+            base = {
+                "lot": lot, "fluid": fluid, "meter_serial": serial,
+                "start_date": _local_day(first_at).isoformat(),
+                "end_date": _local_day(last_at).isoformat(),
+                "gap_hours": round(gap_hours, 3),
+                "provenance": "unknown_manual_or_automatic",
+                "status": "proposal_only",
+            }
+            if meter.get("fatal_conflicts") or meter.get("conflicts"):
+                proposals.append({**base, "status": "blocked_source_conflict"})
+                continue
+            if key not in verified_units or not verified_units[key]:
+                proposals.append({**base, "status": "blocked_unverified_unit"})
+                continue
+            try:
+                plan = propose_interval(
+                    start_reading=first, end_reading=last,
+                    measured_by_day={}, mode="linear",
+                    zero_index_verified=False,
+                )
+            except (ValueError, TypeError, OverflowError):
+                proposals.append({**base, "status": "blocked_needs_explicit_review"})
+                continue
+            daily = plan["allocations"]
+            proposals.append({
+                **base,
+                "status": "linear_available_after_explicit_confirmation",
+                "unit": verified_units[key],
+                "bounded_consumption": plan["total"],
+                "estimated_total": plan["estimated_total"],
+                "days": len(daily),
+                "daily_preview": daily if len(daily) <= max_daily_rows else None,
+                "daily_preview_truncated": len(daily) > max_daily_rows,
+            })
+    return {
+        "mode": "read_only_no_recorder_or_energy_changes",
+        "total_sparse_intervals": total_found,
+        "reported_intervals": len(proposals),
+        "truncated": total_found > max_intervals,
+        "intervals": proposals,
+    }
