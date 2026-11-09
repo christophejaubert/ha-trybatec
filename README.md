@@ -64,23 +64,37 @@ not constitute a production acceptance test or permission to release.
   meter series are raw observed consumption versus observed plus individually
   approved linear gaps. Unverified units, source conflicts, unresolved zero
   readings and stale choices block proposals. Both variants are previews,
-  **not available as Recorder statistics yet**.
-- The V1/V2/V3 ledger module can prepare versions, require explicit revisions,
-  track `prepared/imported/verified/active/archived` and guard activation and
-  rollback. The b15 import/verification/activation orchestration is **not yet
-  connected** to this ledger; a pure-unit-test success does not constitute a
-  persisted Recorder version.
-- Meters marked `depose` **in a current API response** can now appear as
-  historical-only sensors (no increasing statistic state class); older meters
-  visible only through the full historic API remain in the detailed history
-  preview until a safe persisted historical device inventory is implemented.
+  **not automatically imported as Recorder statistics**. Import requires
+  `trybatec.preview_b15`, verified fingerprint, a confirmed backup and
+  `trybatec.import_b15`, followed by `trybatec.verify_b15`.
+- `trybatec.preview_b15` prepares separate raw and smoothed physical
+  consumption series plus a single consolidated series for each dwelling and
+  fluid. Its fingerprint is validated again after re-fetching vendor data
+  before `trybatec.import_b15` queues the new immutable `_vN` revisions.
+  A durable pending journal and `trybatec.verify_b15` require **every**
+  Recorder bucket to match before marking a version verified.
+- `trybatec.preview_b15_energy` provides the exact Energy preference
+  fingerprint and double-counting controls across the full dwelling and
+  fluid, including physical alternatives. An administrator may explicitly
+  invoke `trybatec.activate_b15_energy`, which records a rollback snapshot,
+  writes and verifies the Energy preferences and the version ledger.
+  Nothing is changed in Energy during installation or automatically.
+- `trybatec.archive_b15_meters` can persist the actual identities and last
+  vendor observations of retired physical meters. After a separate integration
+  reload, sensors are restored as **historical-only**, without increasing
+  consumption statistics. No fictional raw indexes are created.
+- `trybatec.preview_b15_migration` and `trybatec.apply_b15_migration`
+  offer a one-at-a-time technical unique-ID migration only when matching
+  physical identity and source units are proven; the existing `entity_id`,
+  related UI references and past Recorder rows are preserved. Ambiguous
+  legacy objects are intentionally left untouched.
 
-**Remaining before b15 release:** wire alternative series to a fully staged
-Recorder import with version verification, persistent historical devices,
-non-destructive entity-registry migration and complete dependency inventory,
-and the guarded Energy preference write/verification/rollback transaction.
-The final runtime tests and release/merge checks must then all pass at the
-exact b15 head. Do not merge or release while those checks remain open.
+**Release gate:** the code paths now exist on the development branch, but
+their complete isolated Home Assistant runtime, restart/recovery, Recorder
+readback, Energy rollback, translations and real-interface tests must pass
+at the exact final SHA before publication. Unsafe/unknown legacy migrations
+require a separate manual decision. No production Home Assistant has been
+modified. Do not merge or publish while any requirement is unverified.
 
 ## Changes in 0.2.0b6 — Read before historical imports
 
