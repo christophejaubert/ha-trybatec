@@ -6,7 +6,9 @@ from datetime import date
 from custom_components.trybatec.api import (
     TrybatecAuthError,
     TrybatecClient,
+    TrybatecConnectionError,
     TrybatecDataError,
+    TrybatecWindowError,
 )
 
 
@@ -72,3 +74,45 @@ class APITest(unittest.IsolatedAsyncioTestCase):
         session.post_replies = [FakeResponse(200, {"firstName": "test"})]
         with self.assertRaises(TrybatecDataError):
             await client.authenticate()
+
+    async def test_range_rejections_can_be_split_but_other_http_errors_cannot(self):
+        for status in (408, 413, 414, 422):
+            session = FakeSession()
+            session.get_replies = [FakeResponse(status, {"private": "must not leak"})]
+            client = TrybatecClient(session, "test", "test")
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(
+                    TrybatecWindowError, "request window rejected"
+                ) as caught:
+                    await client.indexes(
+                        "MOCK-DEAL", date(2021, 1, 1), date(2026, 11, 9)
+                    )
+                self.assertNotIn("private", str(caught.exception))
+                self.assertEqual(len([x for x in session.calls if x[0] == "GET"]), 1)
+
+        session = FakeSession()
+        session.get_replies = [FakeResponse(400, {})]
+        with self.assertRaises(TrybatecConnectionError):
+            await TrybatecClient(session, "test", "test").indexes(
+                "MOCK-DEAL", date(2021, 1, 1), date(2026, 11, 9)
+            )
+
+    async def test_timeout_during_vendor_response_is_splittable(self):
+        class TimedOutResponse(FakeResponse):
+            async def json(self, **kwargs):
+                raise TimeoutError("synthetic timeout")
+
+        session = FakeSession()
+        session.get_replies = [TimedOutResponse(200, None)]
+        client = TrybatecClient(session, "test", "test")
+        with self.assertRaisesRegex(TrybatecWindowError, "request timed out"):
+            await client.indexes("MOCK-DEAL", date(2021, 1, 1), date(2026, 11, 9))
+
+    async def test_api_per_response_point_limit_remains_enforced(self):
+        from unittest.mock import patch
+        from custom_components.trybatec import api
+
+        payload = {"lines": [{"indexes": [{}, {}, {}]}]}
+        with patch.object(api, "MAX_INDEX_POINTS", 2):
+            with self.assertRaisesRegex(TrybatecDataError, "safe point count"):
+                api._validate_indexes(payload)

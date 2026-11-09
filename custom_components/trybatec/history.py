@@ -23,11 +23,10 @@ from .units import (
 )
 from .history_review import apply_review_to_meter, review_candidates
 
-MAX_REQUEST_DAYS = 92
 MAX_DETAILS = 100
-MAX_METERS = 3000
-MAX_OBSERVATIONS = 500000
-MAX_LINES = 50000
+# No aggregate cap on periods, physical meters, rows or observations:
+# the API client bounds every individual vendor response. Historical
+# records from multiple valid responses must not be silently excluded.
 # Daily polling can span 23 or 25 hours at DST transitions; 27h tolerates both.
 MAX_DAILY_INTERVAL_HOURS = 27
 LONG_GAP_DAYS = 3
@@ -35,16 +34,15 @@ LOCAL_ZONE = ZoneInfo(TIMEZONE)
 
 
 def history_windows(start: date, end: date) -> list[tuple[date, date]]:
-    """Overlapping windows tolerate inclusive/exclusive API bounds."""
+    """Try the entire requested period first; split only after a failed reply.
+
+    A provider limit of 92 days was never established. Adaptive splitting
+    is implemented by history_services._fetch_history_payloads; the final
+    accepted windows still overlap at split boundaries for deduplication.
+    """
     if end < start:
         raise ValueError("Historical date range end precedes start")
-    result: list[tuple[date, date]] = []
-    cursor = start
-    while cursor < end:
-        finish = min(cursor + timedelta(days=MAX_REQUEST_DAYS), end)
-        result.append((cursor, finish))
-        cursor = finish - timedelta(days=1) if finish < end else end
-    return result
+    return [(start, end)]
 
 
 def _label(s: str) -> str:
@@ -66,16 +64,11 @@ def combine_payloads(
     """
     meters: dict[tuple[str, str, str], dict[str, Any]] = {}
     conflicts: list[dict[str, Any]] = []
-    count = 0
-    line_count = 0
     serial_fluids: dict[tuple[str, str], set[str]] = defaultdict(set)
     for payload in payloads:
         if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list):
             raise ValueError("Invalid Trybatec history payload")
         for line in payload["lines"]:
-            line_count += 1
-            if line_count > MAX_LINES:
-                raise ValueError("Trybatec history exceeds safe line count")
             if not isinstance(line, dict):
                 continue
             serial, fluid = line.get("compteur"), line.get("fluide")
@@ -89,8 +82,6 @@ def combine_payloads(
                 continue
             serial = _label(serial)
             key = (lot, fluid, serial)
-            if key not in meters and len(meters) >= MAX_METERS:
-                raise ValueError("Trybatec history exceeds safe meter count")
             meter = meters.setdefault(key, {
                 "lot": lot, "fluid": fluid, "serial": serial,
                 "indexes": {}, "retired": False, "conflicts": 0,
@@ -116,9 +107,6 @@ def combine_payloads(
             if not isinstance(points, list):
                 continue
             for point in points:
-                count += 1
-                if count > MAX_OBSERVATIONS:
-                    raise ValueError("Trybatec history exceeds safe reading count")
                 if not isinstance(point, dict):
                     continue
                 at = parse_timestamp(point.get("date"))

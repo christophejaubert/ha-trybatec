@@ -1,5 +1,5 @@
 """Pure, fake historical observations: never include real serials or lot IDs."""
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
@@ -16,25 +16,15 @@ def line(serial, fluid, observations, *, lot="TEST-LOT", deposed=False):
     }
 
 
-def test_windows_overlap_and_cover_range():
-    start, end = date(2021, 12, 1), date(2022, 7, 1)
-    parts = history_windows(start, end)
-    assert parts[0][0] == start and parts[-1][1] == end
-    assert len(parts) > 1
-    assert all((b - a).days <= 92 for a, b in parts)
-    assert all(parts[i + 1][0] == parts[i][1] - timedelta(days=1) for i in range(len(parts)-1))
+def test_history_windows_try_entire_requested_range_first():
+    start, end = date(2021, 12, 1), date(2026, 11, 9)
+    assert history_windows(start, end) == [(start, end)]
 
 
-def test_windows_cover_more_than_ten_years_without_a_hard_ceiling():
+def test_history_windows_accept_multi_decade_ranges_without_pre_split():
     start, end = date(2010, 1, 1), date(2026, 1, 1)
-    windows = history_windows(start, end)
-    assert len(windows) > 45
-    assert windows[0][0] == start and windows[-1][1] == end
-    assert all((b - a).days <= 92 for a, b in windows)
-    assert all(
-        right[0] == left[1] - timedelta(days=1)
-        for left, right in zip(windows, windows[1:])
-    )
+    assert history_windows(start, end) == [(start, end)]
+    assert history_windows(start, start) == [(start, start)]
 
 
 def test_windows_reject_reversed_dates():
