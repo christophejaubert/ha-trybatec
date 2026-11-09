@@ -38,7 +38,7 @@ from .recorder_guard import (
 )
 from .history_v4 import compose_plan, reconcile_plan
 from .history import (
-    MAX_HISTORY_DAYS, build_history, history_windows, physical_statistic_id,
+    build_history, history_windows, physical_statistic_id,
     summarize_preview,
 )
 
@@ -49,9 +49,11 @@ VERIFY_SERVICE = "verify_history"
 COSTS_SERVICE = "preview_costs"
 DIAGNOSTICS_SERVICE = "diagnose_history"
 
-# All retries are bounded. A failed subwindow is never silently dropped and
-# no preview cache/Recorder write is committed until every date is retrieved.
-MAX_HISTORY_WINDOW_ATTEMPTS = 80
+# A failed subwindow is never silently dropped and no preview cache or
+# Recorder write is committed until every requested date is retrieved.
+# Retrieval is paced and bounded by the *finite requested date interval*:
+# a failed range is recursively halved until a single day cannot be read.
+# No fixed total-request cap can truncate an otherwise complete long history.
 HISTORY_WINDOW_PAUSE_SECONDS = 0.2
 _SAFE_DATA_FAILURES = {
     "Trybatec response exceeds permitted size": "response_too_large",
@@ -69,7 +71,8 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
 
     Split only TrybatecDataError (including oversized/malformed index JSON).
     Connection and authentication errors retain the normal fail-closed path.
-    One-day failures or exhausted budgets abort the entire preview and import.
+    A one-day failure aborts the entire preview/import; each split strictly
+    shortens the calendar interval, so retries are finite without a global cap.
     The midpoint is included in both halves to preserve boundary observations
     across APIs with unknown inclusive/exclusive end-date semantics.
     """
@@ -78,11 +81,6 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
     requests = 0
     while pending:
         begin, finish = pending.pop()
-        if requests >= MAX_HISTORY_WINDOW_ATTEMPTS:
-            raise ServiceValidationError(
-                "Trybatec history request limit reached; narrow the date range. "
-                "No partial history was accepted."
-            )
         if requests:
             await asyncio.sleep(HISTORY_WINDOW_PAUSE_SECONDS)
         requests += 1
@@ -149,8 +147,8 @@ def _dates(data: dict[str, Any]) -> tuple[date, date]:
         end = date.fromisoformat(data.get("end_date", today.isoformat()))
     except (TypeError, ValueError) as exc:
         raise ServiceValidationError("Dates must be in YYYY-MM-DD format") from exc
-    if start >= end or end > today or (end - start).days > MAX_HISTORY_DAYS:
-        raise ServiceValidationError("Invalid date range, future date or more than 10 years")
+    if start >= end or end > today:
+        raise ServiceValidationError("Invalid date range or future date")
     return start, end
 
 
@@ -180,8 +178,6 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     coordinator = _coordinator(hass, call.data)
     start, end = _dates(call.data)
     windows = history_windows(start, end)
-    if len(windows) > 45:
-        raise ServiceValidationError("Historical query would use too many requests")
     if not hasattr(coordinator, "_history_lock"):
         coordinator._history_lock = asyncio.Lock()
     async with coordinator._history_lock:
@@ -198,9 +194,11 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     # Persisted review choices apply only to exact source fingerprint matches.
     # The preview itself never writes to Home Assistant storage or recorder.
     decisions = await load_decisions(hass, coordinator.entry.entry_id)
-    coordinator._history_review_cache = (payloads, start, end, allowed_lots)
+    # Publish the review cache only once the *complete* response has been
+    # validated, including physical-meter identity and observation limits.
+    # A malformed final window must never replace a usable earlier preview.
     history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
-    # In-memory proposals for the integration options UI, never persisted by preview.
+    coordinator._history_review_cache = (payloads, start, end, allowed_lots)
     coordinator._history_review_candidates = history["__review_candidates__"]
     return coordinator, start, end, history, actual_requests
 
