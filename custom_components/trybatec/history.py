@@ -251,6 +251,9 @@ def build_history(
             "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],
             "last": readings[-1][0], "rows": [], "anchor": None,
+            # Read-only internal source for future administrator preview only.
+            # These are reviewed values, not fabricated daily observations.
+            "reviewed_readings": readings,
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
             "fatal_conflicts": meter["fatal_conflicts"],
             "total": 0.0, "importable": 0.0, "unallocated": 0.0,
