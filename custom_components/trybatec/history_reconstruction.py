@@ -10,7 +10,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from hashlib import sha256
-from math import isfinite
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -274,6 +273,12 @@ def preview_sparse_intervals(
                 continue
             if key not in verified_units or not verified_units[key]:
                 proposals.append({**base, "status": "blocked_unverified_unit"})
+                continue
+            if any(
+                first_at <= zero_at <= last_at
+                for zero_at in meter.get("unreviewed_zero_times", ())
+            ):
+                proposals.append({**base, "status": "blocked_unreviewed_zero"})
                 continue
             try:
                 plan = propose_interval(
