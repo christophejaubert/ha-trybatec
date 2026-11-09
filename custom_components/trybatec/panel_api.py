@@ -23,6 +23,7 @@ from .history_recorder_b15 import ledger_store
 from .parsing import validate_tariffs
 from .units import meter_key
 from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_tariff_change
+from .panel_history import ws_panel_history_preview, ws_panel_smoothing_choice
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -308,3 +309,5 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     )
     websocket_api.async_register_command(hass, ws_panel_snapshot)
     websocket_api.async_register_command(hass, ws_panel_tariff_change)
+    websocket_api.async_register_command(hass, ws_panel_history_preview)
+    websocket_api.async_register_command(hass, ws_panel_smoothing_choice)
