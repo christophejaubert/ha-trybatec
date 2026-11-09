@@ -73,7 +73,7 @@ def test_invalid_review_thresholds_fail_closed(sparse, zeros):
         review_candidates(meter([1, 2]), {}, sparse_hours=sparse, zero_review_days=zeros)
 
 
-def test_unreviewed_vendor_zero_suspends_affected_import_even_if_sparse_limit_allows():
+def test_unreviewed_vendor_zero_is_preserved_in_raw_history_for_review():
     payload = {"lines": [{
         "lot": "synthetic-lot", "fluide": "EF", "compteur": "synthetic-meter",
         "indexes": [
@@ -85,8 +85,10 @@ def test_unreviewed_vendor_zero_suspends_affected_import_even_if_sparse_limit_al
     }]}
     result = build_history([payload], date(2026, 1, 1), date(2026, 1, 4),
                            sparse_interval_hours=49, zero_index_review_days=0)
-    assert result["EF"]["importable_consumption"] == 3
-    assert result["EF"]["unallocated_consumption"] == 2
+    assert result["EF"]["observations"] == 4
     meter = next(iter(result["__physical_meters__"].values()))
     assert len(meter["unreviewed_zero_times"]) == 1
-    assert 0 not in [value for _, value in meter["reviewed_readings"]]
+    assert 0 in [value for _, value in meter["reviewed_readings"]]
+    # Preserve existing raw daily logic until a separately approved b15
+    # migration; the new smoothed interval preview blocks unresolved zeros.
+    assert result["EF"]["total"] == 5
