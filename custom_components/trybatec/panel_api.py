@@ -293,11 +293,17 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         raise ValueError("Another integration already owns the Trybatec panel URL")
     module_path = Path(__file__).parent / "panel" / "trybatec-panel.js"
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(
-            f"{_PANEL_ASSETS}/trybatec-panel.js",
-            str(module_path),
-            cache_headers=False,
-        )]
+        [
+            StaticPathConfig(
+                f"{_PANEL_ASSETS}/trybatec-panel.js",
+                str(module_path), cache_headers=False,
+            ),
+            StaticPathConfig(
+                f"{_PANEL_ASSETS}/logo.png",
+                str(Path(__file__).parent / "brand" / "icon.png"),
+                cache_headers=True,
+            ),
+        ]
     )
     await panel_custom.async_register_panel(
         hass,
