@@ -46,18 +46,20 @@ def _apply_integration_log_level(hass: HomeAssistant, entry: ConfigEntry | None 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register opt-in historical actions; no recorder writes at startup."""
     register_history_actions(hass)
-    # The Home Assistant frontend is optional. A headless HA instance (or
-    # isolated Recorder test) must never fail setup of Trybatec sensors merely
-    # because its GUI is not installed. The after_dependencies manifest field
-    # orders registration after an available frontend has initialized.
-    if {"frontend", "http", "websocket_api"}.issubset(hass.config.components):
-        from .panel_api import async_register_panel
+    # Keep the native sensors/actions working in headless environments. The
+    # optional sidebar is registered *after* HA has completely started; no
+    # optional graphical dependency is allowed to break Recorder or polling.
+    async def _register_after_started(_hass: HomeAssistant) -> None:
+        if {"frontend", "http", "websocket_api"}.issubset(hass.config.components):
+            from .panel_api import async_register_panel
 
-        await async_register_panel(hass)
-    else:
-        logging.getLogger(__name__).debug(
-            "Trybatec sidebar is not registered: HA frontend is unavailable"
-        )
+            await async_register_panel(hass)
+        else:
+            logging.getLogger(__name__).debug(
+                "Trybatec sidebar unavailable: Home Assistant frontend not loaded"
+            )
+
+    async_at_started(hass, _register_after_started)
     return True
 
 
