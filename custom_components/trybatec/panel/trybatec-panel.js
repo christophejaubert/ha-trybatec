@@ -665,6 +665,30 @@ class TrybatecPanel extends HTMLElement {
       }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>'):"")+
       '<p class="muted" style="margin-top:13px">La persistance de cette hypothèse et son incorporation à une version Recorder feront l’objet d’une validation distincte.</p></section>';
   }
+  _historyComparison(proposal) {
+    const comparison=proposal.before_after;
+    if (!comparison || comparison.status!=='comparison_preview_only') {
+      return '<div class="notice warning">Comparaison journalière non disponible : les bornes ou le détail doivent être revérifiés.</div>';
+    }
+    const rows=comparison.rows||[];
+    const format=(value)=>Number(value).toLocaleString('fr-FR',{maximumFractionDigits:6});
+    return '<section aria-label="Comparaison journalière avant et après lissage">'+
+      '<h3>Comparaison avant / après · consommation et cumul</h3>'+
+      '<p class="muted">Avant : seules les consommations journalières effectivement connues sont affichées. Le tiret signifie « non déterminé », jamais zéro. Après : répartition estimée du résiduel, sans modifier les index réels.</p>'+
+      '<div class="detail-grid">'+
+      '<div><span class="smallhead">Total entre bornes</span><strong>'+safe(format(comparison.bounded_total))+' '+safe(proposal.unit)+'</strong></div>'+
+      '<div><span class="smallhead">Consommation réellement mesurée</span><strong>'+safe(format(comparison.measured_total))+' '+safe(proposal.unit)+'</strong></div>'+
+      '<div><span class="smallhead">Consommation estimée</span><strong>'+safe(format(comparison.estimated_total))+' '+safe(proposal.unit)+'</strong></div></div>'+
+      '<div class="scroll" style="max-height:360px"><table><thead><tr><th>Jour</th><th>Avant · mesuré</th><th>Après · consommation</th><th>Cumul après</th><th>Nature</th></tr></thead><tbody>'+
+      rows.slice(0,90).map(r=>'<tr><td>'+safe(r.date)+'</td>'+
+        '<td>'+safe(r.before_observed_consumption===null?'—':format(r.before_observed_consumption))+'</td>'+
+        '<td>'+safe(format(r.after_consumption))+'</td>'+
+        '<td>'+safe(format(r.cumulative_after))+'</td>'+
+        '<td>'+safe(r.provenance==='measured'?'Mesuré':'Estimé linéaire')+'</td></tr>'
+      ).join('')+'</tbody></table></div>'+
+      (rows.length>90?'<p class="muted">Aperçu limité aux 90 premiers jours. Total et validation calculés sur l’ensemble de la période.</p>':'')+
+      '<p class="muted" style="margin-top:10px">Le cumul est une consommation depuis le début de l’intervalle, pas un nouvel index mesuré. Aucune mesure source ni statistique Recorder n’est modifiée.</p></section>';
+  }
   _historyDayBars(proposal) {
     const rows=proposal.daily_preview;
     if (!Array.isArray(rows)||!rows.length)
@@ -809,7 +833,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Index avant → après</span><strong>'+safe(proposal.source_start_index+" → "+proposal.source_end_index)+'</strong></div>'+
       '<div><span class="smallhead">Jours</span><strong>'+safe(proposal.days||"À déterminer")+'</strong></div>'+
       '<div><span class="smallhead">État</span><strong>'+safe(blockers[proposal.status]||proposal.status)+'</strong></div></div>'+
-      (ready?'<h3>Aperçu après lissage linéaire</h3>'+this._historyDayBars(proposal):
+      (ready?'<h3>Aperçu après lissage linéaire</h3>'+this._historyDayBars(proposal)+this._historyComparison(proposal):
         '<div class="notice warning">Le lissage est bloqué tant que les index ou les unités nécessaires ne sont pas qualifiés. La vue existante permet de réviser les anomalies.</div>')+
       '<div class="form-grid" style="margin-top:16px">'+
       '<div><label for="h-mode">Décision</label><select id="h-mode" data-history-field="mode">'+
