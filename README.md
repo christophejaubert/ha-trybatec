@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Version in `main`: 0.2.0b15**, merged through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version in `main`: 0.2.0b16** (after this PR is merged). The earlier b15 version was integrated through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -16,6 +16,16 @@
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
 > HACS, or OpenAI. Test with your own account before using it for monitoring.
+
+## b16 — First synchronization after HA startup
+
+Trybatec waits until Home Assistant emits `homeassistant_started` before
+requesting meter indexes. Sensors are registered after the first successful
+vendor response; a temporary first-fetch failure triggers approximately
+one-minute retries until data becomes available, then returns to the
+configured regular polling interval. An integration reloaded while HA is
+already running refreshes immediately. This does not guarantee that the
+external Trybatec API is always available.
 
 ## b15 experimental capabilities — opt-in; production acceptance pending
 
