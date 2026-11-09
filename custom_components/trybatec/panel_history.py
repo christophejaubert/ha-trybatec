@@ -22,6 +22,7 @@ from .const import (
 )
 from .history import build_history
 from .history_reconstruction import preview_sparse_intervals, propose_interval
+from .history_comparison import preview_daily_before_after
 from .history_services import _load
 from .history_smoothing_store import load_choices, save_choice
 from .history_store import load_decisions
@@ -74,6 +75,9 @@ async def _proposals_from_cached_history(
     choices = await load_choices(hass, coordinator.entry.entry_id)
     for interval in proposals["intervals"]:
         interval["choice"] = choices.get(interval["interval_key"])
+        # Presentation only. Source daily measurements cannot be inferred from
+        # sparse endpoints: unknown pre-lissage days remain null, not 0.
+        interval["before_after"] = preview_daily_before_after(interval)
     return {
         "proposals": proposals,
         "review_candidates": history["__review_candidates__"][:_MAX_RESULT_ROWS],
