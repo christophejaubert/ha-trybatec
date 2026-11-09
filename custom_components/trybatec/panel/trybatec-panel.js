@@ -104,6 +104,15 @@ class TrybatecPanel extends HTMLElement {
     this._historyReason="manual_periodic";
     this._historyError="";
     this._historyMessage="";
+    this._readingSelected="";
+    this._readingAction="accept";
+    this._readingMode="accounting";
+    this._readingDate="";
+    this._readingTime="00:00:00";
+    this._readingReason="";
+    this._readingOutside=false;
+    this._readingBusy=false;
+    this._readingMessage="";
     this._meterAudit=null;
     this._meterAuditBusy=false;
     this._meterAuditError="";
@@ -157,6 +166,20 @@ class TrybatecPanel extends HTMLElement {
       this._historySelected=btn.dataset.historySelect;this._render();return;
     }
     if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
+    if (btn.dataset.readingSelect !== undefined) {
+      this._readingSelected=btn.dataset.readingSelect;
+      const item=(this._historyPreview?.review_candidates||[]).find(
+        x=>x.key===this._readingSelected
+      );
+      if (item) {
+        this._readingDate=item.source_date.slice(0,10);
+        this._readingTime=item.source_date.slice(11,19);
+      }
+      this._readingReason="";this._readingAction="accept";
+      this._readingOutside=false;
+      this._render();return;
+    }
+    if (btn.dataset.readingApprove!==undefined) {this._approveReading();return;}
     if (btn.dataset.entityAudit !== undefined) {
       this._auditMeterEntity(btn.dataset.entityAudit);return;
     }
@@ -169,6 +192,16 @@ class TrybatecPanel extends HTMLElement {
     }
     if (event.target.dataset.energyBackup!==undefined) {
       this._energyBackup=event.target.checked;this._render();return;
+    }
+    const readingField=event.target.dataset.readingField;
+    if (readingField) {
+      const value=readingField==="outside"?Boolean(event.target.checked):event.target.value;
+      const fields={
+        action:"_readingAction",mode:"_readingMode",date:"_readingDate",
+        time:"_readingTime",reason:"_readingReason",outside:"_readingOutside"
+      };
+      if (fields[readingField]) this[fields[readingField]]=value;
+      this._render();return;
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
@@ -508,6 +541,92 @@ class TrybatecPanel extends HTMLElement {
       '<div class="muted" style="display:flex;justify-content:space-between;margin-top:8px">'+
       '<span>Mesuré : vert</span><span>Estimé : bleu</span></div>';
   }
+  async _approveReading() {
+    if (this._readingBusy||!this._current||!this._readingSelected) return;
+    const item=(this._historyPreview?.review_candidates||[]).find(
+      x=>x.key===this._readingSelected
+    );
+    if (!item) return;
+    const corrected=this._readingAction==="correct";
+    if (corrected && this._readingReason.trim().length<8) {
+      this._historyError="La correction exige un justificatif explicite (au moins 8 caractères).";
+      this._render();return;
+    }
+    const description=this._readingAction==="accept"?"Conserver ce relevé":
+      this._readingAction==="correct"?"Corriger/imputer ce relevé":
+      this._readingAction==="reject"?"Écarter ce relevé du calcul":
+      "Reporter l’examen (le relevé sera temporairement écarté du calcul)";
+    if (!window.confirm(description+" ?\n\n"+
+        item.fluid+" · "+item.meter_serial+" · "+item.source_date+
+        "\nIndex source : "+item.index+
+        "\n\nLes données brutes ne seront jamais modifiées.")) return;
+    this._readingBusy=true;this._historyError="";this._render();
+    try {
+      const request={
+        type:"trybatec/panel_reading_decision",entry_id:this._current.entry_id,
+        reading_key:item.key,action:this._readingAction,confirm:true,
+      };
+      if (corrected) {
+        request.mode=this._readingMode;
+        request.date=this._readingDate;
+        request.time=this._readingTime;
+        request.reason=this._readingReason;
+        if (this._readingMode==="accounting"&&this._readingOutside)
+          request.out_of_period_confirmed=true;
+      }
+      const answer=await this._hass.callWS(request);
+      this._historyPreview.review_candidates=answer.review_candidates;
+      this._readingMessage="Décision enregistrée ; index source, Recorder et Énergie inchangés.";
+      this._historyMessage=this._readingMessage;
+      this._readingSelected="";
+    } catch (_) {
+      this._historyError="Décision refusée : vérifiez la date, le motif ou l’imputation hors période, puis actualisez l’historique.";
+    } finally {this._readingBusy=false;this._render();}
+  }
+  _readingReview() {
+    const list=this._historyPreview?.review_candidates||[];
+    const item=list.find(x=>x.key===this._readingSelected);
+    const explanation={
+      sparse_interval:"Intervalle espacé (pas une erreur avérée)",
+      index_zero:"Index nul à qualifier",
+      index_decrease:"Baisse d’index à vérifier",
+      conflicting_source_reading:"Relevés sources contradictoires",
+    };
+    return '<section class="card" style="margin-top:17px"><h3>Revue des relevés signalés</h3>'+
+    '<p class="muted">Une correction de date réelle exige une preuve ; une imputation comptable ne modifie pas la date de mesure.</p>'+
+    '<div class="split" style="margin-top:16px"><div class="scroll">'+
+    (list.length?list.map(c=>
+      '<div class="meter-row"><button type="button" data-reading-select="'+safe(c.key)+'" class="'+
+      (this._readingSelected===c.key?"selected":"")+'">'+
+      '<span class="meter-name">'+safe(c.fluid+" · "+c.meter_serial+" · "+c.index)+'</span>'+
+      '<span class="meter-sub">'+safe(c.source_date)+'</span>'+
+      '<span class="meter-sub">'+safe(c.reasons.map(r=>explanation[r]||r).join(" · "))+
+      " · Décision : "+safe(c.decision)+'</span></button></div>').join(""):'<div class="empty">Aucun relevé à examiner. Lancez l’analyse historique.</div>')+
+    '</div><div>'+
+    (item?'<h3>Décision sur le relevé</h3>'+
+      '<p class="muted">Index réel : '+safe(item.index)+' · '+safe(item.source_date)+'</p>'+
+      '<div class="form-grid" style="margin-top:12px">'+
+      '<div><label>Traitement</label><select data-reading-field="action">'+
+      [["accept","Conserver"],["correct","Corriger ou imputer"],["reject","Écarter"],["postpone","Reporter"]].map(([v,t])=>
+        '<option value="'+v+'" '+(this._readingAction===v?"selected":"")+'>'+t+'</option>').join("")+
+      '</select></div>'+
+      (this._readingAction==="correct"?
+        '<div><label>Type</label><select data-reading-field="mode">'+
+        '<option value="measurement" '+(this._readingMode==="measurement"?"selected":"")+'>Date réelle vérifiée</option>'+
+        '<option value="accounting" '+(this._readingMode==="accounting"?"selected":"")+'>Imputation comptable</option></select></div>'+
+        '<div><label>Date</label><input type="date" data-reading-field="date" value="'+safe(this._readingDate)+'"></div>'+
+        '<div><label>Heure</label><input type="time" step="1" data-reading-field="time" value="'+safe(this._readingTime)+'"></div>'+
+        '<div style="grid-column:1/-1"><label>Justification obligatoire</label><input type="text" data-reading-field="reason" maxlength="500" value="'+safe(this._readingReason)+'" placeholder="Préciser le justificatif"></div>'+
+        (this._readingMode==="accounting"?
+          '<label style="grid-column:1/-1"><input type="checkbox" data-reading-field="outside" '+(this._readingOutside?"checked":"")+
+          '> Je confirme explicitement une imputation en dehors de la période source, si applicable.</label>':""):
+        "")+
+      '</div>'+
+      '<div class="actions"><button type="button" class="primary" data-reading-approve '+
+        (this._readingBusy?"disabled":"")+'>Confirmer la décision</button></div>':
+      '<div class="empty">Sélectionnez un relevé pour le qualifier ou corriger son attribution.</div>')+
+    '</div></div></section>';
+  }
   _history() {
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
       x=>x.interval_key===this._historySelected
@@ -566,7 +685,8 @@ class TrybatecPanel extends HTMLElement {
         this._historyBusy||(this._historyMode==="linear"&&!ready)?"disabled":"")+
       '>Confirmer la décision</button></div>':
       '<h3>Avant / après</h3><div class="empty">Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.</div>')+
-      '</section></div><div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
+      '</section></div>'+this._readingReview()+
+      '<div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
