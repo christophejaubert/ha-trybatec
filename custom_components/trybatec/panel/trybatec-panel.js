@@ -508,7 +508,9 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
       '<div><span class="smallhead">Unité</span><strong>'+safe(m.unit||"À vérifier")+'</strong></div>'+
       '<div><span class="smallhead">Dernier index disponible</span><strong>'+safe(m.last_index===null?"Indisponible":m.last_index)+'</strong></div>'+
-      '<div><span class="smallhead">Dernière observation</span><strong>'+safe(m.last_observed_at||"Non vérifiée")+'</strong></div>'+
+      '<div><span class="smallhead">Première observation connue</span><strong>'+safe(m.first_observed_at||"Non disponible")+'</strong></div>'+
+      '<div><span class="smallhead">Dernière observation source</span><strong>'+safe(m.last_source_observed_at||"Non disponible")+'</strong></div>'+
+      '<div><span class="smallhead">Dernier index exploitable</span><strong>'+safe(m.last_observed_at||"Non vérifié")+'</strong></div>'+
       '<div><span class="smallhead">Statut de l’unité</span><strong>'+safe(m.unit_verified?"Vérifiée":"À vérifier")+'</strong></div>'+
       '</div><h3>Relations techniques Home Assistant</h3>'+
       '<p class="muted">Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.</p>'+
