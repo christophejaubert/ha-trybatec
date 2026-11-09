@@ -115,6 +115,8 @@ async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeyp
     ledger = {"schema": 1, "series": {
         logical: {
             "unit": "m³",
+            "scope": {"lot": "SYNTHETIC-LOT", "fluid": "EF", "kind": "consolidated",
+                      "serial": None, "variant": "selected_physical_consumption"},
             "versions": [{
                 "number": 1, "statistic_id": new,
                 "snapshot_hash": "a" * 64,
@@ -154,7 +156,7 @@ async def test_stale_energy_preview_cannot_mutate_preferences(hass, monkeypatch)
         return FakeManager()
     monkeypatch.setattr(energy, "async_get_manager", get_manager)
     ledger = {"schema": 1, "series": {
-        "trybatec:logical_ef": {"unit": "m³", "versions": [{
+        "trybatec:logical_ef": {"unit": "m³", "scope": {"lot": "LOT", "fluid": "EF"}, "versions": [{
             "number": 1, "statistic_id": new,
             "snapshot_hash": "a" * 64,
             "source_fingerprint": "b" * 64,
@@ -167,3 +169,36 @@ async def test_stale_energy_preview_cannot_mutate_preferences(hass, monkeypatch)
             old_statistic_id=old, new_statistic_id=new,
             expected_before_fingerprint="f" * 64, confirm=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_energy_blocks_competing_physical_variant_in_same_dwelling(hass, monkeypatch):
+    old, new = "trybatec:old", "trybatec:logical_ef_v1"
+    alternative = "trybatec:logical_meter_ef_raw_v1"
+    class FakeManager:
+        data = {
+            "energy_sources": [{"type": "water", "stat_energy_from": old}],
+            "device_consumption": [{"stat_consumption": alternative}],
+            "device_consumption_water": [],
+        }
+    async def get_manager(_hass):
+        return FakeManager()
+    monkeypatch.setattr(energy, "async_get_manager", get_manager)
+    ledger = {"schema": 1, "series": {
+        "trybatec:logical_ef": {
+            "unit": "m³", "scope": {"lot": "LOT", "fluid": "EF", "kind": "consolidated"},
+            "versions": [{
+                "number": 1, "statistic_id": new, "snapshot_hash": "a" * 64,
+                "source_fingerprint": "b" * 64, "rows": 2, "state": "verified",
+            }],
+        },
+        "trybatec:logical_meter_ef_raw": {
+            "unit": "m³", "scope": {"lot": "LOT", "fluid": "EF", "kind": "physical"},
+            "versions": [{
+                "number": 1, "statistic_id": alternative, "snapshot_hash": "c" * 64,
+                "source_fingerprint": "d" * 64, "rows": 2, "state": "verified",
+            }],
+        },
+    }}
+    with pytest.raises(ValueError, match="competing"):
+        await energy.preview_energy_activation(hass, ledger, old, new)
