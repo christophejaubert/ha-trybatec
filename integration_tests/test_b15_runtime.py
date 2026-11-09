@@ -113,6 +113,15 @@ async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeyp
         return manager
     monkeypatch.setattr(energy, "async_get_manager", get_manager)
     ledger = {"schema": 1, "series": {
+        "trybatec:logical_meter_ef_raw": {
+            "unit": "m³", "scope": {"lot": "SYNTHETIC-LOT", "fluid": "EF",
+                                    "kind": "physical", "serial": "METER", "variant": "raw"},
+            "versions": [{
+                "number": 1, "statistic_id": old,
+                "snapshot_hash": "1" * 64, "source_fingerprint": "2" * 64,
+                "rows": 2, "state": "active",
+            }],
+        },
         logical: {
             "unit": "m³",
             "scope": {"lot": "SYNTHETIC-LOT", "fluid": "EF", "kind": "consolidated",
@@ -139,6 +148,8 @@ async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeyp
     assert manager._store.count == 1
     assert manager._store.saved["energy_sources"][0]["stat_energy_from"] == new
     assert new_ledger["series"][logical]["versions"][0]["state"] == "active"
+    assert (new_ledger["series"]["trybatec:logical_meter_ef_raw"]
+            ["versions"][0]["state"]) == "archived"
 
 
 @pytest.mark.asyncio
