@@ -11,7 +11,7 @@
       },
       "manual_url": {
         "title": "Indexes page URL",
-        "description": "Automatic discovery could not identify one unambiguous deal. Paste the full https://portail.trybatec.fr/indexes/… URL from your account.",
+        "description": "Automatic discovery could not identify one unambiguous deal. Paste the full the portal Indexes page URL from your account.",
         "data": {
           "indexes_url": "Full Indexes page URL"
         }
