@@ -198,7 +198,7 @@ async def async_apply_b15_energy(hass: Any, call: Any) -> dict[str, Any]:
         if ledger.get("pending"):
             raise ServiceValidationError("Unverified Recorder versions block Energy activation")
         try:
-            changed, result = await activate_energy_version(
+            _, result = await activate_energy_version(
                 hass, coordinator.entry.entry_id, ledger,
                 old_statistic_id=call.data["old_statistic_id"],
                 new_statistic_id=call.data["new_statistic_id"],
