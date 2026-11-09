@@ -14,7 +14,7 @@ from homeassistant.exceptions import ServiceValidationError
 from .const import (
     CONF_METER_UNITS, CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS, DOMAIN,
 )
-from .history_b15_plan import make_b15_plan
+from .history_plan_b15 import make_b15_plan
 from .history_recorder_b15 import (
     ledger_store, queue_b15_plan, verify_b15_recorder,
 )
