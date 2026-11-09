@@ -654,7 +654,15 @@ async def async_preview_costs(hass: HomeAssistant, call: ServiceCall) -> dict[st
         coordinator, start, end, history, requests = await _load(hass, call)
         tariffs = validate_tariffs(coordinator.entry.options.get(CONF_TARIFFS, "{}"))
         overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
-        result = estimate_historical_costs(history, tariffs, overrides)
+        # Optional per-physical-meter tariffs override only the matching
+        # annual fluid price, never cross a year or a meter identity.
+        from .panel_tariffs import validate_meter_tariffs
+        meter_tariffs = validate_meter_tariffs(
+            coordinator.entry.options.get("annual_meter_tariffs")
+        )
+        result = estimate_historical_costs(
+            history, tariffs, overrides, meter_tariffs=meter_tariffs,
+        )
     except ServiceValidationError:
         raise
     except (ValueError, TypeError, KeyError) as exc:
