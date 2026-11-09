@@ -114,6 +114,20 @@ class TrybatecPanel extends HTMLElement {
     this._settingsBusy=false;
     this._settingsMessage="";
     this._settingsError="";
+    this._versionBusy=false;
+    this._versionError="";
+    this._versionMessage="";
+    this._versionPlan=null;
+    this._versionVerify=null;
+    this._versionImportBackup=false;
+    this._versionRevision=false;
+    this._versionRetry=false;
+    this._versionHeating=false;
+    this._versionOld="";
+    this._versionNew="";
+    this._versionEnergyPlan=null;
+    this._versionEnergyBackup=false;
+    this._versionRollback=false;
     this._readingSelected="";
     this._readingAction="accept";
     this._readingMode="accounting";
@@ -198,6 +212,11 @@ class TrybatecPanel extends HTMLElement {
     }
     if (btn.dataset.energyPreview !== undefined) {this._previewHandoff();return;}
     if (btn.dataset.energyApply !== undefined) {this._applyHandoff();return;}
+    if (btn.dataset.versionPreview !== undefined) {this._previewRecorderVersion();return;}
+    if (btn.dataset.versionImport !== undefined) {this._importRecorderVersion();return;}
+    if (btn.dataset.versionVerify !== undefined) {this._verifyRecorderVersion();return;}
+    if (btn.dataset.versionEnergyPreview !== undefined) {this._previewRecorderEnergy();return;}
+    if (btn.dataset.versionEnergyApply !== undefined) {this._activateRecorderEnergy();return;}
   }
   _change(event) {
     if (event.target.dataset.query !== undefined) {
@@ -214,6 +233,21 @@ class TrybatecPanel extends HTMLElement {
         time:"_readingTime",reason:"_readingReason",outside:"_readingOutside"
       };
       if (fields[readingField]) this[fields[readingField]]=value;
+      this._render();return;
+    }
+    const versionField=event.target.dataset.versionField;
+    if (versionField) {
+      const fields={
+        importBackup:"_versionImportBackup",revision:"_versionRevision",
+        retry:"_versionRetry",heating:"_versionHeating",
+        old:"_versionOld",new:"_versionNew",
+        energyBackup:"_versionEnergyBackup",rollback:"_versionRollback",
+        start:"_historyStart",end:"_historyEnd"
+      };
+      if (fields[versionField]) this[fields[versionField]]=
+        event.target.type==="checkbox"?Boolean(event.target.checked):event.target.value;
+      if (["old","new"].includes(versionField)) this._versionEnergyPlan=null;
+      if (["start","end","heating"].includes(versionField)) this._versionPlan=null;
       this._render();return;
     }
     const settingsField=event.target.dataset.settingsField;
@@ -822,6 +856,165 @@ class TrybatecPanel extends HTMLElement {
       '<div class="empty">Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.</div>')+
       '</section></div>';
   }
+  async _callVersionService(service, payload) {
+    const result=await this._hass.callWS({
+      type:"call_service",domain:"trybatec",service,
+      service_data:{entry_id:this._current.entry_id,...payload},
+      return_response:true
+    });
+    if (!result || !result.response) throw new Error("Missing verified service response");
+    return result.response;
+  }
+  _versionDates() {
+    return {start_date:this._historyStart,end_date:this._historyEnd,
+      include_cold_water:true,include_hot_water:true,
+      include_heating:this._versionHeating};
+  }
+  async _previewRecorderVersion() {
+    if (!this._current||this._versionBusy) return;
+    this._versionBusy=true;this._versionError="";this._versionMessage="";
+    this._versionPlan=null;this._versionVerify=null;this._render();
+    try {
+      this._versionPlan=await this._callVersionService("preview_b15",this._versionDates());
+      this._versionMessage="Aperçu Recorder obtenu. Aucun import n’a commencé.";
+    } catch (_) {
+      this._versionError="Plan impossible : vérifiez unités, zéros et décisions de lissage, puis recommencez l’aperçu.";
+    } finally {this._versionBusy=false;this._render();}
+  }
+  async _importRecorderVersion() {
+    const plan=this._versionPlan;
+    if (!plan?.plan_fingerprint||this._versionBusy||!this._versionImportBackup) return;
+    if (!window.confirm(
+      "Importer les séries historiques dans Recorder ?"+
+      "\\n\\nSauvegarde confirmée : "+String(this._versionImportBackup)+
+      "\\nNombre de séries : "+String(plan.series?.length||0)+
+      "\\n\\nCette action écrit des statistiques dans Home Assistant. La vérification de persistance est une étape distincte."
+    )) return;
+    this._versionBusy=true;this._versionError="";this._render();
+    try {
+      const result=await this._callVersionService("import_b15",{
+        ...this._versionDates(),
+        plan_fingerprint:plan.plan_fingerprint,
+        confirm:true,backup_confirmed:true,
+        confirm_revision:this._versionRevision,
+        retry_pending:this._versionRetry
+      });
+      this._versionPlan=null;
+      this._versionMessage="Import demandé ("+safe(result.status||"en cours")+
+        "). La persistance Recorder n’est pas attestée avant vérification.";
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+    } catch (_) {
+      this._versionError="Import refusé : aperçu périmé, sauvegarde manquante ou série déjà présente. Aucune réussite n’est présumée.";
+    } finally {this._versionBusy=false;this._render();}
+  }
+  async _verifyRecorderVersion() {
+    if (!this._current||this._versionBusy) return;
+    this._versionBusy=true;this._versionError="";this._versionVerify=null;this._render();
+    try {
+      this._versionVerify=await this._callVersionService("verify_b15",{});
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._versionMessage="Vérification Recorder exécutée. Consultez les états détaillés ci-dessous.";
+    } catch (_) {
+      this._versionError="Vérification Recorder impossible. N’activez aucune nouvelle série dans Énergie.";
+    } finally {this._versionBusy=false;this._render();}
+  }
+  async _previewRecorderEnergy() {
+    if (!this._current||this._versionBusy||!this._versionOld||!this._versionNew) return;
+    this._versionBusy=true;this._versionError="";this._versionEnergyPlan=null;this._render();
+    try {
+      this._versionEnergyPlan=await this._callVersionService("preview_b15_energy",{
+        old_statistic_id:this._versionOld,
+        new_statistic_id:this._versionNew
+      });
+      this._versionMessage="Aperçu Énergie compatible, sans écriture.";
+    } catch (_) {
+      this._versionError="Basculement refusé : série non vérifiée, mauvaise unité, référence absente ou double comptage possible.";
+    } finally {this._versionBusy=false;this._render();}
+  }
+  async _activateRecorderEnergy() {
+    const p=this._versionEnergyPlan;
+    if (!p||this._versionBusy||!this._versionEnergyBackup) return;
+    if (p.old_statistic_id!==this._versionOld ||
+        p.new_statistic_id!==this._versionNew) return;
+    if (!window.confirm(
+      "Confirmer le remplacement de la série dans Énergie ?"+
+      "\\n\\nAncienne : "+p.old_statistic_id+
+      "\\nNouvelle : "+p.new_statistic_id+
+      "\\n\\nUne sauvegarde est obligatoire. Les préférences seront vérifiées après écriture."
+    )) return;
+    this._versionBusy=true;this._versionError="";this._render();
+    try {
+      const result=await this._callVersionService("activate_b15_energy",{
+        old_statistic_id:p.old_statistic_id,
+        new_statistic_id:p.new_statistic_id,
+        before_fingerprint:p.before_fingerprint,
+        confirm:true,backup_confirmed:true,
+        confirm_rollback:this._versionRollback
+      });
+      this._versionEnergyPlan=null;
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._versionMessage="Activation traitée : "+safe(result.status||"contrôle terminé")+
+        ". Vérifiez également les statistiques affichées dans Énergie.";
+    } catch (_) {
+      this._versionError="Activation refusée ou contrôle après écriture échoué. Consultez les diagnostics ; aucun succès n’est présumé.";
+    } finally {this._versionBusy=false;this._render();}
+  }
+  _recorderVersionWorkflow() {
+    const ledger=this._current.ledger||{series:[],status:"missing",pending:0};
+    const opts=(ledger.series||[]).flatMap(row=>(row.versions||[]).filter(v=>
+      ["verified","archived"].includes(v.state)).map(v=>
+        '<option value="'+safe(v.statistic_id)+'" '+(this._versionNew===v.statistic_id?"selected":"")+'>'+
+        safe(row.logical_id+" · V"+v.number+" · "+v.state)+'</option>'
+      )).join("");
+    const sourceOpts=(this._data.energy.sources||[]).filter(x=>
+      typeof x.statistic_id==="string"&&x.statistic_id.startsWith("trybatec:")
+    ).map(x=>'<option value="'+safe(x.statistic_id)+'" '+(this._versionOld===x.statistic_id?"selected":"")+'>'+
+      safe(x.type+" · "+x.statistic_id)+'</option>').join("");
+    const plan=this._versionPlan;
+    const rows=plan?.series||[];
+    return '<section class="card" style="margin-top:16px"><h3>Préparer une version historique Recorder</h3>'+
+      '<p class="muted">Aperçu, import, contrôle de persistance et basculement Énergie sont quatre étapes distinctes. Aucune n’est lancée automatiquement.</p>'+
+      '<div class="form-grid" style="margin-top:14px">'+
+      '<div><label for="version-start">Début</label><input id="version-start" data-version-field="start" type="date" value="'+safe(this._historyStart)+'"></div>'+
+      '<div><label for="version-end">Fin</label><input id="version-end" data-version-field="end" type="date" value="'+safe(this._historyEnd)+'"></div>'+
+      '<div><label><input data-version-field="heating" type="checkbox" '+(this._versionHeating?"checked":"")+'> Inclure le chauffage</label></div>'+
+      '</div><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
+      (plan?'<div class="notice"><strong>Plan non importé</strong> · '+safe(rows.length)+
+        ' séries, '+safe(plan.physical_meters?.length||"?")+' compteurs, période '+
+        safe(plan.start_date)+" → "+safe(plan.end_date)+
+        '. Aucun historique n’a encore été écrit.</div>'+
+        '<div class="scroll">'+rows.slice(0,20).map(x=>'<div class="line">'+
+        safe(x.fluid+" · "+x.variant+" · "+x.rows+" points · "+x.unit)+'</div>').join("")+'</div>':"")+
+      '<div class="actions"><label><input type="checkbox" data-version-field="importBackup" '+
+      (this._versionImportBackup?"checked":"")+'> Une sauvegarde récupérable de HA/Recorder existe</label>'+
+      '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'> J’approuve une nouvelle version</label>'+
+      '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'> Reprendre une importation en attente</label></div>'+
+      '<div class="actions"><button class="primary" type="button" data-version-import '+
+      (!plan||!this._versionImportBackup||this._versionBusy?"disabled":"")+'>2. Confirmer l’import Recorder</button>'+
+      '<button class="secondary" type="button" data-version-verify '+(this._versionBusy?"disabled":"")+'>3. Vérifier la persistance Recorder</button></div>'+
+      (this._versionVerify?'<pre class="mono" style="white-space:pre-wrap;max-height:240px;overflow:auto">'+safe(JSON.stringify(this._versionVerify,null,2))+'</pre>':"")+
+      '</section><section class="card" style="margin-top:16px"><h3>Choisir une version vérifiée pour Énergie</h3>'+
+      '<p class="muted">Sélectionnez une ancienne série Trybatec actuellement affichée, puis une version Recorder vérifiée. Un ancien capteur physique reste géré dans le parcours séparé d’audit.</p>'+
+      '<div class="grid-two" style="margin-top:12px">'+
+      '<div><label for="version-old">Série actuellement sélectionnée</label><select id="version-old" data-version-field="old">'+
+      '<option value="">Sélectionner une source Trybatec versionnée</option>'+sourceOpts+'</select></div>'+
+      '<div><label for="version-new">Nouvelle version Recorder</label><select id="version-new" data-version-field="new">'+
+      '<option value="">Sélectionner une version vérifiée</option>'+opts+'</select></div></div>'+
+      '<div class="actions"><button type="button" class="secondary" data-version-energy-preview '+
+      (this._versionBusy||!this._versionOld||!this._versionNew?"disabled":"")+'>4. Prévisualiser le basculement</button></div>'+
+      (this._versionEnergyPlan?'<div class="notice">Prévisualisation compatible : '+
+      safe(this._versionEnergyPlan.old_statistic_id)+" → "+safe(this._versionEnergyPlan.new_statistic_id)+
+      '. Une seule source sera remplacée.</div>':"")+
+      '<div class="actions"><label><input type="checkbox" data-version-field="energyBackup" '+
+      (this._versionEnergyBackup?"checked":"")+'> Sauvegarde Énergie confirmée</label>'+
+      '<label><input type="checkbox" data-version-field="rollback" '+
+      (this._versionRollback?"checked":"")+'> J’approuve le retour vers une version archivée</label></div>'+
+      '<div class="actions"><button type="button" class="primary" data-version-energy-apply '+
+      (!this._versionEnergyPlan||!this._versionEnergyBackup||this._versionBusy?"disabled":"")+
+      '>5. Confirmer le basculement Énergie</button></div></section>'+
+      (this._versionError?'<div class="notice warning">'+safe(this._versionError)+'</div>':"")+
+      (this._versionMessage?'<div class="notice">'+safe(this._versionMessage)+'</div>':"");
+  }
   _energy() {
     const data=this._data.energy;
     const a=this._current;
@@ -836,7 +1029,7 @@ class TrybatecPanel extends HTMLElement {
       (rows.length?rows.map(row=>'<div class="line"><span class="mono">'+safe(row.logical_id)+'</span>'+
        '<div class="muted">'+safe((row.versions||[]).length)+' version(s) · '+safe(row.unit||"Unité inconnue")+'</div></div>').join(""):
        '<div class="empty">Aucune série versionnée enregistrée. Une importation historique ne sera pas démarrée automatiquement.</div>')+
-      '</section></div><div class="notice">Une seule série consolidée par logement et fluide doit être active dans Énergie. Les migrations et basculements exigent un aperçu, une sauvegarde et une confirmation distincte.</div>';
+      '</section></div>'+this._recorderVersionWorkflow()+'<div class="notice">Une seule série consolidée par logement et fluide doit être active dans Énergie. Les migrations et basculements exigent un aperçu, une sauvegarde et une confirmation distincte.</div>';
   }
   _diagnostics() {
     const a=this._current;
