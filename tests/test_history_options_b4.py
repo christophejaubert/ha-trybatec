@@ -811,3 +811,30 @@ def test_prefilled_preview_link_uses_official_redirect_and_never_calls_action(ui
         "?service=trybatec.preview_history"
     )
     assert "auth" not in url.lower() and "token" not in url.lower()
+
+
+def test_meter_unit_description_has_three_bold_facts_on_separate_lines():
+    """Actual HA locale description must render the three facts legibly."""
+    import json
+    from pathlib import Path
+
+    for file in (
+        "custom_components/trybatec/strings.json",
+        "custom_components/trybatec/translations/en.json",
+        "custom_components/trybatec/translations/fr.json",
+    ):
+        desc = json.loads(Path(file).read_text(encoding="utf-8"))[
+            "options"
+        ]["step"]["meter_unit"]["description"]
+        lead = desc.split("\n\n", 1)[0]
+        assert lead.count("  \n") == 2, file
+        assert "**{meter}**" in lead, file
+        assert "**{display_unit}**" in lead, file
+        assert "**{portal_unit}**" in lead, file
+        assert "{selection_origin}" in desc, file
+
+
+def test_meter_label_markdown_cannot_inject_additional_formatting(ui):
+    flow, _ = new_ui(ui)
+    literal = flow._markdown_literal("EF / FAKE*LOT / INDEX_[OPEN]")
+    assert literal == r"EF / FAKE\*LOT / INDEX\_\[OPEN\]"
