@@ -63,14 +63,17 @@ _SAFE_DATA_FAILURES = {
     "Unexpected Trybatec meter row": "invalid_meter_row",
     "Unexpected Trybatec index list": "invalid_index_list",
     "Trybatec response exceeds safe point count": "too_many_index_points",
+    "Trybatec indexes request window rejected": "window_rejected",
+    "Trybatec indexes request timed out": "request_timeout",
 }
 
 
 async def _fetch_history_payloads(client, deal_id: str, windows):
     """Read all dates; split data-invalid windows without ever losing records.
 
-    Split only TrybatecDataError (including oversized/malformed index JSON).
-    Connection and authentication errors retain the normal fail-closed path.
+    Start with the full requested date range; split only when a vendor
+    response is invalid, oversized, explicitly window-rejected or timed out.
+    Unrelated network failures and authentication errors fail closed.
     A one-day failure aborts the entire preview/import; each split strictly
     shortens the calendar interval, so retries are finite without a global cap.
     The midpoint is included in both halves to preserve boundary observations
@@ -87,8 +90,8 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
         try:
             payloads.append(await client.indexes(deal_id, begin, finish))
         except TrybatecDataError as exc:
+            reason = _SAFE_DATA_FAILURES.get(str(exc), "invalid_response")
             if (finish - begin).days <= 1:
-                reason = _SAFE_DATA_FAILURES.get(str(exc), "invalid_response")
                 _LOGGER.warning(
                     "Trybatec history invalid in %s to %s (%s); "
                     "no partial history accepted", begin, finish, reason,
@@ -99,8 +102,8 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
                 ) from exc
             middle = begin + timedelta(days=(finish - begin).days // 2)
             _LOGGER.info(
-                "Trybatec history response invalid for %s to %s; "
-                "retrying two shorter windows", begin, finish,
+                "Trybatec history response invalid for %s to %s (%s); "
+                "retrying two shorter windows", begin, finish, reason,
             )
             pending.append((middle, finish))
             pending.append((begin, middle))
@@ -301,6 +304,10 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "api_requests": requests,
+        "api_successful_windows": len(coordinator._history_review_cache[0]),
+        "api_rejected_windows": requests - len(coordinator._history_review_cache[0]),
+        "all_requested_intervals_answered": True,
+        "history_window_strategy": "full_interval_then_adaptive",
         "statistics": summarize_preview(
             history, meter_units=validate_meter_units(
                 coordinator.entry.options.get(CONF_METER_UNITS, {})
