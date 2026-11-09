@@ -5,6 +5,7 @@ API_ORIGIN = "https://portail.trybatec.fr"
 API_BASE = f"{API_ORIGIN}/api/v1"
 CONF_DEAL_ID = "deal_id"
 CONF_TARIFFS = "annual_tariffs"
+CONF_METER_TARIFFS = "annual_meter_tariffs"  # Optional year-by-physical-meter override.
 CONF_POLL_MINUTES = "poll_minutes"
 CONF_HEATING_UNIT = "heating_unit"  # Legacy global setting; not trusted for new meter identities.
 CONF_METER_UNITS = "meter_units"
