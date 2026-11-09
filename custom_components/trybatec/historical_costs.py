@@ -14,7 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
-from .units import normalized_unit, resolve_meter_unit, unit_factor, validate_meter_units
+from .units import meter_key, normalized_unit, resolve_meter_unit, unit_factor, validate_meter_units
 
 _LOCAL = ZoneInfo(TIMEZONE)
 _CENT = Decimal("0.01")
@@ -90,6 +90,7 @@ def estimate_historical_costs(
     overrides: dict[str, str] | None = None,
     *,
     max_details: int = 100,
+    meter_tariffs: dict[str, dict[str, dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Calculate defensible estimates by year, fluid, and evidence type.
 
@@ -101,9 +102,14 @@ def estimate_historical_costs(
         raise ValueError("Invalid historical costing inputs")
     if not 1 <= max_details <= 1000:
         raise ValueError("Invalid detail limit")
+    if meter_tariffs is not None and not isinstance(meter_tariffs, dict):
+        raise ValueError("Invalid per-meter tariff table")
+    meter_tariffs = meter_tariffs or {}
     units = validate_meter_units(overrides or {})
     aggregate = defaultdict(lambda: {
-        "quantity": Decimal(0), "meters": set(), "incomplete_meters": set()
+        "quantity": Decimal(0), "meters": set(), "incomplete_meters": set(),
+        "cost": Decimal(0), "missing_tariff": False, "applied_tariffs": set(),
+        "meter_rates": {},
     })
     withheld = []
     withheld_count = 0
@@ -141,6 +147,7 @@ def estimate_historical_costs(
                 })
             continue
         meter_id = (lot, fluid, serial)
+        physical = meter_key(lot, fluid, serial)
         incomplete = bool(meter.get("gaps") or meter.get("unallocated", 0))
         for year, quantity, kind in converted:
             if not quantity:
@@ -150,26 +157,56 @@ def estimate_historical_costs(
             entry["meters"].add(meter_id)
             if incomplete:
                 entry["incomplete_meters"].add(meter_id)
+            specific = meter_tariffs.get(str(year), {}).get(physical)
+            common = tariffs.get(str(year), {}).get(fluid)
+            rate = specific if specific is not None else common
+            origin = "meter_override" if specific is not None else "fluid_default"
+            if rate is None:
+                entry["missing_tariff"] = True
+                entry["meter_rates"][meter_id] = {
+                    "rate": None, "status": "missing", "origin": "none",
+                }
+                continue
+            if (not isinstance(rate, dict)
+                    or rate.get("status") not in {"approved", "provisional"}):
+                raise ValueError("Invalid individual historical tariff")
+            amount = _number(rate.get("rate"))
+            entry["cost"] += quantity * amount
+            entry["applied_tariffs"].add((
+                amount, rate["status"], origin,
+            ))
+            entry["meter_rates"][meter_id] = {
+                "rate": float(amount), "status": rate["status"],
+                "origin": origin,
+            }
 
     annual = []
     for (year, fluid, kind), entry in sorted(aggregate.items()):
-        tariff = tariffs.get(str(year), {}).get(fluid)
-        status = "missing"
-        rate = None
-        amount = None
-        if tariff is not None:
-            if not isinstance(tariff, dict) or tariff.get("status") not in {"approved", "provisional"}:
-                raise ValueError("Invalid tariff data")
-            rate_dec = _number(tariff.get("rate"))
-            rate = float(rate_dec)
-            status = tariff["status"]
-            amount = float((entry["quantity"] * rate_dec).quantize(_CENT, rounding=ROUND_HALF_UP))
+        rates = entry["applied_tariffs"]
+        missing = entry["missing_tariff"]
+        status = "missing" if missing or not rates else (
+            next(iter(rates))[1] if len({v[1] for v in rates}) == 1 else "mixed"
+        )
+        rate = float(next(iter(rates))[0]) if not missing and len({v[0] for v in rates}) == 1 else None
+        amount = (
+            float(entry["cost"].quantize(_CENT, rounding=ROUND_HALF_UP))
+            if not missing and rates else None
+        )
         annual.append({
             "year": year, "fluid": fluid, "evidence_type": kind,
             "quantity": float(entry["quantity"].quantize(_PRECISION, rounding=ROUND_HALF_UP)),
             "unit": normalized_unit(fluid),
             "currency": "EUR", "rate": rate, "tariff_status": status,
             "estimated_cost": amount,
+            "rate_origin": (
+                next(iter(rates))[2] if not missing and
+                len({v[2] for v in rates}) == 1 else
+                "mixed" if rates and not missing else "missing"
+            ),
+            "meter_rates": [
+                {"lot": k[0], "fluid": k[1], "meter_serial": k[2], **v}
+                for k, v in sorted(entry["meter_rates"].items())
+            ][:max_details],
             "meter_count": len(entry["meters"]),
             "incomplete_meter_count": len(entry["incomplete_meters"]),
             "coverage": "partial_or_uncertain" if entry["incomplete_meters"] else "observed_intervals_only",
