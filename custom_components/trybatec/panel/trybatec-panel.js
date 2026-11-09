@@ -92,6 +92,8 @@ class TrybatecPanel extends HTMLElement {
     this._error = "";
     this._message = "";
     this._started = false;
+    this._tariffInput = {year:2026,fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+    this._tariffBusy = false;
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -132,11 +134,74 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
+    if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
   }
   _change(event) {
-    if (event.target.dataset.query !== undefined) {this._query=event.target.value.trim().toLowerCase();this._render();}
+    if (event.target.dataset.query !== undefined) {
+      this._query=event.target.value.trim().toLowerCase();this._render();return;
+    }
+    const field=event.target.dataset.tariffField;
+    if (field) {
+      this._tariffInput[field]=event.target.value;
+      if (["year","fluid","physical_key"].includes(field)) {
+        const item=this._existingTariff();
+        this._tariffInput.rate=item?String(item.rate):"";
+        this._tariffInput.status=item?item.status:"provisional";
+      }
+      this._render();
+    }
   }
-  _submit(event) {event.preventDefault();}
+  _existingTariff() {
+    const a=this._current, f=this._tariffInput;
+    if (!a) return null;
+    const year=String(f.year);
+    return f.physical_key ?
+      ((a.meter_tariffs||{})[year]||{})[f.physical_key]||null :
+      ((a.tariffs||{})[year]||{})[f.fluid]||null;
+  }
+  _submit(event) {
+    if (event.target.dataset.tariffForm !== undefined) {
+      event.preventDefault();this._sendTariff(false);
+    }
+  }
+  async _sendTariff(remove) {
+    if (this._tariffBusy || !this._current) return;
+    const f=this._tariffInput;
+    const rate=Number(f.rate);
+    if (!remove && (f.rate==="" || !Number.isFinite(rate) || rate<0)) {
+      this._error="Le tarif doit être un montant non négatif et valide.";this._render();return;
+    }
+    const message=remove?
+      "Supprimer ce tarif ? Le tarif commun sera de nouveau applicable à ce compteur, si défini.":
+      "Enregistrer ce tarif annuel ? Les historiques Recorder et les préférences Énergie resteront inchangés.";
+    if (!window.confirm(message)) return;
+    this._tariffBusy=true;this._error="";this._render();
+    try {
+      const request={
+        type:"trybatec/panel_tariff_change",
+        entry_id:this._current.entry_id,
+        year:Number(f.year),fluid:f.fluid,status:f.status,
+        remove:Boolean(remove),confirmed:true,
+        expected_fingerprint:this._current.tariff_fingerprint,
+      };
+      if (f.physical_key) request.physical_key=f.physical_key;
+      if (!remove) request.rate=rate;
+      await this._hass.callWS(request);
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._message=remove?"Tarif retiré.":"Tarif enregistré.";
+      this._tariffInput.rate="";
+      this._tariffInput.status="provisional";
+      const existing=this._existingTariff();
+      if (existing) {
+        this._tariffInput.rate=String(existing.rate);
+        this._tariffInput.status=existing.status;
+      }
+    } catch (_) {
+      this._error="Modification refusée : vérifiez les données et actualisez les tarifs avant de réessayer.";
+    } finally {
+      this._tariffBusy=false;this._render();
+    }
+  }
   _header() {
     return '<header class="heading"><div class="mark"><ha-icon icon="mdi:water-thermometer"></ha-icon></div>' +
       '<div><h1>Trybatec <span class="badge">Bêta</span></h1>' +
@@ -246,17 +311,52 @@ class TrybatecPanel extends HTMLElement {
       '</div></section></div>';
   }
   _tariffs() {
-    const a=this._current;
+    const a=this._current, f=this._tariffInput;
     const rows=Object.entries(a.tariffs).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
       Object.entries(fluids).map(([fluid,t])=>'<tr><td>'+safe(year)+'</td><td>'+safe(FLUID[fluid]||fluid)+
       '</td><td>'+safe(t.rate)+' '+safe(fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
       '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>'));
-    return this._heading("Tarifs annuels","Exercices et fluides ; montants estimatifs, distincts des factures.")+
-      '<section class="card"><h3>Tarifs actuellement enregistrés</h3>'+
-      (rows.length?'<table><thead><tr><th>Exercice</th><th>Fluide</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+rows.join("")+'</tbody></table>':
-      '<div class="empty">Aucun tarif enregistré pour les années consultées.</div>')+
-      '<div class="notice">Cette vue lit les tarifs existants sans les modifier. La saisie ergonomique par année, fluide et compteur est intégrée au lot #42, sans demander de JSON dans le panneau final.</div>'+
-      '<div class="actions"><button class="secondary" type="button" data-openOptions>Ouvrir les options existantes</button></div></section>';
+    const overrides=Object.entries(a.meter_tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,values])=>
+      Object.entries(values).map(([key,t])=>{
+        const m=a.meters.find(m=>m.physical_key===key);
+        return '<tr><td>'+safe(year)+'</td><td>'+safe(m?(FLUID[m.fluid]+" · "+m.serial):"Compteur non identifié")+
+          '</td><td>'+safe(t.rate)+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
+          '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
+      }));
+    const yearOptions=Array.from({length:111},(_,i)=>2000+i).filter(y=>y<=2100).reverse().map(year=>
+      '<option value="'+year+'" '+(Number(f.year)===year?"selected":"")+'>'+year+'</option>').join("");
+    const current=a.meters.filter(m=>m.fluid===f.fluid);
+    const meterOptions='<option value="">Tarif commun du fluide</option>'+
+      current.map(m=>'<option value="'+safe(m.physical_key)+'" '+(f.physical_key===m.physical_key?"selected":"")+'>'+
+      safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?" (déposé)":""))+'</option>').join("");
+    return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
+      '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
+      '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
+      (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
+      (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
+      '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
+      '<div><label for="tariff-year">Exercice annuel</label><select id="tariff-year" data-tariff-field="year">'+yearOptions+'</select></div>'+
+      '<div><label for="tariff-fluid">Fluide</label><select id="tariff-fluid" data-tariff-field="fluid">'+
+      Object.entries(FLUID).filter(([key])=>key!=="unknown").map(([key,label])=>
+        '<option value="'+key+'" '+(f.fluid===key?"selected":"")+'>'+safe(label)+'</option>').join("")+'</select></div>'+
+      '<div><label for="tariff-scope">Portée</label><select id="tariff-scope" data-tariff-field="physical_key">'+meterOptions+'</select></div>'+
+      '<div><label for="tariff-rate">Tarif ('+safe(f.fluid==="CET"?"EUR/kWh":"EUR/m³")+')</label>'+
+      '<input id="tariff-rate" type="number" min="0" max="1000000" step="any" value="'+safe(f.rate)+
+      '" data-tariff-field="rate" placeholder="0,000000" required></div>'+
+      '<div><label for="tariff-status">État</label><select id="tariff-status" data-tariff-field="status">'+
+      '<option value="provisional" '+(f.status==="provisional"?"selected":"")+'>Provisoire</option>'+
+      '<option value="approved" '+(f.status==="approved"?"selected":"")+'>Approuvé</option></select></div>'+
+      '</div><div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
+      '<button class="secondary" type="button" data-tariff-delete '+(!this._existingTariff()||this._tariffBusy?"disabled":"")+
+      '>Retirer ce tarif</button></div></form>'+
+      '<div class="notice">L’état « Approuvé » qualifie le tarif saisi, pas une facture validée. Modifier un tarif ne démarre aucun import Recorder et ne modifie pas Énergie.</div></div>'+
+      '<div class="grid-two" style="margin-top:16px"><section class="card"><h3>Tarifs communs</h3>'+
+      (rows.length?'<table><thead><tr><th>Année</th><th>Fluide</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+rows.join("")+'</tbody></table>':
+      '<div class="empty">Aucun tarif commun enregistré.</div>')+'</section>'+
+      '<section class="card"><h3>Tarifs spécifiques aux compteurs</h3>'+
+      (overrides.length?'<table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table>':
+      '<div class="empty">Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.</div>')+
+      '</section></div>';
   }
   _energy() {
     const data=this._data.energy;
