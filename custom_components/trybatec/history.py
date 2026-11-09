@@ -21,7 +21,7 @@ from .units import (
     portal_index_unit, portal_display_unit, index_unit_field_paths,
     resolve_meter_unit, validate_meter_units, normalized_unit,
 )
-from .history_review import apply_review_to_meter, review_candidates
+from .history_review import apply_review_to_meter, review_candidates, reading_key
 
 MAX_DETAILS = 100
 # No aggregate cap on periods, physical meters, rows or observations:
@@ -173,6 +173,8 @@ def build_history(
     payloads: list[dict[str, Any]], start: date, end: date,
     allowed_lots: set[str] | None = None,
     decisions: dict[str, dict[str, Any]] | None = None,
+    *, sparse_interval_hours: int = MAX_DAILY_INTERVAL_HOURS,
+    zero_index_review_days: int = 1,
 ) -> dict[str, dict[str, Any]]:
     """Produce legacy per-fluid previews plus isolated per-meter import plans.
 
@@ -180,6 +182,8 @@ def build_history(
     deltas are reported as unallocated and are never assigned to a fictitious
     day, even with allow_gaps=True. One physical serial = one series.
     """
+    if not 1 <= sparse_interval_hours <= 87600 or not 0 <= zero_index_review_days <= 36500:
+        raise ValueError("Invalid historical review threshold")
     meters, conflicts = combine_payloads(payloads, allowed_lots, start, end)
     # Freeze the unmodified physical source before applying review decisions.
     # A retry must reject vendor index/date changes even if the resulting
@@ -208,9 +212,34 @@ def build_history(
     decisions = decisions or {}
     # Capture raw observations before processing user decisions; never overwrite
     # a source record in the in-memory API representation.
-    candidates = review_candidates(meters, decisions)
+    candidates = review_candidates(
+        meters, decisions,
+        sparse_hours=sparse_interval_hours,
+        zero_review_days=zero_index_review_days,
+    )
     for meter in meters.values():
+        # A vendor zero cannot become a verified measured baseline just
+        # because zero notifications were disabled. Only an explicit source-
+        # keyed review decision may qualify it or exclude it knowingly.
+        unreviewed_zeros = {
+            at for at, value in meter["indexes"].items()
+            if value == 0 and decisions.get(reading_key(
+                meter["lot"], meter["fluid"], meter["serial"], at, value
+            ), {}).get("action") not in ("accept", "correct", "reject", "postpone")
+        }
+        meter["unreviewed_zero_times"] = unreviewed_zeros
         indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
+        # A zero becomes an eligible interpolation bound only if the
+        # administrator has explicitly accepted/corrected this exact source.
+        # Notifying after N zero-days and verifying a zero are separate acts.
+        meter["qualified_zero_times"] = {
+            at for at, value in indexes.items()
+            if value == 0 and at not in unreviewed_zeros
+        }
+        # Legacy raw metering computation is unchanged: a zero may be a
+        # perfectly valid physical starting index. New b15 smoothed variants
+        # must obtain an explicit source qualification before using these
+        # candidates; never discard raw observations in this pipeline.
         # A contradictory provider timestamp cannot serve as a trusted
         # baseline. Drop that particular reading from the plan, not the
         # surrounding valid observations or the entire physical meter.
@@ -243,6 +272,11 @@ def build_history(
             "index_unit_field_paths": sorted(meter["index_unit_field_paths"])[:50],
             "first": readings[0][0],
             "last": readings[-1][0], "rows": [], "anchor": None,
+            # Read-only internal source for future administrator preview only.
+            # These are reviewed values, not fabricated daily observations.
+            "reviewed_readings": readings,
+            "unreviewed_zero_times": meter["unreviewed_zero_times"],
+            "qualified_zero_times": meter["qualified_zero_times"],
             "gaps": 0, "decreases": 0, "conflicts": meter["conflicts"],
             "fatal_conflicts": meter["fatal_conflicts"],
             "total": 0.0, "importable": 0.0, "unallocated": 0.0,
@@ -299,7 +333,7 @@ def build_history(
                 # An accounting-only attribution must not masquerade as a
                 # measured daily delta. The chosen time must fall inside the
                 # observed interval, and be later than its starting reading.
-                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and (prev_at < target_at <= at or out_of_period_confirmed)):
+                if not (span_hours > sparse_interval_hours and (prev_at < target_at <= at or out_of_period_confirmed)):
                     series["conflicts"] += 1
                     series["fatal_conflicts"] = True
                     parent["conflicts"] += 1
@@ -313,7 +347,7 @@ def build_history(
                         "at": _bucket(target_at), "quantity": round(delta, 6),
                         "source_key": source_key,
                     })
-            if 1 <= span_hours <= MAX_DAILY_INTERVAL_HOURS:
+            if 1 <= span_hours <= sparse_interval_hours:
                 if series["anchor"] is None:
                     series["anchor"] = {
                         "reading_at": prev_at.isoformat(),

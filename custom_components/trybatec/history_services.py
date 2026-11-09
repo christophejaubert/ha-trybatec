@@ -27,7 +27,11 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .api import TrybatecDataError
-from .const import CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE
+from .const import (
+    CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE,
+    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
+    CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
+)
 from .historical_costs import estimate_historical_costs
 from .history_diagnostics import diagnose_history as build_history_diagnostics
 from .parsing import validate_tariffs
@@ -37,6 +41,9 @@ from .recorder_guard import (
     stage_pending, verified_snapshot, expected_windows, fingerprint_import_plan,
 )
 from .history_v4 import compose_plan, reconcile_plan
+from .history_reconstruction import preview_sparse_intervals
+from .history_variants_b15 import variants_preview
+from .history_smoothing_store import load_choices
 from .history import (
     build_history, history_windows, physical_statistic_id,
     summarize_preview,
@@ -124,6 +131,7 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional("confirm_accounting", default=False): bool,
         vol.Optional("confirm_revision", default=False): bool,
         vol.Optional("retry_pending", default=False): bool,
+        vol.Optional("preview_linear_proposals", default=False): bool,
         vol.Optional("confirm", default=False): bool,
     },
     extra=vol.PREVENT_EXTRA,
@@ -200,7 +208,15 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     # Publish the review cache only once the *complete* response has been
     # validated, including physical-meter identity and observation limits.
     # A malformed final window must never replace a usable earlier preview.
-    history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+    history = build_history(
+        payloads, start, end, allowed_lots=allowed_lots, decisions=decisions,
+        sparse_interval_hours=int(coordinator.entry.options.get(
+            CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+        )),
+        zero_index_review_days=int(coordinator.entry.options.get(
+            CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+        )),
+    )
     coordinator._history_review_cache = (payloads, start, end, allowed_lots)
     coordinator._history_review_candidates = history["__review_candidates__"]
     return coordinator, start, end, history, actual_requests
@@ -300,6 +316,42 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
     except Exception as exc:
         _LOGGER.warning("Trybatec history preview failed: %s", type(exc).__name__)
         raise ServiceValidationError("Unable to retrieve Trybatec history") from exc
+    # Only the requested extended preview reads local confirmed smoothing
+    # decisions; source data and Recorder remain unchanged.
+    linear_view = None
+    alternative_view = None
+    if call.data.get("preview_linear_proposals") is True:
+        verified_units = {
+            key: resolved
+            for key, meter in history["__physical_meters__"].items()
+            if (resolved := resolve_meter_unit(
+                key[0], key[1], key[2], meter.get("portal_unit"),
+                validate_meter_units(
+                    coordinator.entry.options.get(CONF_METER_UNITS, {})
+                ),
+            )) is not None
+        }
+        # Raw source unit is needed by variants_preview for correct conversion;
+        # the administrative overview exposes only normalized quantities.
+        sparse_hours = int(coordinator.entry.options.get(
+            CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+        ))
+        linear_view = preview_sparse_intervals(
+            history, {key: normalized_unit(key[1]) for key in verified_units},
+            sparse_hours=sparse_hours,
+        )
+        decisions = await load_choices(hass, coordinator.entry.entry_id)
+        try:
+            alternative_view = variants_preview(
+                history, verified_units, decisions, sparse_hours=sparse_hours,
+            )
+        except ValueError:
+            # An outdated/invalid choice or truncated inventory cannot be
+            # interpreted as a successful comprehensive variant preview.
+            alternative_view = {
+                "status": "blocked_requires_reinspection",
+                "mode": "read_only_no_import",
+            }
     return {
         "mode": "preview_only_no_database_changes",
         "start_date": start.isoformat(), "end_date": end.isoformat(),
@@ -317,6 +369,10 @@ async def async_preview_history(hass: HomeAssistant, call: ServiceCall) -> dict[
         "replacement_groups": {
             fluid: history[fluid]["points"] for fluid in FLUIDS
         },
+        # Optional b15 estimate, admin-only and read-only. There is NO
+        # automatic Recorder import or Energy source activation here.
+        "linear_proposals": linear_view,
+        "alternative_series": alternative_view,
         "meter_units": [
             {
                 "lot": lot, "fluid": fluid, "meter_serial": serial,
@@ -672,3 +728,55 @@ def register_history_actions(hass: HomeAssistant) -> None:
         DOMAIN, DIAGNOSTICS_SERVICE, diagnose, schema=SERVICE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+    # b15 is deliberately separate from the installed b3-b14 Recorder
+    # contract. Never automatically import, migrate, or switch Energy.
+    from .history_b15_actions import (
+        B15_SERVICE_SCHEMA,
+        async_preview_b15, async_import_b15, async_verify_b15,
+        async_preview_b15_energy, async_apply_b15_energy,
+        async_archive_b15_meters, async_preview_b15_migration,
+        async_apply_b15_migration,
+    )
+
+    async def b15_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15(hass, call)
+
+    async def b15_import(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_import_b15(hass, call)
+        return outcome if call.return_response else None
+
+    async def b15_verify(call: ServiceCall) -> dict[str, Any]:
+        return await async_verify_b15(hass, call)
+
+    async def b15_energy_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15_energy(hass, call)
+
+    async def b15_energy_apply(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_apply_b15_energy(hass, call)
+        return outcome if call.return_response else None
+
+    async def b15_archive(call: ServiceCall) -> dict[str, Any]:
+        return await async_archive_b15_meters(hass, call)
+
+    async def b15_migration_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_b15_migration(hass, call)
+
+    async def b15_migration_apply(call: ServiceCall) -> dict[str, Any] | None:
+        outcome = await async_apply_b15_migration(hass, call)
+        return outcome if call.return_response else None
+
+    for name, handler, response in (
+        ("archive_b15_meters", b15_archive, SupportsResponse.ONLY),
+        ("preview_b15_migration", b15_migration_preview, SupportsResponse.ONLY),
+        ("apply_b15_migration", b15_migration_apply, SupportsResponse.OPTIONAL),
+        ("preview_b15", b15_preview, SupportsResponse.ONLY),
+        ("import_b15", b15_import, SupportsResponse.OPTIONAL),
+        ("verify_b15", b15_verify, SupportsResponse.ONLY),
+        ("preview_b15_energy", b15_energy_preview, SupportsResponse.ONLY),
+        ("activate_b15_energy", b15_energy_apply, SupportsResponse.OPTIONAL),
+    ):
+        hass.services.async_register(
+            DOMAIN, name, handler, schema=B15_SERVICE_SCHEMA,
+            supports_response=response,
+        )

@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 from hashlib import sha256
 import json
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -26,6 +29,7 @@ from .const import (
     FLUID_UNITS,
 )
 from .coordinator import TrybatecCoordinator
+from .history_devices_b15 import load_historical_inventory
 from .parsing import resolve_tariff, validate_tariffs
 from .units import normalized_unit, unit_factor
 
@@ -41,7 +45,7 @@ def _rates(entry: ConfigEntry) -> dict[str, dict[str, dict[str, Any]]]:
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Expose one index sensor per active physical meter and aggregate values."""
+    """Expose active and API-visible retired physical meters independently."""
     coordinator: TrybatecCoordinator = hass.data[DOMAIN][entry.entry_id]
     account_key = entry.unique_id or entry.entry_id
     known_meter_versions: set[tuple[str, str | None]] = set()
@@ -52,9 +56,8 @@ async def async_setup_entry(
         new: list[SensorEntity] = []
         active_fluids: set[str] = set()
         for serial, meter in coordinator.data["meters"].items():
-            if meter["deposed"]:
-                continue
-            active_fluids.add(meter["fluid"])
+            if not meter["deposed"]:
+                active_fluids.add(meter["fluid"])
             identity = (serial, meter.get("verified_unit"))
             if identity not in known_meter_versions:
                 known_meter_versions.add(identity)
@@ -72,6 +75,28 @@ async def async_setup_entry(
             async_add_entities(new)
 
     add_new_meters_and_metrics()
+    # Retired physical counters discovered in earlier *approved* historical
+    # inventories remain independently visible even if the portal stops
+    # including them in its current index response. They are historical-only,
+    # not active totals or extra entries in the Energy dashboard.
+    try:
+        archived = await load_historical_inventory(hass, entry.entry_id)
+    except ValueError:
+        # Preserve active sensors when the historical archive is corrupt;
+        # do not overwrite the damaged archive or invent retired indexes.
+        _LOGGER.error("Trybatec retired meter inventory needs manual recovery")
+        archived = {}
+    current_identities = {
+        (m["lot"], m["fluid"], m["serial"])
+        for m in coordinator.data.get("meters", {}).values()
+    }
+    retired_entities = [
+        TrybatecArchivedMeterSensor(account_key, item)
+        for item in archived.values()
+        if (item["lot"], item["fluid"], item["serial"]) not in current_identities
+    ]
+    if retired_entities:
+        async_add_entities(retired_entities)
     entry.async_on_unload(coordinator.async_add_listener(add_new_meters_and_metrics))
 
 
@@ -103,6 +128,9 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         self._attr_unique_id = f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
         self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (" (unit unverified)" if not self._source_unit else "")
         self._attr_native_unit_of_measurement = normalized_unit(fluid) if self._source_unit else None
+        # Preserve the historical active-meter state-class declaration.
+        # The property below dynamically disables statistics for retired
+        # devices, even when an active meter later becomes deposed.
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING if self._source_unit else None
         self._attr_device_class = (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER) if self._source_unit else None
         self._attr_device_info = {
@@ -111,6 +139,13 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             "manufacturer": "Trybatec",
             "model": "Remote meter",
         }
+
+    @property
+    def state_class(self) -> SensorStateClass | None:
+        meter = self.coordinator.data["meters"].get(self._serial)
+        if meter is None or meter.get("deposed") or not self._source_unit:
+            return None
+        return SensorStateClass.TOTAL_INCREASING
 
     @property
     def native_value(self) -> float | None:
@@ -136,7 +171,66 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             "location": meter["location"],
             "reading_time": meter["last"][0].isoformat() if meter["last"] else None,
             "deposed": meter["deposed"],
+            "service_status": "depose" if meter["deposed"] else "en_service",
+            "historical_reading_only": bool(meter["deposed"]),
+            "last_observed_time": meter["last"][0].isoformat() if meter["last"] else None,
             "has_decreasing_indexes": meter["has_decreasing_indexes"],
+        }
+
+
+class TrybatecArchivedMeterSensor(SensorEntity):
+    """Last verified historical reading of a removed physical meter.
+
+    This is an archival snapshot, not a live meter, a reconstructed index,
+    or a consumption statistic. No TOTAL_INCREASING state class is assigned.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, account_key: str, snapshot: dict[str, Any]) -> None:
+        super().__init__()
+        lot, fluid, serial = (
+            snapshot["lot"], snapshot["fluid"], snapshot["serial"]
+        )
+        self._record = dict(snapshot)
+        self._attr_unique_id = (
+            f"{account_key}_b15_retired_"
+            + sha256(
+                json.dumps([lot, fluid, serial], separators=(",", ":")).encode()
+            ).hexdigest()[:24]
+        )
+        self._attr_name = f"{FLUIDS[fluid]} {serial} archived index"
+        self._attr_native_value = snapshot.get("canonical_index")
+        self._attr_native_unit_of_measurement = snapshot.get("normalized_unit")
+        self._attr_device_class = (
+            SensorDeviceClass.ENERGY if fluid == "CET"
+            else SensorDeviceClass.WATER
+        ) if self._attr_native_unit_of_measurement else None
+        self._attr_state_class = None
+        self._attr_device_info = {
+            "identifiers": {(
+                DOMAIN, f"{account_key}_b15_historical_"
+                + sha256(
+                    json.dumps([lot, fluid, serial], separators=(",", ":")).encode()
+                ).hexdigest()[:24]
+            )},
+            "name": f"Trybatec historical {FLUIDS[fluid]} ({serial})",
+            "manufacturer": "Trybatec",
+            "model": "Retired physical meter",
+        }
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "lot": self._record["lot"], "deposed": True,
+            "service_status": "depose",
+            "historical_reading_only": True,
+            "last_observed_time": self._record["last_reading_at"],
+            "source_unit": self._record.get("source_unit"),
+            "unit_verified": self._record.get("source_unit") is not None,
+            "data_origin": "explicitly_archived_physical_meter",
+            "historical_source_fingerprint": self._record["source_fingerprint"],
         }
 
 

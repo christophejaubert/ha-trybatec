@@ -38,8 +38,9 @@ def synthetic_indexes(unit: str | None):
     return {"lines": [meter]}
 
 
-async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None):
+async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None, deposed=False):
     payload = synthetic_indexes(unit)
+    payload["lines"][0]["depose"] = deposed
     calls = []
 
     async def fake_indexes(self, deal_id, start, end):
@@ -256,6 +257,7 @@ async def test_options_root_direct_steps_have_actual_homeassistant_translations(
     expected = [
         "settings", "diagnostics", "meter_units",
         "history_overview", "history_meters", "history_review",
+        "history_smoothing",
     ]
     assert initial["type"] == "menu"
     assert initial["step_id"] == "init"
@@ -367,3 +369,18 @@ async def test_real_options_flow_saves_diagnostics_before_main_menu(
     assert hass.data[DOMAIN][entry.entry_id] is coordinator
     assert len(calls) == count
     assert logging.getLogger("custom_components.trybatec").level == logging.DEBUG
+
+
+async def test_deposed_meter_remains_visible_but_has_no_live_statistics(hass, monkeypatch):
+    """A retired physical meter is a historical device, not live consumption."""
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", deposed=True)
+    states = [state for state in hass.states.async_all("sensor")
+              if state.attributes.get("lot") == "MOCK-LOT"]
+    assert len(states) == 1
+    counter = states[0]
+    assert counter.attributes["deposed"] is True
+    assert counter.attributes["service_status"] == "depose"
+    assert counter.attributes["historical_reading_only"] is True
+    assert "state_class" not in counter.attributes
+    assert float(counter.state) == pytest.approx(15.0)
+    assert await hass.config_entries.async_unload(entry.entry_id)

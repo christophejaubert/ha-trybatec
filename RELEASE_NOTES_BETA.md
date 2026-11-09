@@ -1,3 +1,88 @@
+# 0.2.0b15 — Development candidate (NOT published)
+
+**PR #38 remains DRAFT. No release, tag, merge, historical Recorder import or
+Energy preference modification is authorized merely by these notes.**
+
+### Changes currently implemented
+
+- Configuration from username and password for a single unambiguous housing,
+  plus a strictly validated full Index page URL fallback; native
+  reauthentication retaining the same HA config entry.
+- Persistent access problem notifications with delayed network-failure
+  threshold and recovery dismissal.
+- Configurable historical sparse-period and zero-day alert thresholds.
+- Opt-in, read-only linear residual reconstruction from actual physical
+  meter index bounds; explicit user-declared review decisions and confirmation.
+  Retain raw measured index readings, including zeros and retired devices.
+  Date-based daily proposals use Europe/Paris civil days and never represent
+  estimated consumption as a measured index.
+- A new native review path in integration options for manual/telemetry
+  explanations and individual sparse periods. Decisions are locally
+  stored against exact source fingerprints; changed source values invalidate
+  stale choices.
+- Read-only physical-meter alternative consumption variants: measured-only
+  or measured plus confirmed linear gap estimates. Separate meter generations
+  remain distinct; a logical dwelling+fluid consolidation adds consumption,
+  never cumulative indexes.
+- Experimental, **non-executing** modules to preview entity migrations,
+  track V1/V2/V3 historical revision states, and prepare exclusive Energy
+  preference replacements and rollback snapshots.
+- API-visible retired meters can appear as historical-only index sensors,
+  without being treated as continuously increasing live consumption.
+- Synthetic Python and isolated Home Assistant tests have been added. Their
+  complete status must be checked at the exact final PR head.
+
+### Further implementation (not yet accepted on the target installation)
+
+- `history_plan_b15.py` creates hourly UTC Recorder plans from Paris civil-day
+  consumption, for each verified physical meter variant and one selected
+  dwelling/fluid consolidation. Index readings are **not** combined.
+- `trybatec.preview_b15` produces a source-specific fingerprint;
+  `trybatec.import_b15` requires the same fingerprint, a confirmed backup and
+  explicit approval. This stores the import journal before enqueuing new `_vN`
+  Recorder IDs. Old generations are never overwritten or deleted.
+- `trybatec.verify_b15` reads back every persisted hourly sum and only
+  then marks imported versions as verified.
+- `trybatec.preview_b15_energy` checks the exact Energy preference snapshot,
+  Recorder verification and **all** same-dwelling physical alternatives.
+  `trybatec.activate_b15_energy` is an explicit admin-only action that
+  flushes and re-reads Home Assistant Energy preferences and the b15 version
+  ledger. Audited, guarded rollback is attempted on failure, never
+  overwriting a concurrent unrelated Energy edit.
+- `trybatec.archive_b15_meters` persistently saves the exact identities
+  and latest actual index observations of retired physical meters from the
+  complete vendor history. After an integration reload, historical-only
+  sensor devices remain consultable even if no longer returned by current
+  portal polling.
+- `trybatec.preview_b15_migration` and `trybatec.apply_b15_migration`
+  support a conservative **one-entity-at-a-time** technical unique-ID
+  migration, only if same lot/serial/fluid/unit provenance can be verified.
+  The actual Home Assistant `entity_id` is kept unchanged, preserving
+  dashboard and automation references and Recorder history.
+  Unprovable legacy identity cases remain blocked for manual review.
+
+### Mandatory release blockers — not yet validated end-to-end
+
+- Validate all new Recorder, Energy and historical-device actions on
+  isolated HA, including restart/recovery and genuine Recorder persistence.
+- Verify Energy rollback on real current-version Home Assistant and
+  compatibility with the schema used on the user's instance.
+- Migrate or explicitly retain any legacy technical entities whose
+  physical identity or source unit cannot be proven; no unsafe cleanup.
+- Confirm all requested b15 functionality, CI and security at the exact
+  final commit before publishing any release or merging into main.
+- User-controlled acceptance of the final IHM and runtime behavior,
+  with no automatic production import or settings modifications.
+
+**Compatibility limitation:** accounts managing several copropriétés are not
+validated as an automatic configuration scenario. Never silently select a
+housing or use a portal UUID without checking that account's authorization.
+
+These notes intentionally mark the candidate as incomplete: release and merge
+remain prohibited until every applicable gate is satisfied.
+
+---
+
 # 0.2.0b14 — Unreleased candidate: full-range first, adaptive history recovery
 
 **Pull request only — no merge, release, HACS installation or Home Assistant changes.**

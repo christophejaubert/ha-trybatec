@@ -126,3 +126,231 @@ diagnose_history:
       description: Historical interval end (YYYY-MM-DD), defaults to today.
       selector:
         text: {}
+
+
+preview_b15:
+  name: Preview versioned historical series (b15)
+  description: Administrator-only read-only audit. Returns exact fingerprint of physical meter raw/smoothed alternatives and one dwelling/fluid series; no Recorder or Energy writes.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      selector:
+        text: {}
+    include_cold_water:
+      default: true
+      selector:
+        boolean: {}
+    include_hot_water:
+      default: true
+      selector:
+        boolean: {}
+    include_heating:
+      default: false
+      selector:
+        boolean: {}
+
+import_b15:
+  name: Import verified b15 series into Recorder
+  description: Administrator-only. Explicit confirmed backup and preview fingerprint mandatory; queues uniquely versioned physical alternatives and consolidated dwelling/fluid statistics, leaves prior versions intact.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      selector:
+        text: {}
+    include_cold_water:
+      default: true
+      selector:
+        boolean: {}
+    include_hot_water:
+      default: true
+      selector:
+        boolean: {}
+    include_heating:
+      default: false
+      selector:
+        boolean: {}
+    plan_fingerprint:
+      description: Exact 64-character fingerprint from a fresh preview_b15 action.
+      required: true
+      selector:
+        text: {}
+    backup_confirmed:
+      description: Confirm that Home Assistant has a recoverable backup.
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      description: Explicitly allow import to Recorder; never changes Energy.
+      required: true
+      selector:
+        boolean: {}
+    confirm_revision:
+      default: false
+      selector:
+        boolean: {}
+    retry_pending:
+      default: false
+      selector:
+        boolean: {}
+
+verify_b15:
+  name: Verify persisted b15 Recorder statistics
+  description: Administrator-only readback. Compares every queued hourly sum in Recorder before changing the version ledger to verified. Does not alter Energy.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+
+preview_b15_energy:
+  name: Preview b15 Energy source switch
+  description: Administrator-only read-only comparison of one existing Trybatec statistics series with a verified b15 replacement. Rejects double selection and returns preference fingerprint.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    old_statistic_id:
+      required: true
+      selector:
+        text: {}
+    new_statistic_id:
+      required: true
+      selector:
+        text: {}
+
+activate_b15_energy:
+  name: Confirm guarded b15 Energy source switch
+  description: Administrator-only. Requires a backup, exact preview fingerprint and explicit confirmation. Saves an audit snapshot, updates and re-reads Energy preferences, and rolls back when a safe rollback can be proven. This is an actual Energy configuration change.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    old_statistic_id:
+      required: true
+      selector:
+        text: {}
+    new_statistic_id:
+      required: true
+      selector:
+        text: {}
+    before_fingerprint:
+      description: Exact fingerprint from a fresh preview_b15_energy response.
+      required: true
+      selector:
+        text: {}
+    backup_confirmed:
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}
+    confirm_rollback:
+      description: Required only when explicitly restoring an archived b15 version.
+      default: false
+      selector:
+        boolean: {}
+
+
+archive_b15_meters:
+  name: Archive retired physical meters (b15)
+  description: Administrator-only. Save vendor-observed retired meter identities and last observed indexes for read-only historical devices across integration reloads. Requires backup and confirmation. Never changes Recorder or Energy.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    start_date:
+      example: "2021-01-01"
+      selector:
+        text: {}
+    end_date:
+      selector:
+        text: {}
+    backup_confirmed:
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}
+
+preview_b15_migration:
+  name: Preview non-destructive physical entity identity migration (b15)
+  description: Administrator-only. Requires proof of the exact lot, fluid, physical serial and verified original source unit; keeps the original Home Assistant entity_id and Recorder intact.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      required: true
+      selector:
+        text: {}
+    lot:
+      required: true
+      selector:
+        text: {}
+    fluid:
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      required: true
+      selector:
+        text: {}
+
+apply_b15_migration:
+  name: Apply approved non-destructive physical entity identity migration (b15)
+  description: Administrator-only. Updates exactly one verified Trybatec entity unique_id while preserving its entity_id, automations, dashboard references and past Recorder statistics. Requires fresh preview fingerprint, backup and confirmation.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      required: true
+      selector:
+        text: {}
+    lot:
+      required: true
+      selector:
+        text: {}
+    fluid:
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      required: true
+      selector:
+        text: {}
+    before_fingerprint:
+      required: true
+      selector:
+        text: {}
+    backup_confirmed:
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      required: true
+      selector:
+        boolean: {}

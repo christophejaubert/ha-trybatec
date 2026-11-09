@@ -3,21 +3,38 @@
     "step": {
       "user": {
         "title": "Trybatec account",
-        "description": "Enter the credentials for the Trybatec portal and the UUID from your portal's /indexes/ page URL. This is an unofficial integration.",
+        "description": "Enter only the username and password of your Trybatec account. A single authorized housing is resolved automatically.",
         "data": {
           "username": "Username (email)",
-          "password": "Password",
-          "deal_id": "Deal ID (UUID from the Indexes page URL)"
+          "password": "Password"
+        }
+      },
+      "manual_url": {
+        "title": "Indexes page URL",
+        "description": "Automatic discovery could not identify one unambiguous deal. Paste the full the portal Indexes page URL from your account.",
+        "data": {
+          "indexes_url": "Full Indexes page URL"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Trybatec",
+        "description": "Enter valid credentials for the same account to restore access without losing stored meters or historical choices.",
+        "data": {
+          "username": "Username (email)",
+          "password": "New password"
         }
       }
     },
     "error": {
       "invalid_auth": "Login was rejected by Trybatec.",
       "cannot_connect": "Unable to retrieve data from Trybatec.",
-      "invalid_deal_id": "The deal ID must be a UUID."
+      "invalid_deal_id": "The deal ID must be a UUID.",
+      "invalid_indexes_url": "Enter a valid HTTPS Indexes page URL for Trybatec.",
+      "wrong_account": "Reauthentication must use the same Trybatec account."
     },
     "abort": {
-      "already_configured": "This Trybatec account and deal are already configured."
+      "already_configured": "This Trybatec account and deal are already configured.",
+      "unique_id_mismatch": "Credentials do not match the configured Trybatec account."
     }
   },
   "options": {
@@ -27,7 +44,9 @@
         "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.\n\nSubmit to save and return to the main menu. To discard changes without saving, close this dialog using ×.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
-          "annual_tariffs": "Annual tariffs (JSON, optional)"
+          "annual_tariffs": "Annual tariffs (JSON, optional)",
+          "sparse_interval_hours": "Sparse reading threshold (hours, default 27)",
+          "zero_index_review_days": "Zero readings: request review after N consecutive days (0 disables, default 1)"
         }
       },
       "init": {
@@ -38,7 +57,8 @@
           "meter_units": "Verify meter units",
           "history_overview": "History overview",
           "history_meters": "Meter details",
-          "diagnostics": "Diagnostics and logging"
+          "diagnostics": "Diagnostics and logging",
+          "history_smoothing": "Review sparse intervals (linear smoothing)"
         }
       },
       "history_review": {
@@ -147,6 +167,28 @@
         "data": {
           "log_level": "Logging level"
         }
+      },
+      "history_smoothing": {
+        "title": "Select sparse interval",
+        "description": "Select a gap from the latest historical preview. Trybatec indexes are never modified. Only explicitly confirmed decisions are saved locally; no Recorder import or Energy switch.",
+        "data": {
+          "interval": "Physical-meter interval"
+        }
+      },
+      "history_smoothing_choice": {
+        "title": "Choose smoothing",
+        "description": "**Interval:** {interval}\\n\\n**Status:** {status}\\n**Bounded consumption:** {total} (verified source unit)\\n\\nLinear smoothing estimates only uncovered daily consumption and never fabricates measured indexes. No smoothing preserves observed consumption only. Confirmation is mandatory on the next screen.",
+        "data": {
+          "mode": "Method",
+          "reason": "User-declared reason"
+        }
+      },
+      "history_smoothing_confirm": {
+        "title": "Confirm interval treatment",
+        "description": "**Interval:** {interval}\\n**Method:** {mode}\\n**Reason:** {reason}\\n\\nConfirmation stores only a local review choice. It does not change Trybatec, Recorder or Energy. Changed source readings invalidate the choice.",
+        "data": {
+          "confirm": "I explicitly confirm"
+        }
       }
     },
     "error": {
@@ -158,7 +200,9 @@
       "invalid_log_level": "Invalid logging level.",
       "invalid_settings": "Invalid settings. Check the polling interval, annual tariffs and destination.",
       "confirmation_required": "Tick the required confirmation before recording the decision or returning to the main menu.",
-      "invalid_confirmation_navigation": "Returning to the decision without saving is incompatible with a checked confirmation."
+      "invalid_confirmation_navigation": "Returning to the decision without saving is incompatible with a checked confirmation.",
+      "invalid_smoothing": "Unknown method or reason.",
+      "smoothing_blocked": "Smoothing blocked by unverified unit, zero or source conflict."
     },
     "abort": {
       "history_preview_required": "First run a new history preview from Developer Tools → Actions.",

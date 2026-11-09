@@ -654,6 +654,7 @@ def test_main_menu_keeps_six_readable_direct_destinations(ui):
     expected = [
         "settings", "diagnostics", "meter_units",
         "history_overview", "history_meters", "history_review",
+        "history_smoothing",
     ]
     assert menu["type"] == "menu"
     assert menu["menu_options"] == expected
@@ -838,3 +839,81 @@ def test_meter_label_markdown_cannot_inject_additional_formatting(ui):
     flow, _ = new_ui(ui)
     literal = flow._markdown_literal("EF / FAKE*LOT / INDEX_[OPEN]")
     assert literal == r"EF / FAKE\*LOT / INDEX\_\[OPEN\]"
+
+
+def test_b15_smoothing_choices_require_confirmation_and_never_import(ui, monkeypatch):
+    flow, coordinator = new_ui(ui)
+    coordinator._history_review_cache = ([], date(2022, 1, 1), date(2023, 1, 1), {"FAKE-HOME"})
+    candidate = {
+        "interval_key": "b" * 32,
+        "fluid": "EF", "meter_serial": "FAKE-METER", "lot": "FAKE-HOME",
+        "start_date": "2022-01-31", "end_date": "2022-12-01",
+        "status": "linear_available_after_explicit_confirmation",
+        "bounded_consumption": 304,
+    }
+    async def items(_self):
+        return [candidate]
+
+    async def load(_hass, _entry):
+        return {}
+
+    saved = []
+
+    async def save(_hass, _entry, key, *, mode, reason):
+        saved.append((key, mode, reason))
+        return {key: {"mode": mode, "reason": reason}}
+
+    monkeypatch.setattr(flow.__class__, "_smoothing_candidates", items)
+    monkeypatch.setattr(ui, "load_choices", load)
+    monkeypatch.setattr(ui, "save_choice", save)
+
+    async def exercise():
+        main = await flow.async_step_init()
+        assert "history_smoothing" in main["menu_options"]
+        listing = await flow.async_step_history_smoothing()
+        assert listing["step_id"] == "history_smoothing"
+        form = await flow.async_step_history_smoothing({"interval": "b" * 32})
+        assert form["step_id"] == "history_smoothing_choice"
+        confirmation = await flow.async_step_history_smoothing_choice({
+            "mode": "linear", "reason": "manual_periodic",
+        })
+        assert confirmation["step_id"] == "history_smoothing_confirm"
+        assert saved == []
+        refused = await flow.async_step_history_smoothing_confirm({"confirm": False})
+        assert refused["errors"]["base"] == "confirmation_required"
+        assert saved == []
+        accepted = await flow.async_step_history_smoothing_confirm({"confirm": True})
+        assert accepted["step_id"] == "history_smoothing"
+        assert saved == [("b" * 32, "linear", "manual_periodic")]
+
+    asyncio.run(exercise())
+
+
+def test_b15_smoothing_blocks_unverified_gap(ui, monkeypatch):
+    flow, coordinator = new_ui(ui)
+    coordinator._history_review_cache = ([], date(2022, 1, 1), date(2023, 1, 1), {"FAKE-HOME"})
+    candidate = {
+        "interval_key": "c" * 32, "fluid": "EF", "meter_serial": "FAKE-METER",
+        "lot": "FAKE-HOME", "start_date": "2022-01-31",
+        "end_date": "2022-12-01", "status": "blocked_unverified_unit",
+    }
+    async def items(_self):
+        return [candidate]
+    async def load(*_args):
+        return {}
+    monkeypatch.setattr(flow.__class__, "_smoothing_candidates", items)
+    monkeypatch.setattr(ui, "load_choices", load)
+
+    async def exercise():
+        await flow.async_step_history_smoothing({"interval": "c" * 32})
+        bad = await flow.async_step_history_smoothing_choice({
+            "mode": "linear", "reason": "telemetry_failure",
+        })
+        assert bad["errors"]["base"] == "smoothing_blocked"
+        # Explicit no-lissage remains a legal alternative.
+        okay = await flow.async_step_history_smoothing_choice({
+            "mode": "none", "reason": "telemetry_failure",
+        })
+        assert okay["step_id"] == "history_smoothing_confirm"
+
+    asyncio.run(exercise())

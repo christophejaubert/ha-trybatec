@@ -32,6 +32,8 @@ from .const import (
     CONF_TARIFFS,
     CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL, LOG_LEVELS,
     DEFAULT_POLL_MINUTES,
+    CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
+    CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
     DOMAIN,
     MIN_POLL_MINUTES,
 )
@@ -41,6 +43,8 @@ from .device_units import uuid_text
 from .history_store import save_decision
 from .history import build_history
 from .history_review import ZONE
+from .history_reconstruction import preview_sparse_intervals
+from .history_smoothing_store import load_choices, save_choice
 
 RETURN_TO_MENU = "__return_to_main_menu__"
 RETURN_TO_METERS = "__return_to_meter_list__"
@@ -50,62 +54,179 @@ UUID_RE = re.compile(r"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
 
 
 class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Login and validate the account + portal deal id."""
+    """Configure one unambiguous Trybatec housing without requesting an UUID."""
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
+    def _credential_form(self, step_id: str, errors: dict | None = None,
+                         *, username: str | None = None) -> ConfigFlowResult:
+        username_field = vol.Required(
+            CONF_USERNAME, default=username
+        ) if username else vol.Required(CONF_USERNAME)
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=vol.Schema({
+                username_field: TextSelector(
+                    TextSelectorConfig(autocomplete="username")
+                ),
+                vol.Required(CONF_PASSWORD): TextSelector(
+                    TextSelectorConfig(
+                        type=TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
+            }),
+            errors=errors or {},
+        )
+
+    async def _check_deal(self, client: TrybatecClient, deal_id: str) -> None:
+        today = dt_util.now().date()
+        await client.indexes(
+            deal_id, today - timedelta(days=14), today + timedelta(days=1)
+        )
+
+    async def _create_account_entry(
+        self, username: str, password: str, deal_id: str
+    ) -> ConfigFlowResult:
+        # Retain the b14 stable unique ID for existing account/deal pairs.
+        unique = hashlib.sha256(f"{username.lower()}|{deal_id}".encode()).hexdigest()
+        await self.async_set_unique_id(unique)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=f"Trybatec ({deal_id[:8]})",
+            data={
+                CONF_USERNAME: username,
+                CONF_PASSWORD: password,
+                CONF_DEAL_ID: deal_id,
+            },
+        )
+
+    async def async_step_user(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Automatic discovery for a single housing; fail closed on ambiguity."""
         errors: dict[str, str] = {}
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
-            deal_id = user_input[CONF_DEAL_ID].strip().lower()
-            if not UUID_RE.fullmatch(deal_id):
-                errors[CONF_DEAL_ID] = "invalid_deal_id"
+            password = user_input[CONF_PASSWORD]
+            client = TrybatecClient(
+                async_get_clientsession(self.hass), username, password
+            )
+            try:
+                deal_id = await client.discover_single_deal_id()
+            except TrybatecAuthError:
+                errors["base"] = "invalid_auth"
+            except (TrybatecConnectionError, TrybatecDataError):
+                # Explicit fallback: no UUID is chosen automatically.
+                self._manual_credentials = (username, password)
+                return await self.async_step_manual_url()
             else:
                 try:
-                    client = TrybatecClient(
-                        async_get_clientsession(self.hass),
-                        username,
-                        user_input[CONF_PASSWORD],
-                    )
-                    today = dt_util.now().date()
-                    await client.indexes(
-                        deal_id, today - timedelta(days=14), today + timedelta(days=1)
-                    )
+                    await self._check_deal(client, deal_id)
                 except TrybatecAuthError:
                     errors["base"] = "invalid_auth"
                 except (TrybatecConnectionError, TrybatecDataError):
                     errors["base"] = "cannot_connect"
                 else:
-                    # Do not persist email in the unique id (it is hashed).
-                    unique = hashlib.sha256(f"{username.lower()}|{deal_id}".encode()).hexdigest()
-                    await self.async_set_unique_id(unique)
-                    self._abort_if_unique_id_configured()
-                    return self.async_create_entry(
-                        title=f"Trybatec ({deal_id[:8]})",
-                        data={
-                            CONF_USERNAME: username,
-                            CONF_PASSWORD: user_input[CONF_PASSWORD],
-                            CONF_DEAL_ID: deal_id,
-                        },
+                    return await self._create_account_entry(
+                        username, password, deal_id
+                    )
+        return self._credential_form("user", errors)
+
+    async def async_step_manual_url(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Controlled fallback accepts the full Indexes URL, never an arbitrary ID."""
+        pending = getattr(self, "_manual_credentials", None)
+        if not pending:
+            return await self.async_step_user()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            from urllib.parse import urlparse
+            from uuid import UUID
+            raw = user_input.get("indexes_url", "").strip()
+            parsed = urlparse(raw)
+            match = re.fullmatch(
+                r"/indexes/([a-fA-F0-9-]{36})/?", parsed.path
+            ) if (parsed.scheme == "https"
+                   and parsed.netloc == "portail.trybatec.fr"
+                   and not parsed.query and not parsed.fragment
+                   and not parsed.username and not parsed.password) else None
+            deal_id = None
+            if match:
+                try:
+                    deal_id = str(UUID(match.group(1)))
+                    if deal_id != match.group(1).lower():
+                        deal_id = None
+                except ValueError:
+                    pass
+            if deal_id is None:
+                errors["indexes_url"] = "invalid_indexes_url"
+            else:
+                username, password = pending
+                client = TrybatecClient(
+                    async_get_clientsession(self.hass), username, password
+                )
+                try:
+                    await self._check_deal(client, deal_id)
+                except TrybatecAuthError:
+                    errors["base"] = "invalid_auth"
+                except (TrybatecConnectionError, TrybatecDataError):
+                    errors["base"] = "cannot_connect"
+                else:
+                    self._manual_credentials = None
+                    return await self._create_account_entry(
+                        username, password, deal_id
                     )
         return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_USERNAME): TextSelector(
-                        TextSelectorConfig(autocomplete="username")
-                    ),
-                    vol.Required(CONF_PASSWORD): TextSelector(
-                        TextSelectorConfig(
-                            type=TextSelectorType.PASSWORD,
-                            autocomplete="current-password",
-                        )
-                    ),
-                    vol.Required(CONF_DEAL_ID): TextSelector(),
-                }
-            ),
+            step_id="manual_url",
+            data_schema=vol.Schema({
+                vol.Required("indexes_url"): TextSelector()
+            }),
             errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict
+    ) -> ConfigFlowResult:
+        """Keep the same configuration entry, identity and historical settings."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            username = user_input[CONF_USERNAME].strip()
+            password = user_input[CONF_PASSWORD]
+            if username.lower() != entry.data[CONF_USERNAME].lower():
+                errors["base"] = "wrong_account"
+            else:
+                client = TrybatecClient(
+                    async_get_clientsession(self.hass), username, password
+                )
+                try:
+                    await self._check_deal(client, entry.data[CONF_DEAL_ID])
+                except TrybatecAuthError:
+                    errors["base"] = "invalid_auth"
+                except (TrybatecConnectionError, TrybatecDataError):
+                    errors["base"] = "cannot_connect"
+                else:
+                    unique = hashlib.sha256(
+                        f"{username.lower()}|{entry.data[CONF_DEAL_ID]}".encode()
+                    ).hexdigest()
+                    await self.async_set_unique_id(unique)
+                    self._abort_if_unique_id_mismatch()
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                        },
+                    )
+        return self._credential_form(
+            "reauth_confirm", errors, username=entry.data[CONF_USERNAME]
         )
 
     @staticmethod
@@ -123,6 +244,8 @@ class TrybatecOptionsFlow(OptionsFlow):
     _selected_history_meter_key: str | None = None
     _return_after_confirmation: bool = False
     _correction_draft: dict | None = None
+    _selected_sparse: dict | None = None
+    _pending_sparse: dict | None = None
 
     @staticmethod
     def _radio_choices(choices: dict[str, str]) -> SelectSelector:
@@ -230,6 +353,8 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._pending_review = None
         self._return_after_confirmation = False
         self._correction_draft = None
+        self._selected_sparse = None
+        self._pending_sparse = None
         return await self.async_step_init()
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -241,10 +366,13 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._pending_review = None
         self._return_after_confirmation = False
         self._correction_draft = None
+        self._selected_sparse = None
+        self._pending_sparse = None
         return self.async_show_menu(
             step_id="init",
             menu_options=["settings", "diagnostics", "meter_units",
-                          "history_overview", "history_meters", "history_review"],
+                          "history_overview", "history_meters", "history_review",
+                          "history_smoothing"],
         )
 
     # Keep the main menu direct. Home Assistant does not support native
@@ -294,6 +422,16 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ))
                 if not MIN_POLL_MINUTES <= poll <= 10080:
                     raise ValueError("Polling interval out of bounds")
+                sparse = int(user_input.get(
+                    CONF_SPARSE_HOURS,
+                    self.config_entry.options.get(CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS),
+                ))
+                zeros = int(user_input.get(
+                    CONF_ZERO_REVIEW_DAYS,
+                    self.config_entry.options.get(CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS),
+                ))
+                if not 1 <= sparse <= 87600 or not 0 <= zeros <= 36500:
+                    raise ValueError("Invalid review thresholds")
                 validate_tariffs(tariffs)
                 if route not in ("finish", "menu"):
                     raise ValueError("Invalid navigation")
@@ -301,7 +439,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                 errors["base"] = "invalid_settings"
             else:
                 return await self._save_options_and_navigate(
-                    {CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs}, route
+                    {
+                        CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs,
+                        CONF_SPARSE_HOURS: sparse, CONF_ZERO_REVIEW_DAYS: zeros,
+                    }, route
                 )
         schema = vol.Schema(
             {
@@ -315,10 +456,33 @@ class TrybatecOptionsFlow(OptionsFlow):
                     CONF_TARIFFS,
                     default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
                 ): str,
+                vol.Required(
+                    CONF_SPARSE_HOURS,
+                    default=self.config_entry.options.get(
+                        CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=87600)),
+                vol.Required(
+                    CONF_ZERO_REVIEW_DAYS,
+                    default=self.config_entry.options.get(
+                        CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=36500)),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
+
+    def _history_thresholds(self) -> dict[str, int]:
+        """Use the same persisted thresholds on all history preview screens."""
+        return {
+            "sparse_interval_hours": int(self.config_entry.options.get(
+                CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+            )),
+            "zero_index_review_days": int(self.config_entry.options.get(
+                CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+            )),
+        }
 
     def _known_meter_units(self, coordinator) -> dict[str, dict]:
         """Current plus cached historical (including replaced) physical meters."""
@@ -330,7 +494,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         cache = getattr(coordinator, "_history_review_cache", None)
         if cache:
             payloads, start, end, lots = cache
-            history = build_history(payloads, start, end, allowed_lots=lots)
+            history = build_history(payloads, start, end, allowed_lots=lots, **self._history_thresholds())
             for (lot, fluid, serial), item in history["__physical_meters__"].items():
                 key = meter_key(lot, fluid, serial)
                 if key not in meters:
@@ -506,7 +670,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         meters = history["__physical_meters__"]
         flagged = history["__review_candidates__"]
         if user_input is not None and user_input.get("review") is True:
@@ -551,7 +715,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         meter_choices = {}
         fluid_names = {
             "EF": self._nav_text("Eau froide", "Cold water"),
@@ -604,7 +768,7 @@ class TrybatecOptionsFlow(OptionsFlow):
         from .history_store import load_decisions
         payloads, start, end, allowed_lots = cache
         decisions = await load_decisions(self.hass, self.config_entry.entry_id)
-        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions)
+        history = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=decisions, **self._history_thresholds())
         matches = [
             (lot, fluid, serial, meter)
             for (lot, fluid, serial), meter in history["__physical_meters__"].items()
@@ -641,6 +805,172 @@ class TrybatecOptionsFlow(OptionsFlow):
         if coordinator is None:
             return []
         return list(getattr(coordinator, "_history_review_candidates", []))
+
+
+    async def _smoothing_candidates(self) -> list[dict]:
+        """Use only an already fetched administrator preview; never contact
+        Trybatec, mutate measurements or infer manual reading provenance.
+        """
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        cache = getattr(coordinator, "_history_review_cache", None) if coordinator else None
+        if cache is None:
+            return []
+        from .history_store import load_decisions
+        payloads, start, end, allowed_lots = cache
+        decisions = await load_decisions(self.hass, self.config_entry.entry_id)
+        history = build_history(
+            payloads, start, end, allowed_lots=allowed_lots,
+            decisions=decisions, **self._history_thresholds(),
+        )
+        known = self._known_meter_units(coordinator)
+        units = {}
+        for key in history["__physical_meters__"]:
+            meter = known.get(meter_key(*key))
+            if meter is not None and meter.get("verified_unit") is not None:
+                from .units import normalized_unit
+                units[key] = normalized_unit(key[1])
+        view = preview_sparse_intervals(
+            history, units,
+            sparse_hours=self._history_thresholds()["sparse_interval_hours"],
+            max_intervals=100,
+        )
+        return view["intervals"]
+
+    async def async_step_history_smoothing(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Choose one physical-meter gap; no data changes on navigation."""
+        if user_input is not None and user_input.get("interval") == RETURN_TO_MENU:
+            return await self._go_to_main_menu()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None:
+            return self._history_notice("history_unavailable")
+        if getattr(coordinator, "_history_review_cache", None) is None:
+            return self._history_notice("history_preview_missing")
+        candidates = await self._smoothing_candidates()
+        if not candidates:
+            return self._history_notice("history_empty")
+        by_key = {candidate["interval_key"]: candidate for candidate in candidates}
+        if user_input is not None:
+            found = by_key.get(user_input.get("interval"))
+            if found is None:
+                return self._history_notice("history_preview_missing")
+            self._selected_sparse = found
+            self._pending_sparse = None
+            return await self.async_step_history_smoothing_choice()
+        stored = await load_choices(self.hass, self.config_entry.entry_id)
+        selections = {
+            item["interval_key"]: (
+                f'{item["fluid"]} · {item["meter_serial"]} · {item["lot"]} · '
+                f'{item["start_date"]} → {item["end_date"]} · '
+                f'{item["status"]} · '
+                f'{stored.get(item["interval_key"], {}).get("mode", "unreviewed")}'
+            )[:240]
+            for item in candidates
+        }
+        selections[RETURN_TO_MENU] = self._nav_text("Retour au menu", "Back to menu")
+        return self.async_show_form(
+            step_id="history_smoothing",
+            data_schema=vol.Schema({
+                vol.Required("interval"): self._radio_choices(selections)
+            }),
+        )
+
+    async def async_step_history_smoothing_choice(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Make a draft decision, without implicitly accepting any estimates."""
+        selected = self._selected_sparse
+        if selected is None:
+            return self._history_notice("history_preview_missing")
+        errors = {}
+        stored = await load_choices(self.hass, self.config_entry.entry_id)
+        current = stored.get(selected["interval_key"], {})
+        if user_input is not None:
+            mode = user_input.get("mode")
+            reason = user_input.get("reason")
+            if mode not in ("none", "linear") or reason not in (
+                "manual_periodic", "telemetry_failure", "other"
+            ):
+                errors["base"] = "invalid_smoothing"
+            elif mode == "linear" and selected["status"] != "linear_available_after_explicit_confirmation":
+                errors["base"] = "smoothing_blocked"
+            else:
+                self._pending_sparse = {"mode": mode, "reason": reason}
+                return await self.async_step_history_smoothing_confirm()
+        return self.async_show_form(
+            step_id="history_smoothing_choice",
+            errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("mode", default=current.get("mode", "none")):
+                    self._radio_choices({
+                        "none": self._nav_text("Sans lissage", "No smoothing"),
+                        "linear": self._nav_text("Lissage linéaire du résiduel", "Linear residual smoothing"),
+                    }),
+                vol.Required("reason", default=current.get("reason", "manual_periodic")):
+                    self._radio_choices({
+                        "manual_periodic": self._nav_text("Relève manuelle", "Periodic/manual reading"),
+                        "telemetry_failure": self._nav_text("Panne de télérelève", "Telemetry outage"),
+                        "other": self._nav_text("Autre motif", "Other reason"),
+                    }),
+            }),
+            description_placeholders={
+                "interval": f'{selected["fluid"]} · {selected["meter_serial"]} · '
+                            f'{selected["start_date"]} → {selected["end_date"]}',
+                "status": selected["status"],
+                "total": str(selected.get("bounded_consumption", "indéterminé")),
+            },
+        )
+
+    async def async_step_history_smoothing_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Explicit confirmation updates only the local decision store."""
+        selected, draft = self._selected_sparse, self._pending_sparse
+        if selected is None or draft is None:
+            return self._history_notice("history_preview_missing")
+        errors = {}
+        if user_input is not None:
+            if user_input.get("confirm") is not True:
+                errors["base"] = "confirmation_required"
+            else:
+                coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+                if coordinator is None:
+                    return self._history_notice("history_unavailable")
+                if not hasattr(coordinator, "_history_import_lock"):
+                    coordinator._history_import_lock = __import__("asyncio").Lock()
+                async with coordinator._history_import_lock:
+                    candidates = await self._smoothing_candidates()
+                    current = next(
+                        (item for item in candidates if item["interval_key"] == selected["interval_key"]),
+                        None,
+                    )
+                    if current is None or (
+                        draft["mode"] == "linear"
+                        and current["status"] != "linear_available_after_explicit_confirmation"
+                    ):
+                        errors["base"] = "smoothing_blocked"
+                    else:
+                        await save_choice(
+                            self.hass, self.config_entry.entry_id,
+                            selected["interval_key"], **draft,
+                        )
+                        self._selected_sparse = None
+                        self._pending_sparse = None
+                        return await self.async_step_history_smoothing()
+        return self.async_show_form(
+            step_id="history_smoothing_confirm",
+            errors=errors,
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): BooleanSelector(),
+            }),
+            description_placeholders={
+                "interval": f'{selected["fluid"]} · {selected["meter_serial"]} · '
+                            f'{selected["start_date"]} → {selected["end_date"]}',
+                "mode": draft["mode"],
+                "reason": draft["reason"],
+            },
+        )
 
     async def async_step_history_review(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Pick from the most recent administrator history preview, not arbitrary text."""
@@ -693,7 +1023,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             cache = getattr(coordinator, "_history_review_cache", None)
             if cache is not None:
                 payloads, start, end, allowed_lots = cache
-                updated = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=saved)
+                updated = build_history(payloads, start, end, allowed_lots=allowed_lots, decisions=saved, **self._history_thresholds())
                 coordinator._history_review_candidates = updated["__review_candidates__"]
             else:
                 coordinator._history_review_candidates = [

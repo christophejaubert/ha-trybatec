@@ -126,25 +126,58 @@ def apply_review_to_meter(meter: dict[str, Any], decisions: dict[str, dict[str, 
     return effective, accounting, clashes
 
 
-def review_candidates(meters: dict, decisions: dict[str, dict[str, Any]], max_candidates: int = 1000) -> list[dict[str, Any]]:
+def review_candidates(
+    meters: dict, decisions: dict[str, dict[str, Any]], max_candidates: int = 1000,
+    *, sparse_hours: int = 27, zero_review_days: int = 1,
+) -> list[dict[str, Any]]:
     """Identify sparse and decreasing observations for admin-only UI review.
 
     Does not make a claim that an index was manually entered by the provider.
     """
+    if not 1 <= sparse_hours <= 87600 or not 0 <= zero_review_days <= 36500:
+        raise ValueError("Invalid history review threshold")
     candidates = []
     for (lot, fluid, serial), meter in sorted(meters.items()):
         previous = None
+        last_zero_date = None
+        zero_streak = 0
+        zero_episode_reported = False
         for at, value in sorted(meter["indexes"].items()):
             prev_at, prev_value = previous if previous is not None else (None, None)
             reasons = []
+            local_day = at.astimezone(ZONE).date()
+            if value == 0:
+                if last_zero_date is None:
+                    zero_streak = 1
+                elif local_day == last_zero_date:
+                    pass  # Two readings on one day are not two consecutive days.
+                elif (local_day - last_zero_date).days == 1:
+                    zero_streak += 1
+                else:
+                    zero_streak = 1
+                    zero_episode_reported = False
+                last_zero_date = local_day
+                if (
+                    zero_review_days > 0
+                    and zero_streak >= zero_review_days
+                    and not zero_episode_reported
+                ):
+                    reasons.append("index_zero")
+                    zero_episode_reported = True
+            else:
+                last_zero_date = None
+                zero_streak = 0
+                zero_episode_reported = False
             if at in meter.get("conflict_times", ()):
                 reasons.append("conflicting_source_reading")
             if previous is not None:
                 prev_at, prev_value = previous
                 span = (at - prev_at).total_seconds() / 3600
-                if span > 27:
+                if span > sparse_hours:
                     reasons.append("sparse_interval")
-                if value < prev_value:
+                # A zero-specific opt-out must not be bypassed merely
+                # because a zero would also look like an index decrease.
+                if value < prev_value and not (zero_review_days == 0 and value == 0):
                     reasons.append("index_decrease")
             if reasons:
                 key = reading_key(lot, fluid, serial, at, value)
