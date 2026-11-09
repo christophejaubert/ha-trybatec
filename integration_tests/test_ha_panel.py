@@ -162,6 +162,8 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     monkeypatch.setattr(websocket_api, "async_register_command", register_ws)
     await panel_api.async_register_panel(fake_hass)
     assert register_static.await_count == 1
+    assert len(register_static.await_args.args[0]) == 2
+    assert register_static.await_args.args[0][1].url_path.endswith("/logo.png")
     assert register_gui.await_count == 1
     opts = register_gui.await_args.kwargs
     assert opts["webcomponent_name"] == "trybatec-panel"
@@ -169,9 +171,12 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert opts["sidebar_title"] == "Trybatec"
     assert opts["require_admin"] is True
     assert opts["module_url"].endswith("/trybatec-panel.js")
-    assert register_ws.call_count == 4
+    assert register_ws.call_count == 7
     handlers = [call.args[1].__name__ for call in register_ws.call_args_list]
     assert "ws_panel_snapshot" in handlers
     assert "ws_panel_tariff_change" in handlers
     assert "ws_panel_history_preview" in handlers
     assert "ws_panel_smoothing_choice" in handlers
+    assert "ws_panel_entity_audit" in handlers
+    assert "ws_panel_energy_handoff_preview" in handlers
+    assert "ws_panel_energy_handoff_apply" in handlers

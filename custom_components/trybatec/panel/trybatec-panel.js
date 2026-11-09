@@ -22,6 +22,7 @@ const style = [
   ".wrap{max-width:1580px;margin:0 auto;padding:24px 26px 48px}",
   ".heading{display:flex;gap:16px;align-items:center;margin:0 0 22px}",
   ".mark{display:grid;place-items:center;height:60px;width:60px;border-radius:18px;background:linear-gradient(135deg,#d9efff,#ecf5ff);color:#1273ca;font-size:27px}",
+  ".mark img{width:100%;height:100%;max-width:58px;max-height:58px;object-fit:contain}",
   "h1{font-size:30px;line-height:1.2;letter-spacing:-.7px;margin:0;font-weight:760}",
   "h2{font-size:22px;line-height:1.25;margin:0 0 7px}h3{font-size:16px;margin:0 0 7px}",
   "p{margin:0;line-height:1.45}.muted{color:var(--secondary-text-color,#67728a);font-size:13px}",
@@ -103,6 +104,13 @@ class TrybatecPanel extends HTMLElement {
     this._historyReason="manual_periodic";
     this._historyError="";
     this._historyMessage="";
+    this._meterAudit=null;
+    this._meterAuditBusy=false;
+    this._meterAuditError="";
+    this._meterAuditEntity="";
+    this._energyHandoffPreview=null;
+    this._energyBackup=false;
+    this._energyResult="";
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -136,7 +144,7 @@ class TrybatecPanel extends HTMLElement {
     const btn = event.target.closest("button");
     if (!btn) return;
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
-    if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._render();return;}
+    if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
     if (btn.dataset.account !== undefined) {this._account=Number(btn.dataset.account);this._meter=0;this._render();return;}
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
@@ -149,10 +157,18 @@ class TrybatecPanel extends HTMLElement {
       this._historySelected=btn.dataset.historySelect;this._render();return;
     }
     if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
+    if (btn.dataset.entityAudit !== undefined) {
+      this._auditMeterEntity(btn.dataset.entityAudit);return;
+    }
+    if (btn.dataset.energyPreview !== undefined) {this._previewHandoff();return;}
+    if (btn.dataset.energyApply !== undefined) {this._applyHandoff();return;}
   }
   _change(event) {
     if (event.target.dataset.query !== undefined) {
       this._query=event.target.value.trim().toLowerCase();this._render();return;
+    }
+    if (event.target.dataset.energyBackup!==undefined) {
+      this._energyBackup=event.target.checked;this._render();return;
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
@@ -225,7 +241,7 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   _header() {
-    return '<header class="heading"><div class="mark"><ha-icon icon="mdi:water-thermometer"></ha-icon></div>' +
+    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png" alt="Trybatec" loading="eager"></div>' +
       '<div><h1>Trybatec <span class="badge">Bêta</span></h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
@@ -287,6 +303,105 @@ class TrybatecPanel extends HTMLElement {
       ).join("")+'</div>'+
       '<div class="notice"><strong>Historique préservé.</strong> Un compteur déposé est un équipement physique historique, pas une entité technique à supprimer. Les identifiants anciens ne sont nettoyés qu’après audit des dépendances et sauvegarde.</div>';
   }
+  async _auditMeterEntity(entityId) {
+    const m=this._meters()[this._meter];
+    if (this._meterAuditBusy||!m||!this._current) return;
+    this._meterAuditBusy=true;
+    this._meterAuditError="";
+    this._meterAudit=null;
+    this._energyHandoffPreview=null;
+    this._energyResult="";
+    this._meterAuditEntity=entityId;
+    this._render();
+    try {
+      this._meterAudit=await this._hass.callWS({
+        type:"trybatec/panel_entity_audit",
+        entry_id:this._current.entry_id,
+        entity_id:entityId,lot:m.lot,fluid:m.fluid,serial:m.serial,
+      });
+    } catch (_) {
+      this._meterAuditError="Association non démontrée : ne supprimez pas cette entité. Vérifiez son identité et ses références.";
+    } finally {this._meterAuditBusy=false;this._render();}
+  }
+  async _previewHandoff() {
+    const m=this._meters()[this._meter],a=this._meterAudit;
+    if (this._meterAuditBusy||!m||!a||!this._current) return;
+    this._meterAuditBusy=true;
+    this._meterAuditError="";
+    this._energyHandoffPreview=null;
+    this._energyBackup=false;
+    this._render();
+    try {
+      this._energyHandoffPreview=await this._hass.callWS({
+        type:"trybatec/panel_energy_handoff_preview",
+        entry_id:this._current.entry_id,
+        entity_id:a.legacy_entity_id,lot:m.lot,fluid:m.fluid,serial:m.serial,
+      });
+    } catch (_) {
+      this._meterAuditError="Basculement impossible : Recorder ou Énergie ne valide pas les deux séries. Aucune modification effectuée.";
+    } finally {this._meterAuditBusy=false;this._render();}
+  }
+  async _applyHandoff() {
+    const m=this._meters()[this._meter],a=this._meterAudit,p=this._energyHandoffPreview;
+    if (this._meterAuditBusy||!m||!a||!p||!this._energyBackup) return;
+    if (!window.confirm(
+      "Confirmer le remplacement de la référence Énergie suivante ?\n\n"+
+      p.old_statistic_id+" → "+p.new_statistic_id+
+      "\n\nLa sauvegarde complète (dont Recorder) doit déjà être disponible. Les autres préférences restent conservées."
+    )) return;
+    this._meterAuditBusy=true;this._meterAuditError="";this._render();
+    try {
+      const result=await this._hass.callWS({
+        type:"trybatec/panel_energy_handoff_apply",
+        entry_id:this._current.entry_id,
+        entity_id:a.legacy_entity_id,lot:m.lot,fluid:m.fluid,serial:m.serial,
+        before_fingerprint:p.before_fingerprint,
+        backup_confirmed:true,confirm:true,
+      });
+      this._energyResult=result.status==="energy_handoff_persisted_and_verified"?
+        "Référence Énergie enregistrée et vérifiée. Les deux historiques sont conservés.":
+        "Le résultat nécessite une vérification.";
+      this._energyHandoffPreview=null;
+      this._meterAudit=null;
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+    } catch (_) {
+      this._meterAuditError="Opération interrompue ou refusée. Consultez les journaux et vérifiez Énergie avant toute nouvelle tentative.";
+      this._energyHandoffPreview=null;
+    } finally {this._meterAuditBusy=false;this._render();}
+  }
+  _auditDetails(m) {
+    const audit=this._meterAudit,plan=this._energyHandoffPreview;
+    if (!audit && !plan && !this._energyResult&&!this._meterAuditError) return "";
+    return '<div class="notice" style="margin-top:14px"><h3>Audit des relations techniques</h3>'+
+      (this._meterAuditError?'<p>'+safe(this._meterAuditError)+'</p>':"")+
+      (this._energyResult?'<p>'+safe(this._energyResult)+'</p>':"")+
+      (audit?'<div class="list">'+
+       '<p><strong>Statut :</strong> '+safe(audit.status)+'</p>'+
+       '<p><strong>Ancienne entité :</strong> <span class="mono">'+safe(audit.legacy_entity_id)+'</span></p>'+
+       '<p><strong>Nouvelle entité :</strong> <span class="mono">'+safe(audit.active_entity_id||"Non identifiée")+'</span></p>'+
+       '<p><strong>Statistiques Recorder :</strong> '+safe(audit.recorder_statistics.status)+'</p>'+
+       Object.entries(audit.recorder_statistics.existing||{}).map(([id,record])=>
+         '<p class="mono">'+safe(id)+' : '+safe(record.found?"présente":"absente")+
+         " · "+safe(record.unit||"unité inconnue")+'</p>').join("")+
+       '<p><strong>Références Énergie :</strong> '+safe(audit.energy_references.length)+'</p>'+
+       '<p><strong>Tableaux de bord et automatisations :</strong> audit non exhaustif</p>'+
+       '<p><strong>Nettoyage :</strong> aucune suppression autorisée automatiquement</p>'+
+       (audit.energy_handoff_possible_only_after_separate_preview?
+         '<div class="actions"><button type="button" class="secondary" data-energy-preview '+(this._meterAuditBusy?"disabled":"")+
+         '>Prévisualiser le basculement Énergie</button></div>':"")+
+       '</div>':"")+
+      (plan?'<div class="notice warning"><p><strong>Aperçu vérifié :</strong> '+safe(plan.old_statistic_id)+
+        " → "+safe(plan.new_statistic_id)+'</p>'+
+        '<p>Emplacement : '+safe(plan.source_type)+' · '+safe(plan.unit)+
+        ". Les statistiques d’origine resteront stockées.</p>"+
+        '<label style="margin-top:12px"><input type="checkbox" data-energy-backup '+
+        (this._energyBackup?"checked":"")+
+        '> Je confirme disposer d’une sauvegarde récupérable incluant Recorder.</label>'+
+        '<div class="actions"><button type="button" class="primary" data-energy-apply '+
+        (!this._energyBackup||this._meterAuditBusy?"disabled":"")+
+        '>Confirmer et vérifier le basculement</button></div></div>':"")+
+      '</div>';
+  }
   _meterDetail(m) {
     if(!m) return '<div class="card empty">Sélectionnez un compteur pour consulter ses informations.</div>';
     const account=this._current;
@@ -304,10 +419,13 @@ class TrybatecPanel extends HTMLElement {
       '</div><h3>Relations techniques Home Assistant</h3>'+
       '<p class="muted">Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.</p>'+
       (related.length?related.map(e=>'<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span> '+
-      '<span class="pill '+(e.state==="unavailable"?"audit":"on")+'">'+safe(e.state)+'</span></div>').join(""):
+      '<span class="pill '+(e.state==="unavailable"?"audit":"on")+'">'+safe(e.state)+'</span> '+
+      '<button type="button" class="secondary" data-entity-audit="'+safe(e.entity_id)+'" '+
+      (this._meterAuditBusy?"disabled":"")+'>Auditer</button></div>').join(""):
       '<div class="empty">Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.</div>')+
       '<div class="actions"><button type="button" class="secondary" data-tab="history">Historique & lissage</button>'+
-      '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div></div>';
+      '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
+      this._auditDetails(m)+'</div>';
   }
   _metersPage() {
     const meters=this._meters();

@@ -24,6 +24,10 @@ from .parsing import validate_tariffs
 from .units import meter_key
 from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_tariff_change
 from .panel_history import ws_panel_history_preview, ws_panel_smoothing_choice
+from .panel_energy import (
+    ws_panel_entity_audit, ws_panel_energy_handoff_preview,
+    ws_panel_energy_handoff_apply,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -289,11 +293,17 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         raise ValueError("Another integration already owns the Trybatec panel URL")
     module_path = Path(__file__).parent / "panel" / "trybatec-panel.js"
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(
-            f"{_PANEL_ASSETS}/trybatec-panel.js",
-            str(module_path),
-            cache_headers=False,
-        )]
+        [
+            StaticPathConfig(
+                f"{_PANEL_ASSETS}/trybatec-panel.js",
+                str(module_path), cache_headers=False,
+            ),
+            StaticPathConfig(
+                f"{_PANEL_ASSETS}/logo.png",
+                str(Path(__file__).parent / "brand" / "icon.png"),
+                cache_headers=True,
+            ),
+        ]
     )
     await panel_custom.async_register_panel(
         hass,
@@ -311,3 +321,6 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_tariff_change)
     websocket_api.async_register_command(hass, ws_panel_history_preview)
     websocket_api.async_register_command(hass, ws_panel_smoothing_choice)
+    websocket_api.async_register_command(hass, ws_panel_entity_audit)
+    websocket_api.async_register_command(hass, ws_panel_energy_handoff_preview)
+    websocket_api.async_register_command(hass, ws_panel_energy_handoff_apply)
