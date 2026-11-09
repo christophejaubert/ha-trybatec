@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from hashlib import sha256
-import json
 from typing import Any
 
 from homeassistant.components.energy.data import async_get_manager
 from homeassistant.helpers.storage import Store
 
 from .energy_switch import prepare_energy_switch, verify_energy_switch, preferences_fingerprint
-from .history_versions_b15 import transition_version, version_summary
+from .history_versions_b15 import transition_version
 
 
 def _energy_audit_store(hass: Any, entry_id: str) -> Store:
