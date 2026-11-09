@@ -6,7 +6,6 @@ No Home Assistant registry methods or side effects are invoked here.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any, Mapping, Sequence
 
 
