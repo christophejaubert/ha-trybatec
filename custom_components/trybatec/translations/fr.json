@@ -57,7 +57,8 @@
           "meter_units": "Vérifier les unités des compteurs",
           "history_overview": "Synthèse graphique de l’historique",
           "history_meters": "Détails des compteurs",
-          "diagnostics": "Diagnostics et journalisation"
+          "diagnostics": "Diagnostics et journalisation",
+          "history_smoothing": "Lissage des intervalles historiques"
         }
       },
       "history_review": {
@@ -166,6 +167,28 @@
         "data": {
           "log_level": "Niveau de journalisation"
         }
+      },
+      "history_smoothing": {
+        "title": "Intervalles à examiner",
+        "description": "Choisissez un intervalle du dernier aperçu. Les index Trybatec ne sont jamais modifiés. Seules les décisions confirmées sont mémorisées localement ; aucun import Recorder ni basculement Énergie.",
+        "data": {
+          "interval": "Intervalle physique"
+        }
+      },
+      "history_smoothing_choice": {
+        "title": "Décider du lissage",
+        "description": "**Intervalle :** {interval}\\n\\n**Disponibilité :** {status}\\n**Consommation bornée :** {total} (unité de l'index vérifiée)\\n\\nLe lissage linéaire est une estimation des consommations des jours non couverts, jamais une création d'index mesurés. Sans lissage, conserver uniquement les mesures observées. La prochaine étape demande une confirmation.",
+        "data": {
+          "mode": "Méthode",
+          "reason": "Motif déclaré"
+        }
+      },
+      "history_smoothing_confirm": {
+        "title": "Confirmer le traitement",
+        "description": "**Intervalle :** {interval}\\n**Méthode :** {mode}\\n**Motif déclaré :** {reason}\\n\\nLa confirmation enregistre uniquement le choix local. Elle ne modifie ni Trybatec, ni Recorder, ni le tableau Énergie. Une modification des relevés sources rend le choix caduc.",
+        "data": {
+          "confirm": "Je confirme explicitement"
+        }
       }
     },
     "error": {
@@ -177,7 +200,9 @@
       "invalid_log_level": "Niveau de journalisation invalide.",
       "invalid_settings": "Réglages invalides. Vérifiez la période d'interrogation, les tarifs et la destination.",
       "confirmation_required": "Cochez la confirmation requise avant d'enregistrer la décision ou de revenir au menu.",
-      "invalid_confirmation_navigation": "Le retour à la décision sans enregistrer est incompatible avec une confirmation cochée."
+      "invalid_confirmation_navigation": "Le retour à la décision sans enregistrer est incompatible avec une confirmation cochée.",
+      "invalid_smoothing": "Méthode ou motif non reconnu.",
+      "smoothing_blocked": "Lissage impossible : unité, index zéro ou conflit non vérifié."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",
