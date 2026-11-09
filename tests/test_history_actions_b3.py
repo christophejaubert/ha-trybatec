@@ -847,17 +847,70 @@ def test_adaptive_history_rejects_one_bad_day_with_safe_date_diagnostic(
     asyncio.run(verify())
 
 
-def test_adaptive_history_caps_attempts_and_does_not_retry_connection_errors(
+def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
     services, monkeypatch,
 ):
+    """A six-year seven-meter review must not fail at an arbitrary request count."""
     monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
-    monkeypatch.setattr(services, "MAX_HISTORY_WINDOW_ATTEMPTS", 3)
+    start, end = date(2020, 1, 1), date(2026, 11, 9)
+    identities = [
+        ("EF", "COLD-OLD", True),
+        ("EF", "COLD-NEW", False),
+        ("ECS", "HOT-OLD", True),
+        ("ECS", "HOT-NEW", False),
+        ("CET", "HEAT-OLD", True),
+        ("CET", "HEAT-2", True),
+        ("CET", "HEAT-NEW", False),
+    ]
     calls = []
 
-    async def invalid(_deal, begin, finish):
+    async def indexes(_deal, begin, finish):
         calls.append((begin, finish))
-        raise services.TrybatecDataError("SECRET_VENDOR_BODY_SHOULD_NEVER_BE_LOGGED")
+        if (finish - begin).days > 23:
+            raise services.TrybatecDataError("Trybatec response exceeds permitted size")
+        lines = []
+        for fluid, serial, retired in identities:
+            lines.append({
+                "lot": "FAKE-LOT",
+                "fluide": fluid,
+                "compteur": serial,
+                "depose": retired,
+                "unit": "kWh" if fluid == "CET" else "m³",
+                "indexes": [
+                    {"date": day.isoformat() + "T12:00:00+01:00",
+                     "value": float(day.toordinal())}
+                    for day in (begin, finish)
+                ],
+            })
+        return {"lines": lines}
 
+    async def verify():
+        windows = services.history_windows(start, end)
+        assert len(windows) > 20
+        payloads, request_count = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "FAKE-DEAL", windows,
+        )
+        assert request_count == len(calls) > 80
+        successful = [(begin, finish) for begin, finish in calls
+                      if (finish - begin).days <= 23]
+        assert successful[0][0] == start and successful[-1][1] == end
+        assert all(right[0] == left[1] for left, right in zip(successful, successful[1:]))
+        assert len(payloads) == len(successful)
+        data = services.build_history(
+            payloads, start, end, allowed_lots={"FAKE-LOT"},
+        )
+        physical = data["__physical_meters__"]
+        assert len(physical) == len(identities) == 7
+        assert {(fluid, serial) for (_lot, fluid, serial) in physical} == {
+            (fluid, serial) for fluid, serial, _retired in identities
+        }
+
+    asyncio.run(verify())
+
+
+def test_adaptive_history_does_not_retry_connection_errors(services, monkeypatch):
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
     from custom_components.trybatec.api import TrybatecConnectionError
 
     async def connection(_deal, begin, finish):
@@ -865,16 +918,9 @@ def test_adaptive_history_caps_attempts_and_does_not_retry_connection_errors(
         raise TrybatecConnectionError("Trybatec indexes endpoint failed")
 
     async def verify():
-        with pytest.raises(services.ServiceValidationError, match="request limit"):
-            await services._fetch_history_payloads(
-                SimpleNamespace(indexes=invalid), "TEST-DEAL",
-                [(date(2026, 10, 1), date(2026, 11, 9))],
-            )
-        assert len(calls) == 3
-        calls.clear()
         with pytest.raises(TrybatecConnectionError):
             await services._fetch_history_payloads(
-                SimpleNamespace(indexes=connection), "TEST-DEAL",
+                SimpleNamespace(indexes=connection), "FAKE-DEAL",
                 [(date(2026, 10, 1), date(2026, 11, 9))],
             )
         assert len(calls) == 1
