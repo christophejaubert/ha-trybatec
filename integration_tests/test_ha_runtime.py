@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import CoreState
 from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -64,11 +65,129 @@ async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options
             CONF_DEAL_ID: "synthetic-ci-deal",
         },
     )
+    # Existing runtime tests install the entry after HA is already started.
+    # The cold-start ordering is tested separately below.
+    hass.set_state(CoreState.running)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert calls, "Coordinator must fetch synthetic meter data"
     return entry, calls
+
+
+
+async def test_initial_api_poll_is_blocked_until_homeassistant_started(hass, monkeypatch):
+    """A slow HA startup must not trigger a vendor request during setup."""
+    hass.set_state(CoreState.starting)
+    calls = []
+
+    async def indexes(self, deal_id, start, end):
+        calls.append(deal_id)
+        return deepcopy(synthetic_indexes("m3"))
+
+    async def enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 1}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Cold-start synthetic entry",
+        unique_id="cold-start-synthetic",
+        data={
+            CONF_USERNAME: "synthetic", CONF_PASSWORD: "not-a-secret",
+            CONF_DEAL_ID: "synthetic-deal",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert calls == []
+    assert coordinator.data is None
+    assert coordinator.update_interval is None
+
+    # HA has now completed bootstrap; the first fetch is permitted.
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert len(calls) == 1
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["last"] is not None
+    assert coordinator.update_interval == timedelta(minutes=720)
+    states = [x for x in hass.states.async_all("sensor")
+              if x.attributes.get("lot") == "MOCK-LOT"]
+    assert len(states) == 1
+    assert float(states[0].state) == pytest.approx(15.0)
+
+
+async def test_failed_initial_poll_retries_fast_then_resumes_normal_interval(hass, monkeypatch):
+    """A transient first failure must not leave meters missing for 12 hours."""
+    from custom_components.trybatec.api import TrybatecDataError
+
+    hass.set_state(CoreState.starting)
+    calls = []
+
+    async def indexes(self, deal_id, start, end):
+        calls.append(deal_id)
+        if len(calls) == 1:
+            raise TrybatecDataError("synthetic transient failure")
+        return deepcopy(synthetic_indexes("m3"))
+
+    async def enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 1}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Transient synthetic startup entry",
+        unique_id="cold-start-retry-synthetic",
+        data={
+            CONF_USERNAME: "synthetic", CONF_PASSWORD: "not-a-secret",
+            CONF_DEAL_ID: "synthetic-deal",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert calls == []
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert len(calls) == 1
+    assert coordinator.data is None
+    assert coordinator.update_interval == timedelta(minutes=1)
+    # Simulate the next scheduled coordinator retry without a real delay.
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert len(calls) == 2
+    assert coordinator.update_interval == timedelta(minutes=720)
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["last"] is not None
+
+
+async def test_unloaded_entry_never_polls_after_start_event(hass, monkeypatch):
+    """A delayed initial refresh is canceled when its entry is unloaded."""
+    hass.set_state(CoreState.starting)
+    calls = []
+
+    async def indexes(self, deal_id, start, end):
+        calls.append(deal_id)
+        return deepcopy(synthetic_indexes("m3"))
+
+    monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Unloaded synthetic startup entry",
+        unique_id="cold-start-unload-synthetic",
+        data={
+            CONF_USERNAME: "synthetic", CONF_PASSWORD: "not-a-secret",
+            CONF_DEAL_ID: "synthetic-deal",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert calls == []
 
 
 @pytest.mark.parametrize("unit", ["m3", None])
