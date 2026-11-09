@@ -64,6 +64,8 @@ def prepare_energy_switch(
     old_statistic_id: str,
     new_statistic_id: str,
     competing_statistic_ids: Iterable[str],
+    *,
+    allow_live_sensors: bool = False,
 ) -> dict[str, Any]:
     """Draft replacement with no double-selection and no unrelated edits.
 
@@ -71,14 +73,23 @@ def prepare_energy_switch(
     must be committed by a separate verified, reversible HA transaction.
     """
     before_hash = preferences_fingerprint(prefs)
+    # Live meter handoffs are a separate, strictly proven flow. Existing b15
+    # version switching keeps its original trybatec:-only restriction.
+    allowed_prefix = "sensor." if allow_live_sensors else "trybatec:"
     if (
-        not isinstance(old_statistic_id, str) or not old_statistic_id.startswith("trybatec:")
-        or not isinstance(new_statistic_id, str) or not new_statistic_id.startswith("trybatec:")
+        not isinstance(old_statistic_id, str)
+        or not isinstance(new_statistic_id, str)
+        or not old_statistic_id.startswith(allowed_prefix)
+        or not new_statistic_id.startswith(allowed_prefix)
         or old_statistic_id == new_statistic_id
     ):
-        raise ValueError("Switch requires two distinct Trybatec statistics")
+        raise ValueError("Switch requires two distinct verified Trybatec statistics")
     alternatives = set(competing_statistic_ids)
-    if any(not isinstance(v, str) or not v.startswith("trybatec:") for v in alternatives):
+    if any(
+        not isinstance(v, str)
+        or not v.startswith(("trybatec:", "sensor.") if allow_live_sensors else ("trybatec:",))
+        for v in alternatives
+    ):
         raise ValueError("Invalid alternative statistic identity")
     alternatives.update((old_statistic_id, new_statistic_id))
     selected = _selected_references(prefs)
