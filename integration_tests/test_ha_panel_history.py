@@ -163,3 +163,53 @@ def test_panel_estimated_start_only_as_confirmed_estimate_not_real_reading():
             estimated_start_date=date(2021,12,22),estimated_start_index=340,
             confirm_estimated_start=True,
         )
+
+
+
+def test_exact_reading_to_previous_interval_link_never_guesses_another_meter():
+    key = "a" * 32
+    reading = {
+        "key": "source-1", "lot": "LOT-TEST",
+        "fluid": "EF", "meter_serial": "SYNTH-OLD",
+        "source_date": LAST.isoformat(), "index": 332,
+    }
+    interval = {
+        "interval_key": key, "lot": "LOT-TEST",
+        "fluid": "EF", "meter_serial": "SYNTH-OLD",
+        "source_end_at": LAST.isoformat(),
+        "status": "linear_available_after_explicit_confirmation",
+    }
+    result = panel_history.link_review_candidates_to_previous_intervals(
+        [reading], [interval],
+    )
+    assert result[0]["preceding_interval_key"] == key
+    assert result[0]["preceding_interval_status"] == interval["status"]
+    assert "preceding_interval_key" not in reading
+    assert panel_history.link_review_candidates_to_previous_intervals(
+        [{**reading, "meter_serial": "ANOTHER"}], [interval],
+    )[0]["preceding_interval_key"] is None
+    assert panel_history.link_review_candidates_to_previous_intervals(
+        [{**reading, "source_date": FIRST.isoformat()}], [interval],
+    )[0]["preceding_interval_key"] is None
+
+
+def test_multiple_endpoints_or_unreviewed_zero_cannot_bypass_decision_controls():
+    reading = {
+        "key": "source-2", "lot": "LOT-TEST", "fluid": "EF",
+        "meter_serial": "SYNTH-OLD", "source_date": LAST.isoformat(),
+    }
+    source = {
+        "interval_key": "b" * 32, "lot": "LOT-TEST", "fluid": "EF",
+        "meter_serial": "SYNTH-OLD", "source_end_at": LAST.isoformat(),
+        "status": "blocked_unreviewed_zero",
+    }
+    verified = panel_history.link_review_candidates_to_previous_intervals(
+        [reading], [source],
+    )
+    assert verified[0]["preceding_interval_key"] == source["interval_key"]
+    assert verified[0]["preceding_interval_status"] == "blocked_unreviewed_zero"
+    ambiguous = panel_history.link_review_candidates_to_previous_intervals(
+        [reading], [source, {**source, "interval_key": "c" * 32}],
+    )
+    assert ambiguous[0]["preceding_interval_key"] is None
+    assert ambiguous[0]["preceding_interval_status"] == "ambiguous"

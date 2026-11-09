@@ -64,3 +64,14 @@ def test_trybatec_before_after_does_not_zero_fill_missing_daily_measurements():
     assert "cumulative_after" in source
     assert "Un nouvel index mesuré" not in source
     assert "Cumul après" in source
+
+
+
+def test_reviewed_reading_links_to_exact_preceding_smoothing_interval():
+    source = PANEL.read_text(encoding="utf-8")
+    assert 'data-reading-smoothing' in source
+    assert 'match.meter_serial!==item.meter_serial' in source
+    assert 'match.source_end_at!==item.source_date' in source
+    assert 'Aucun intervalle précédent vérifiable' in source
+    assert 'aucune décision enregistrée' in source
+    assert 'this._historySelected=match.interval_key' in source
