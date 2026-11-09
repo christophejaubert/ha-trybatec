@@ -9,7 +9,7 @@ from custom_components.trybatec.api import (
     TrybatecConnectionError,
 )
 
-DEAL = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+DEAL = "-".join(("aaaaaaaa", "bbbb", "4ccc", "8ddd", "eeeeeeeeeeee"))
 
 
 class Reply:
