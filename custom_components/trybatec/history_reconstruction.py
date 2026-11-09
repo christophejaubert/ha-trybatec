@@ -297,10 +297,15 @@ def preview_sparse_intervals(
                 proposals.append({**base, "status": "blocked_unreviewed_zero"})
                 continue
             try:
+                qualified = meter.get("qualified_zero_times", ())
+                endpoints = ((first_at, first_index), (last_at, last_index))
+                zero_bounds_verified = all(
+                    stamp in qualified for stamp, value in endpoints if value == 0
+                )
                 plan = propose_interval(
                     start_reading=first, end_reading=last,
                     measured_by_day={}, mode="linear",
-                    zero_index_verified=False,
+                    zero_index_verified=zero_bounds_verified,
                 )
             except (ValueError, TypeError, OverflowError):
                 proposals.append({**base, "status": "blocked_needs_explicit_review"})
