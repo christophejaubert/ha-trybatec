@@ -55,6 +55,18 @@ def _live_meter(serial: str, meter: dict[str, Any]) -> dict[str, Any]:
     if isinstance(last, (tuple, list)) and len(last) == 2:
         last_at = _timestamp(last[0])
         last_index = last[1] if isinstance(last[1], (int, float)) else None
+    # The API's retained source readings are already sorted/deduplicated by
+    # parsing.py. They are observations, not proven installation/removal dates.
+    readings = meter.get("indexes")
+    first_observed = None
+    last_source_observed = None
+    if isinstance(readings, list) and readings:
+        if all(
+            isinstance(row, (tuple, list)) and len(row) == 2
+            and isinstance(row[0], datetime) for row in readings
+        ):
+            first_observed = _timestamp(min(row[0] for row in readings))
+            last_source_observed = _timestamp(max(row[0] for row in readings))
     status = (
         "depose" if meter.get("deposed") is True else
         "en_service" if meter.get("deposed") is False else "inconnu"
@@ -72,6 +84,8 @@ def _live_meter(serial: str, meter: dict[str, Any]) -> dict[str, Any]:
         "source": "live_api",
         "unit": meter.get("verified_unit"),
         "unit_verified": meter.get("verified_unit") is not None,
+        "first_observed_at": first_observed,
+        "last_source_observed_at": last_source_observed,
         "last_observed_at": last_at,
         "last_index": last_index,
         "location": str(meter.get("location") or "")[:160],
@@ -90,6 +104,10 @@ def _archive_meter(meter: dict[str, Any]) -> dict[str, Any]:
         "source": "archived_verified_inventory",
         "unit": meter.get("source_unit"),
         "unit_verified": meter.get("source_unit") is not None,
+        # Archived inventories prove the final known observation, not the
+        # first-ever observation or the physical decommissioning date.
+        "first_observed_at": None,
+        "last_source_observed_at": _timestamp(meter.get("last_reading_at")),
         "last_observed_at": _timestamp(meter.get("last_reading_at")),
         "last_index": meter.get("canonical_index"),
         "location": "",
@@ -124,6 +142,49 @@ def _meter_inventory(
             item["fluid"], item["serial"],
         ),
     )
+
+
+def _physical_meter_timeline(
+    meters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group exact physical identities, never invent replacement events.
+
+    Two consecutive serials in a lot/fluid do not prove an exact replacement
+    timestamp or absence of overlapping registrations. Only source
+    observations justify dates shown here.
+    """
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in meters:
+        key = (item["lot"], item["fluid"])
+        groups.setdefault(key, []).append(item)
+    output = []
+    for (lot, fluid), physical in sorted(groups.items()):
+        chronological = sorted(
+            physical,
+            key=lambda m: (
+                m.get("first_observed_at") is None,
+                m.get("first_observed_at") or m.get("last_source_observed_at") or "",
+                m["serial"],
+            ),
+        )
+        output.append({
+            "lot": lot,
+            "fluid": fluid,
+            "count": len(chronological),
+            "meters": [
+                {
+                    "serial": m["serial"],
+                    "status": m["status"],
+                    "first_observed_at": m.get("first_observed_at"),
+                    "last_source_observed_at": m.get("last_source_observed_at"),
+                    "first_observation_known": m.get("first_observed_at") is not None,
+                    "replacement_date_verified": False,
+                }
+                for m in chronological
+            ],
+            "date_policy": "source_observations_only_no_inferred_replacement",
+        })
+    return output
 
 
 def _entity_inventory(hass: HomeAssistant, entry_id: str) -> list[dict[str, Any]]:
@@ -245,11 +306,13 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
         except ValueError:
             ledger = {"status": "invalid_requires_review", "series": [], "pending": 0}
             warnings.append("history_version_ledger_requires_recovery")
+        physical_meters = _meter_inventory(coordinator.data, archive)
         accounts.append({
             "entry_id": entry_id,
             "title": coordinator.entry.title,
             "data_loaded": coordinator.data is not None,
-            "meters": _meter_inventory(coordinator.data, archive),
+            "meters": physical_meters,
+            "physical_meter_timeline": _physical_meter_timeline(physical_meters),
             "archived_inventory_count": len(archive),
             "entities": _entity_inventory(hass, entry_id),
             "tariffs": tariffs,
