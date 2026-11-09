@@ -25,6 +25,7 @@ from .units import meter_key
 from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_tariff_change
 from .panel_history import ws_panel_history_preview, ws_panel_smoothing_choice
 from .panel_origin import ws_panel_estimated_origin_preview
+from .panel_settings import ws_panel_settings_save
 from .panel_energy import (
     ws_panel_entity_audit, ws_panel_energy_handoff_preview,
     ws_panel_energy_handoff_apply,
@@ -254,6 +255,12 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             "tariffs": tariffs,
             "meter_tariffs": meter_tariffs,
             "tariff_fingerprint": tariff_fingerprint(dict(coordinator.entry.options)),
+            "settings": {
+                "poll_minutes": int(coordinator.entry.options.get("poll_minutes", 720)),
+                "sparse_hours": int(coordinator.entry.options.get("sparse_interval_hours", 27)),
+                "zero_review_days": int(coordinator.entry.options.get("zero_index_review_days", 1)),
+                "log_level": coordinator.entry.options.get("log_level", "WARNING"),
+            },
             "ledger": ledger,
             "warnings": warnings,
         })
@@ -324,6 +331,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_history_preview)
     websocket_api.async_register_command(hass, ws_panel_smoothing_choice)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_preview)
+    websocket_api.async_register_command(hass, ws_panel_settings_save)
     websocket_api.async_register_command(hass, ws_panel_entity_audit)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_preview)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_apply)

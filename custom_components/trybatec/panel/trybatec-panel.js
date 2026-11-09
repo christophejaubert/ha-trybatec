@@ -110,6 +110,10 @@ class TrybatecPanel extends HTMLElement {
     this._originPreview=null;
     this._originBusy=false;
     this._originError="";
+    this._settingsInput=null;
+    this._settingsBusy=false;
+    this._settingsMessage="";
+    this._settingsError="";
     this._readingSelected="";
     this._readingAction="accept";
     this._readingMode="accounting";
@@ -160,13 +164,15 @@ class TrybatecPanel extends HTMLElement {
     if (!btn) return;
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
-    if (btn.dataset.account !== undefined) {this._account=Number(btn.dataset.account);this._meter=0;this._render();return;}
+    if (btn.dataset.account !== undefined) {this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._render();return;}
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
+    if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
+    if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
     if (btn.dataset.historySelect !== undefined) {
       this._historySelected=btn.dataset.historySelect;this._render();return;
@@ -208,6 +214,12 @@ class TrybatecPanel extends HTMLElement {
         time:"_readingTime",reason:"_readingReason",outside:"_readingOutside"
       };
       if (fields[readingField]) this[fields[readingField]]=value;
+      this._render();return;
+    }
+    const settingsField=event.target.dataset.settingsField;
+    if (settingsField) {
+      if (!this._settingsInput) this._settingsInput={...this._current.settings};
+      this._settingsInput[settingsField]=event.target.value;
       this._render();return;
     }
     const originField=event.target.dataset.originField;
@@ -844,12 +856,71 @@ class TrybatecPanel extends HTMLElement {
       ' · Nettoyage : interdit sans audit</div></div>').join(""):'<div class="empty">Aucune entité recensée.</div>')+
       '</div></section></div>';
   }
+  async _saveSettings() {
+    if (!this._current || this._settingsBusy) return;
+    const settings={...this._current.settings,...this._settingsInput};
+    const poll=Number(settings.poll_minutes);
+    const sparse=Number(settings.sparse_hours);
+    const zeros=Number(settings.zero_review_days);
+    if (!Number.isInteger(poll)||poll<60||poll>10080 ||
+        !Number.isInteger(sparse)||sparse<1||sparse>87600 ||
+        !Number.isInteger(zeros)||zeros<0||zeros>36500) {
+      this._settingsError="Indiquez des nombres entiers dans les limites autorisées.";
+      this._render();return;
+    }
+    const message="Confirmer les réglages Trybatec ?"+
+      "\\n\\nCertains réglages peuvent recharger l’intégration, mais ne modifient ni Recorder ni Énergie.";
+    if (!window.confirm(message)) return;
+    this._settingsBusy=true;this._settingsError="";this._render();
+    try {
+      await this._hass.callWS({
+        type:"trybatec/panel_settings_save",
+        entry_id:this._current.entry_id,
+        poll_minutes:poll,sparse_hours:sparse,
+        zero_review_days:zeros,log_level:settings.log_level,
+        expected_fingerprint:this._current.tariff_fingerprint,
+        confirm:true
+      });
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._settingsInput=null;
+      this._settingsMessage="Réglages enregistrés dans la configuration Home Assistant partagée.";
+    } catch (_) {
+      this._settingsError="Modification refusée ou intégration en cours de rechargement. Actualisez et vérifiez les valeurs.";
+    } finally {
+      this._settingsBusy=false;this._render();
+    }
+  }
   _settings() {
-    return this._heading("Réglages","Conservation de tous les écrans et options existants.")+
-      '<div class="card"><h3>Configuration Trybatec actuelle</h3>'+
-      '<p>Les réglages, diagnostics, unités, révision des relevés et lissage des intervalles restent accessibles dans le parcours Home Assistant d’origine.</p>'+
-      '<div class="actions"><button class="primary" type="button" data-openOptions>Ouvrir Options Trybatec</button></div>'+
-      '<div class="notice">Le nouveau panneau s’ajoute aux écrans actuels. Il ne modifie, ne supprime et ne déplace aucun parcours existant.</div></div>';
+    const settings={...this._current.settings,...this._settingsInput};
+    const field=(key,label,min,max,description)=>
+      '<div><label for="settings-'+key+'">'+label+'</label>'+
+      '<input id="settings-'+key+'" data-settings-field="'+key+'" type="number" min="'+min+'" max="'+max+
+      '" step="1" value="'+safe(settings[key])+'">'+
+      '<div class="muted">'+description+'</div></div>';
+    return this._heading("Réglages","Modifiez les paramètres existants sans supprimer l’ancienne interface.")+
+      '<section class="card"><h3>Synchronisation et contrôle des relevés</h3>'+
+      '<p class="muted">Ces valeurs sont partagées avec Options Trybatec et conservées lors des mises à jour.</p>'+
+      '<div class="form-grid" style="margin-top:18px">'+
+      field("poll_minutes","Synchronisation (minutes)",60,10080,
+        "De 60 minutes à 7 jours. Une modification peut recharger l’intégration.")+
+      field("sparse_hours","Intervalle à signaler (heures)",1,87600,
+        "Par défaut : 27 h. Un intervalle strictement supérieur est considéré comme espacé.")+
+      field("zero_review_days","Index nuls consécutifs (jours)",0,36500,
+        "0 désactive la sollicitation ; 1 signale dès le premier jour avec un index nul.")+
+      '<div><label for="settings-log">Journalisation</label><select id="settings-log" data-settings-field="log_level">'+
+      ["ERROR","WARNING","INFO","DEBUG"].map(level=>
+        '<option value="'+level+'" '+(settings.log_level===level?"selected":"")+'>'+level+'</option>'
+      ).join("")+'</select><div class="muted">DEBUG peut produire davantage de journaux.</div></div>'+
+      '</div>'+
+      (this._settingsError?'<div class="notice warning">'+safe(this._settingsError)+'</div>':"")+
+      (this._settingsMessage?'<div class="notice">'+safe(this._settingsMessage)+'</div>':"")+
+      '<div class="actions"><button class="primary" type="button" data-settings-save '+(this._settingsBusy?"disabled":"")+'>Enregistrer les réglages</button>'+
+      '<button class="secondary" type="button" data-settings-reset>Annuler les modifications</button></div>'+
+      '<div class="notice">Aucune modification de relevé, aucune écriture Recorder ni changement du tableau Énergie. Les réglages existants restent accessibles dans le menu natif.</div>'+
+      '</section>'+
+      '<section class="card" style="margin-top:16px"><h3>Autres options Trybatec</h3>'+
+      '<p>Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.</p>'+
+      '<div class="actions"><button class="secondary" type="button" data-openOptions>Ouvrir Options Trybatec</button></div></section>';
   }
   _content() {
     if (this._loading) return '<div class="card empty">Chargement des données Trybatec…</div>';
