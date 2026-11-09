@@ -37,7 +37,7 @@ def _options(coordinator: Any) -> dict[str, int]:
     entry = coordinator.entry
     sparse = int(entry.options.get(CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS))
     zeros = int(entry.options.get(CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS))
-    if not 1 <= sparse <= 87600 or not 0 <= zeros <= 365:
+    if not 1 <= sparse <= 87600 or not 0 <= zeros <= 36500:
         raise ValueError("Unsafe historical review configuration")
     return {"sparse_interval_hours": sparse, "zero_index_review_days": zeros}
 
