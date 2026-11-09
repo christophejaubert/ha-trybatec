@@ -205,8 +205,8 @@ async def async_apply_b15_energy(hass: Any, call: Any) -> dict[str, Any]:
                 expected_before_fingerprint=call.data["before_fingerprint"],
                 confirm=True,
                 rollback_confirmed=call.data.get("confirm_rollback") is True,
+                version_store=store,
             )
-            await store.async_save(changed)
         except (KeyError, ValueError, TypeError) as exc:
             raise ServiceValidationError(str(exc)) from exc
         return {**result, "ledger_persisted": True}
