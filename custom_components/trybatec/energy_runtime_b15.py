@@ -155,6 +155,24 @@ async def activate_energy_version(
         new_state="active", energy_verified=True,
         rollback_confirmed=rollback_confirmed,
     )
+    # Energy selects one series per dwelling/fluid, NOT one per *logical
+    # variant*: physical alternatives and the consolidated series are
+    # mutually exclusive, even though they have different logical IDs.
+    selected_scope = new_ledger["series"][logical]["scope"]
+    for other_logical, record in list(new_ledger["series"].items()):
+        if other_logical == logical:
+            continue
+        scope = record.get("scope")
+        if (scope.get("lot"), scope.get("fluid")) != (
+            selected_scope["lot"], selected_scope["fluid"]
+        ):
+            continue
+        for old_version in record["versions"]:
+            if old_version["state"] == "active":
+                new_ledger = transition_version(
+                    new_ledger, other_logical, old_version["number"],
+                    expected_state="active", new_state="archived",
+                )
     snapshot["status"] = "verified"
     await audit.async_save(snapshot)
     return new_ledger, {
