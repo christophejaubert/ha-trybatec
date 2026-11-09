@@ -801,11 +801,12 @@ def test_adaptive_history_recovers_october_length_window_without_dropping_days(
 
     async def verify():
         windows = services.history_windows(start, end)
-        assert len(windows) == 1  # 39 days does not reach the 92-day limit.
+        assert windows == [(start, end)]  # No default 92-day segmentation.
         payloads, requests = await services._fetch_history_payloads(
             SimpleNamespace(indexes=indexes), "TEST-DEAL", windows,
         )
         assert requests == len(calls)
+        assert calls[0] == (start, end)
         assert len(payloads) > 1
         assert len(payloads) < requests  # failed attempts were counted
         success = [r for r in calls if (r[1] - r[0]).days <= 12]
@@ -886,17 +887,17 @@ def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
 
     async def verify():
         windows = services.history_windows(start, end)
-        assert len(windows) > 20
+        assert windows == [(start, end)]  # No arbitrary period ceiling.
         payloads, request_count = await services._fetch_history_payloads(
             SimpleNamespace(indexes=indexes), "FAKE-DEAL", windows,
         )
         assert request_count == len(calls) > 80
+        assert calls[0] == (start, end)
         successful = [(begin, finish) for begin, finish in calls
                       if (finish - begin).days <= 23]
         assert successful[0][0] == start and successful[-1][1] == end
-        # Split midpoints overlap by zero days; adjacent 92-day base
-        # windows intentionally overlap by one day for unknown API bounds.
-        # Accept both, never an uncovered day.
+        # Splits deliberately share their midpoint; no requested day
+        # may be skipped, irrespective of how many partitions are needed.
         assert all(
             0 <= (left[1] - right[0]).days <= 1
             for left, right in zip(successful, successful[1:])
@@ -910,6 +911,119 @@ def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
         assert {(fluid, serial) for (_lot, fluid, serial) in physical} == {
             (fluid, serial) for fluid, serial, _retired in identities
         }
+
+    asyncio.run(verify())
+
+
+
+def test_full_range_single_api_request_preserves_baseline_shaped_history(
+    services, monkeypatch,
+):
+    """Synthetic 2021-2026 sample with 7 retired/current meters, 1497 points.
+
+    These are *not* vendor readings: cardinalities match an earlier
+    documented preview solely to detect local aggregation regressions.
+    """
+    from datetime import timedelta
+
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    start, end = date(2021, 1, 1), date(2026, 11, 7)
+    # EF=475, ECS=395, CET=627: 1497 distinct observations.
+    identities = [
+        ("EF", "COLD-OLD", True, 240),
+        ("EF", "COLD-NEW", False, 235),
+        ("ECS", "HOT-OLD", True, 200),
+        ("ECS", "HOT-NEW", False, 195),
+        ("CET", "HEAT-OLD", True, 210),
+        ("CET", "HEAT-MIDDLE", True, 210),
+        ("CET", "HEAT-NEW", False, 207),
+    ]
+    calls = []
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        assert (begin, finish) == (start, end)
+        lines = []
+        for fluid, serial, retired, count in identities:
+            readings = [
+                {
+                    "date": (
+                        start + timedelta(
+                            days=round((end - start).days * i / (count - 1))
+                        )
+                    ).isoformat() + "T12:00:00+01:00",
+                    "value": float(i),
+                }
+                for i in range(count)
+            ]
+            lines.append({
+                "lot": "FAKE-LOT", "fluide": fluid, "compteur": serial,
+                "depose": retired,
+                "unit": "kWh" if fluid == "CET" else "m³",
+                "indexes": readings,
+            })
+        return {"lines": lines}
+
+    async def verify():
+        payloads, requests = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "FAKE-DEAL",
+            services.history_windows(start, end),
+        )
+        assert requests == len(calls) == len(payloads) == 1
+        history = services.build_history(
+            payloads, start, end, allowed_lots={"FAKE-LOT"},
+        )
+        assert [(history[f]["meters"], history[f]["observations"])
+                for f in ("EF", "ECS", "CET")] == [
+                    (2, 475), (2, 395), (3, 627),
+                ]
+        assert sum(history[f]["observations"] for f in ("EF", "ECS", "CET")) == 1497
+        assert len(history["__physical_meters__"]) == 7
+        assert sum(
+            x["retired"] for x in history["__physical_meters__"].values()
+        ) == 4
+
+    asyncio.run(verify())
+
+
+def test_adaptive_recovery_preserves_deduplicated_boundary_readings(
+    services, monkeypatch,
+):
+    """A split does not create duplicate metering observations or usage."""
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
+    start, end = date(2026, 10, 1), date(2026, 10, 9)
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 4:
+            raise services.TrybatecDataError("Trybatec response exceeds permitted size")
+        from datetime import timedelta
+        points = []
+        day = begin
+        while day <= finish:
+            points.append({"date": day.isoformat() + "T12:00:00+01:00",
+                           "value": float((day - start).days)})
+            day += timedelta(days=1)
+        return {"lines": [{
+            "compteur": "METER-A", "fluide": "EF", "lot": "FAKE-LOT",
+            "indexes": points,
+        }]}
+
+    async def verify():
+        payloads, requests = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "FAKE-DEAL",
+            services.history_windows(start, end),
+        )
+        assert requests == len(calls) == 3
+        assert calls[0] == (start, end)
+        history = services.build_history(
+            payloads, start, end, allowed_lots={"FAKE-LOT"},
+        )
+        assert history["EF"]["meters"] == 1
+        assert history["EF"]["observations"] == 9
+        assert history["EF"]["total"] == 8.0
+        assert history["EF"]["conflicts"] == 0
 
     asyncio.run(verify())
 
