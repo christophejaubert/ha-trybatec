@@ -33,10 +33,25 @@ def _verified_version(ledger: dict, new_stat: str) -> tuple[str, int]:
 
 
 def _competing(ledger: dict, logical: str, old_stat: str, new_stat: str) -> set[str]:
+    """Exclude ALL versions and alternatives for the same dwelling + fluid.
+
+    If physical raw/smoothed and consolidated are selected together, Energy
+    would double count. This check also inspects consumption source rows,
+    not just the logical consolidated version chain.
+    """
     record = ledger["series"][logical]
-    others = {v["statistic_id"] for v in record["versions"]}
-    # Existing b3/b4/b5 statistics may still be selected; the replacement
-    # identifies the precise old ID, while all b15 versions stay exclusive.
+    scope = record.get("scope")
+    if (not isinstance(scope, dict) or not scope.get("lot")
+            or scope.get("fluid") not in ("EF", "ECS", "CET")):
+        raise ValueError("B15 series lacks verified dwelling and fluid scope")
+    group = (scope["lot"], scope["fluid"])
+    others = set()
+    for series in ledger["series"].values():
+        candidate_scope = series.get("scope")
+        if not isinstance(candidate_scope, dict):
+            raise ValueError("An existing b15 series has unverified Energy scope")
+        if (candidate_scope.get("lot"), candidate_scope.get("fluid")) == group:
+            others.update(v["statistic_id"] for v in series["versions"])
     others.update((old_stat, new_stat))
     return others
 
