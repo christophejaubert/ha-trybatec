@@ -43,6 +43,14 @@ class TrybatecDataError(TrybatecError):
     """Invalid or excessively large vendor response."""
 
 
+class TrybatecWindowError(TrybatecDataError):
+    """The requested date window was rejected or took too long.
+
+    The caller may retry a smaller interval, without retrying unrelated
+    authentication or network failures as though they were range limits.
+    """
+
+
 async def _bounded_json(response: Any, limit: int) -> Any:
     """Read at most limit + 1 bytes from real aiohttp responses.
 
@@ -164,10 +172,14 @@ class TrybatecClient:
                             await asyncio.sleep(0.25 * temporary_failures)
                             continue
                         raise TrybatecConnectionError("Trybatec indexes temporarily unavailable")
+                    if response.status in (408, 413, 414, 422):
+                        raise TrybatecWindowError("Trybatec indexes request window rejected")
                     if response.status >= 400:
                         raise TrybatecConnectionError("Trybatec indexes endpoint failed")
                     body = await _bounded_json(response, MAX_INDEX_BYTES)
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            except asyncio.TimeoutError as exc:
+                raise TrybatecWindowError("Trybatec indexes request timed out") from exc
+            except aiohttp.ClientError as exc:
                 raise TrybatecConnectionError("Trybatec indexes request failed") from exc
             return _validate_indexes(body)
         raise TrybatecConnectionError("Trybatec request retries exhausted")
