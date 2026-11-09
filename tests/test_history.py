@@ -25,9 +25,21 @@ def test_windows_overlap_and_cover_range():
     assert all(parts[i + 1][0] == parts[i][1] - timedelta(days=1) for i in range(len(parts)-1))
 
 
-def test_windows_refuse_too_long():
-    with pytest.raises(ValueError):
-        history_windows(date(2010, 1, 1), date(2026, 1, 1))
+def test_windows_cover_more_than_ten_years_without_a_hard_ceiling():
+    start, end = date(2010, 1, 1), date(2026, 1, 1)
+    windows = history_windows(start, end)
+    assert len(windows) > 45
+    assert windows[0][0] == start and windows[-1][1] == end
+    assert all((b - a).days <= 92 for a, b in windows)
+    assert all(
+        right[0] == left[1] - timedelta(days=1)
+        for left, right in zip(windows, windows[1:])
+    )
+
+
+def test_windows_reject_reversed_dates():
+    with pytest.raises(ValueError, match="end precedes start"):
+        history_windows(date(2026, 1, 2), date(2026, 1, 1))
 
 
 def test_overlap_deduplicates_without_double_consumption():
