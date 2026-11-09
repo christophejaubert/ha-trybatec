@@ -193,9 +193,14 @@ only after backing up and reviewing the preview. Use `confirm: true`.
 - A single annual interval's total can be attributed **by convention** to a
   chosen end-of-year bucket, but this never proves that the energy/water was
   consumed on that day. Keep accounting allocations distinct from daily use.
-- The Trybatec `/api/v1/indexes` API is undocumented. Historical access is
-  limited to 10 years per request with API and payload-size limits. Some
-  vendor accounts may expose only partial or inconsistent history.
+- The Trybatec `/api/v1/indexes` API is undocumented. Historical queries
+  first request the **entire selected interval**, without a fixed 92-day or
+  multi-year ceiling. Oversized, structurally invalid, explicitly rejected
+  or timed-out responses are retried in overlapping, progressively smaller
+  periods. A persistently unreadable one-day interval rejects the entire
+  preview instead of reporting an incomplete extraction as complete.
+  Per-response size and structure safeguards remain enabled; the integration
+  cannot verify that the vendor returned all readings it possesses.
 - Live meter parsing now uses collision-safe internal identities when a serial occurs in more than one lot or fluid. Legacy IDs are retained for non-colliding serials. Inspect previous HA entity registrations if collisions have already occurred.
 - Recorder imports are asynchronous and not atomic or verified on queueing. Confirm actual persistence in Developer Tools → Statistics before relying on totals; no automatic migration or Energy dashboard series switch is implemented.
 - Review session payloads are cached in memory, but each confirmed decision persists under Home Assistant storage across restarts.
