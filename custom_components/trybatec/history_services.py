@@ -656,7 +656,7 @@ async def async_preview_costs(hass: HomeAssistant, call: ServiceCall) -> dict[st
         overrides = validate_meter_units(coordinator.entry.options.get(CONF_METER_UNITS, {}))
         # Optional per-physical-meter tariffs override only the matching
         # annual fluid price, never cross a year or a meter identity.
-        from .panel_tariffs import validate_meter_tariffs
+        from .tariff_validation import validate_meter_tariffs
         meter_tariffs = validate_meter_tariffs(
             coordinator.entry.options.get("annual_meter_tariffs")
         )
