@@ -173,6 +173,8 @@ def build_history(
     payloads: list[dict[str, Any]], start: date, end: date,
     allowed_lots: set[str] | None = None,
     decisions: dict[str, dict[str, Any]] | None = None,
+    *, sparse_interval_hours: int = MAX_DAILY_INTERVAL_HOURS,
+    zero_index_review_days: int = 1,
 ) -> dict[str, dict[str, Any]]:
     """Produce legacy per-fluid previews plus isolated per-meter import plans.
 
@@ -180,6 +182,8 @@ def build_history(
     deltas are reported as unallocated and are never assigned to a fictitious
     day, even with allow_gaps=True. One physical serial = one series.
     """
+    if not 1 <= sparse_interval_hours <= 87600 or not 0 <= zero_index_review_days <= 36500:
+        raise ValueError("Invalid historical review threshold")
     meters, conflicts = combine_payloads(payloads, allowed_lots, start, end)
     # Freeze the unmodified physical source before applying review decisions.
     # A retry must reject vendor index/date changes even if the resulting
@@ -208,7 +212,11 @@ def build_history(
     decisions = decisions or {}
     # Capture raw observations before processing user decisions; never overwrite
     # a source record in the in-memory API representation.
-    candidates = review_candidates(meters, decisions)
+    candidates = review_candidates(
+        meters, decisions,
+        sparse_hours=sparse_interval_hours,
+        zero_review_days=zero_index_review_days,
+    )
     for meter in meters.values():
         indexes, allocations, clashes = apply_review_to_meter(meter, decisions)
         # A contradictory provider timestamp cannot serve as a trusted
@@ -299,7 +307,7 @@ def build_history(
                 # An accounting-only attribution must not masquerade as a
                 # measured daily delta. The chosen time must fall inside the
                 # observed interval, and be later than its starting reading.
-                if not (span_hours > MAX_DAILY_INTERVAL_HOURS and (prev_at < target_at <= at or out_of_period_confirmed)):
+                if not (span_hours > sparse_interval_hours and (prev_at < target_at <= at or out_of_period_confirmed)):
                     series["conflicts"] += 1
                     series["fatal_conflicts"] = True
                     parent["conflicts"] += 1
@@ -313,7 +321,7 @@ def build_history(
                         "at": _bucket(target_at), "quantity": round(delta, 6),
                         "source_key": source_key,
                     })
-            if 1 <= span_hours <= MAX_DAILY_INTERVAL_HOURS:
+            if 1 <= span_hours <= sparse_interval_hours:
                 if series["anchor"] is None:
                     series["anchor"] = {
                         "reading_at": prev_at.isoformat(),
