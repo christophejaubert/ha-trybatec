@@ -11,7 +11,7 @@
       },
       "manual_url": {
         "title": "Adresse de la page Index",
-        "description": "La découverte automatique n'a pas permis d'identifier une copropriété unique. Collez l'adresse complète https://portail.trybatec.fr/indexes/… de votre page Index.",
+        "description": "La découverte automatique n'a pas permis d'identifier une copropriété unique. Collez l'adresse complète de votre page Index Trybatec.",
         "data": {
           "indexes_url": "Adresse complète de la page Index"
         }
