@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Version in `main`: 0.2.0b16** (after this PR is merged). The earlier b15 version was integrated through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version in `main`: 0.2.0b17** (once this PR is merged). The earlier b15 version was integrated through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -16,6 +16,28 @@
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
 > HACS, or OpenAI. Test with your own account before using it for monitoring.
+
+## b17 — Safe coexistence of historical and current meter identities
+
+An original Trybatec physical meter entity can legitimately coexist with its
+verified successor (usually a `_2` entity) after an explicit unit correction.
+The b17 migration preview detects this **only** if both technical identifiers,
+HA device association, account, dwelling, fluid and unit agree. In this
+coexistence case, the migration action leaves **both entity IDs, unique IDs
+and all Recorder statistics unchanged**; it never steals an occupied ID.
+
+Administrators can separately call `trybatec.preview_live_meter_energy` and
+then, with a recoverable backup and an exact preview fingerprint,
+`trybatec.activate_live_meter_energy`. This changes exactly one existing
+Energy source reference from the legacy physical meter to its verified live
+successor. It validates Recorder metadata, checks all available known
+competing versions, rejects double selection, verifies persisted preferences,
+and saves an audited rollback snapshot. Cold/hot water remain under water;
+heating kWh stays in its existing gas slot (supported by HA Core 2026.11).
+The older statistics **remain stored**, but historical graph continuity across
+the two physical sensor IDs is **not** automatically stitched; use approved
+versioned consolidated b15 series for that. No action runs at startup or
+changes Recorder automatically.
 
 ## b16 — First synchronization after HA startup
 
