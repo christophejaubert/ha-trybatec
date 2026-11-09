@@ -162,6 +162,8 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     monkeypatch.setattr(websocket_api, "async_register_command", register_ws)
     await panel_api.async_register_panel(fake_hass)
     assert register_static.await_count == 1
+    assert len(register_static.await_args.args[0]) == 2
+    assert register_static.await_args.args[0][1].url_path.endswith("/logo.png")
     assert register_gui.await_count == 1
     opts = register_gui.await_args.kwargs
     assert opts["webcomponent_name"] == "trybatec-panel"
