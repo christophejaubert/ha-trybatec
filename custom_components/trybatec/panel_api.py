@@ -21,6 +21,7 @@ from .const import CONF_TARIFFS, DOMAIN, FLUIDS
 from .history_devices_b15 import load_historical_inventory
 from .history_recorder_b15 import ledger_store
 from .parsing import validate_tariffs
+from .units import meter_key
 from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_tariff_change
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +54,11 @@ def _live_meter(serial: str, meter: dict[str, Any]) -> dict[str, Any]:
     return {
         "serial": str(meter.get("serial", serial))[:128],
         "lot": str(meter.get("lot", ""))[:128],
+        "physical_key": meter_key(
+            str(meter.get("lot", "")),
+            meter.get("fluid", ""),
+            str(meter.get("serial", serial)),
+        ),
         "fluid": meter.get("fluid") if meter.get("fluid") in FLUIDS else "unknown",
         "status": status,
         "source": "live_api",
@@ -68,6 +74,9 @@ def _archive_meter(meter: dict[str, Any]) -> dict[str, Any]:
     return {
         "serial": str(meter["serial"])[:128],
         "lot": str(meter["lot"])[:128],
+        "physical_key": meter_key(
+            str(meter["lot"]), meter["fluid"], str(meter["serial"])
+        ),
         "fluid": meter["fluid"],
         "status": "depose",
         "source": "archived_verified_inventory",
