@@ -9,6 +9,11 @@ import asyncio
 from hashlib import sha256
 from typing import Any
 
+try:
+    import probatio as vol
+except ImportError:
+    import voluptuous as vol
+
 from homeassistant.exceptions import ServiceValidationError
 
 from .const import (
@@ -23,6 +28,25 @@ from .units import resolve_meter_unit, validate_meter_units
 from .energy_runtime_b15 import (
     preview_energy_activation, activate_energy_version,
 )
+
+B15_SERVICE_SCHEMA = vol.Schema({
+    vol.Optional("entry_id"): str,
+    vol.Optional("start_date", default="2021-01-01"): str,
+    vol.Optional("end_date"): str,
+    vol.Optional("include_cold_water", default=True): bool,
+    vol.Optional("include_hot_water", default=True): bool,
+    vol.Optional("include_heating", default=False): bool,
+    vol.Optional("plan_fingerprint"): str,
+    vol.Optional("confirm", default=False): bool,
+    vol.Optional("backup_confirmed", default=False): bool,
+    vol.Optional("confirm_revision", default=False): bool,
+    vol.Optional("retry_pending", default=False): bool,
+    vol.Optional("old_statistic_id"): str,
+    vol.Optional("new_statistic_id"): str,
+    vol.Optional("before_fingerprint"): str,
+    vol.Optional("confirm_rollback", default=False): bool,
+}, extra=vol.PREVENT_EXTRA)
+
 
 
 async def _admin_plan(hass: Any, call: Any):
