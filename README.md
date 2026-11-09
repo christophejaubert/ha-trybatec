@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Source version on `main`: 0.2.0b7.** See [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for published versions. Version b7 remains experimental, and its publication does not authorize historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version published on `main`: 0.2.0b14.** See [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for published versions. **b15 is under development in PR #38 and is not a release.** No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -16,6 +16,46 @@
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
 > HACS, or OpenAI. Test with your own account before using it for monitoring.
+
+## b15 development status — not deployable
+
+**Work in progress, PR [#38](https://github.com/christophejaubert/ha-trybatec/pull/38).**
+The new `history_reconstruction.py` and `energy_switch.py` functions currently
+**only generate proposals**. They do not install an Energy source, import into
+Recorder, clean entities, alter existing statistics, switch versions or migrate
+an existing Home Assistant instance. Passing their synthetic unit tests does
+not constitute a production acceptance test or permission to release.
+
+- Intended stable target: one logical **consumption** series per dwelling and
+  fluid; retain separate physical counters and their raw source indexes,
+  including deposited counters. Never add physical cumulative indexes.
+- Physical counter alternatives: raw daily consumption and explicitly reviewed
+  linearly smoothed consumption. Only one alternative per physical counter
+  may contribute to a logical Energy series.
+- Linear interpolation is **proposal-only**: preserve verified measured daily
+  amounts, distribute only the residual across uncovered civil days, and do
+  not treat estimated days as measured index readings. Unreviewed zeros,
+  changing physical counter, incompatible units and ambiguous overlaps block
+  reconstruction. An absent previous index requires an explicit date and
+  confirmation of an editable estimated initial index (initial suggestion: 0).
+- An Energy preference replacement is prepared as a complete before/after
+  preview with a fingerprint of the original settings. No preferences are
+  written. Version activation is contingent on verified Recorder persistence,
+  explicit user approval, a complete preference backup and tested rollback.
+- **Multi-copropriété accounts are not supported in b15's current automatic
+  discovery path.** Only one unambiguous authorized dwelling is automatically
+  resolved. The explicit portal Index page URL is the controlled fallback.
+  Do not enter JSON, Bearer tokens or UUIDs manually during normal setup.
+- No historical Recorder import is performed on installation, upgrade or
+  startup. Cleaning legacy entities requires separate user-facing migration
+  preview, dependency analysis and confirmation.
+
+**Remaining before b15 release:** integrate these proposals with the native
+review UI, implement all alternate Recorder series and version ledger,
+retired-meter historical devices, non-destructive entity migration, guarded
+Energy write/verification/rollback and full integration tests (including
+Home Assistant runtime). Do not merge or release while those checks remain
+open.
 
 ## Changes in 0.2.0b6 — Read before historical imports
 
@@ -59,12 +99,9 @@ Dans **Configurer → Aperçu de l’historique**, la vue principale présente l
 
 Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, sans caractères littéraux `\\n`. Les relevés historiques restent accessibles uniquement après une prévisualisation et les imports Recorder nécessitent toujours une action administrateur distincte.
 
-## b7 development branch — not published
+## Historical b7 development notes (archived)
 
-The `feature/0.2.0b7` branch is **experimental and not a GitHub release**.
-The latest published pre-release remains **0.2.0b6**. Do not replace a working
-b6 installation with this development branch without a full backup and an
-explicit test plan. No historical data is written automatically.
+The paragraphs in this section describe the earlier experimental b7 branch at the time of its development. They are retained as historical implementation notes, **not** as the current release status. Current published version: **b14**; b15 remains in development. No historical data is written automatically.
 
 New administrator-only read-only Home Assistant actions:
 
