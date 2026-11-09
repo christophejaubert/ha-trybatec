@@ -198,3 +198,16 @@ def test_sparse_gap_preview_marks_partial_result_as_truncated():
     assert view["truncated"] is True
     assert view["intervals"][0]["daily_preview"] is None
     assert view["intervals"][0]["daily_preview_truncated"] is True
+
+
+def test_gap_proposal_does_not_bridge_an_unreviewed_zero():
+    key = ("LOT", "EF", "old")
+    zero_stamp = reading(2022, 4, 1, 0)[0]
+    history = {"__physical_meters__": {
+        key: {"reviewed_readings": [
+            reading(2022, 1, 1, 10), reading(2022, 12, 1, 14)
+        ], "unreviewed_zero_times": {zero_stamp},
+            "fatal_conflicts": False, "conflicts": 0},
+    }}
+    result = preview_sparse_intervals(history, {key: "m³"})
+    assert result["intervals"][0]["status"] == "blocked_unreviewed_zero"
