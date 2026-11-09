@@ -8,14 +8,19 @@ from zoneinfo import ZoneInfo
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
-from custom_components.trybatec.api import TrybatecClient
+from custom_components.trybatec.api import TrybatecClient, TrybatecDataError
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
-async def test_invalid_deal_id_rejected_by_ha_config_flow(hass):
-    """No network connection should be attempted for invalid identifiers."""
+async def test_ambiguous_housing_requires_valid_portal_url(hass, monkeypatch):
+    """Never guess a deal UUID; reject arbitrary and foreign-site URLs."""
+
+    async def ambiguous(self):
+        raise TrybatecDataError("Housing discovery ambiguous or unavailable")
+
+    monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", ambiguous)
     flow = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
@@ -25,11 +30,15 @@ async def test_invalid_deal_id_rejected_by_ha_config_flow(hass):
         {
             CONF_USERNAME: "synthetic-ci-user",
             CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
-            CONF_DEAL_ID: "invalid-deal-id",
         },
     )
-    assert result["type"] == "form"
-    assert result["errors"][CONF_DEAL_ID] == "invalid_deal_id"
+    assert result["step_id"] == "manual_url"
+    invalid = await hass.config_entries.flow.async_configure(
+        flow["flow_id"],
+        {"indexes_url": "https://example.org/indexes/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"},
+    )
+    assert invalid["step_id"] == "manual_url"
+    assert invalid["errors"]["indexes_url"] == "invalid_indexes_url"
 
 
 async def test_valid_deal_id_creates_entry_from_ha_config_flow(
@@ -59,9 +68,13 @@ async def test_valid_deal_id_creates_entry_from_ha_config_flow(
     monkeypatch.setattr(TrybatecClient, "indexes", fake_indexes)
     monkeypatch.setattr(TrybatecClient, "enrich_meter_units", fake_enrich)
 
-    deal_id = "-".join(
-        ("aaaaaaaa", "bbbb", "4ccc", "8ddd", "eeeeeeeeeeee")
-    )
+    deal_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+
+    async def fake_discover(self):
+        return deal_id
+
+    monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", fake_discover)
+
     form = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
@@ -70,7 +83,6 @@ async def test_valid_deal_id_creates_entry_from_ha_config_flow(
         {
             CONF_USERNAME: "synthetic-ci-user",
             CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
-            CONF_DEAL_ID: deal_id,
         },
     )
     assert result["type"] == "create_entry"
