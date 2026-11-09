@@ -3,21 +3,38 @@
     "step": {
       "user": {
         "title": "Compte Trybatec",
-        "description": "Saisissez les identifiants du portail Trybatec et l'UUID qui figure dans l'adresse de la page /indexes/. Intégration non officielle.",
+        "description": "Saisissez uniquement votre identifiant et votre mot de passe Trybatec. La copropriété est recherchée automatiquement lorsque le compte donne accès à un seul logement.",
         "data": {
           "username": "Identifiant (adresse électronique)",
-          "password": "Mot de passe",
-          "deal_id": "Identifiant de copropriété (UUID de la page Index)"
+          "password": "Mot de passe"
+        }
+      },
+      "manual_url": {
+        "title": "Adresse de la page Index",
+        "description": "La découverte automatique n'a pas permis d'identifier une copropriété unique. Collez l'adresse complète https://portail.trybatec.fr/indexes/… de votre page Index.",
+        "data": {
+          "indexes_url": "Adresse complète de la page Index"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnecter Trybatec",
+        "description": "Indiquez vos identifiants actuels pour restaurer l'accès sans recréer les compteurs et leurs historiques. La même identité de compte est obligatoire.",
+        "data": {
+          "username": "Identifiant (adresse électronique)",
+          "password": "Nouveau mot de passe"
         }
       }
     },
     "error": {
       "invalid_auth": "Connexion refusée par Trybatec.",
       "cannot_connect": "Impossible de récupérer les relevés Trybatec.",
-      "invalid_deal_id": "L'identifiant doit être au format UUID."
+      "invalid_deal_id": "L'identifiant doit être au format UUID.",
+      "invalid_indexes_url": "Saisissez une URL HTTPS valide de la page Index du portail Trybatec.",
+      "wrong_account": "La réauthentification doit conserver le même compte Trybatec."
     },
     "abort": {
-      "already_configured": "Ce compte et cette copropriété sont déjà configurés."
+      "already_configured": "Ce compte et cette copropriété sont déjà configurés.",
+      "unique_id_mismatch": "Les identifiants ne correspondent pas au compte Trybatec configuré."
     }
   },
   "options": {
