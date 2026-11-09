@@ -55,22 +55,63 @@ def preview_identity_migration(
     if (existing is None or existing.platform != DOMAIN
             or existing.config_entry_id != coordinator.entry.entry_id):
         raise ValueError("Entity not owned by the selected Trybatec account")
-    state = hass.states.get(entity_id)
-    if state is None or state.attributes.get("lot") != lot:
-        raise ValueError("Original entity lacks exact dwelling identity evidence")
     expected = normalized_unit(fluid)
-    if (state.attributes.get("unit_of_measurement") != expected
-            or state.attributes.get("source_unit") != meter["verified_unit"]):
-        raise ValueError("Original entity does not prove matching physical unit")
-    # The old and new registry identities must demonstrably describe the
-    # same actual source meter. Do NOT infer from entity display names.
+    # The full technical identity, ownership and device association, not a
+    # friendly name or guessed suffix, prove whether two registry rows refer
+    # to the same physical meter.
     account = coordinator.entry.unique_id or coordinator.entry.entry_id
     if not existing.unique_id.startswith(f"{account}_{serial}"):
         raise ValueError("Old technical ID cannot be proven to match this meter")
     desired = TrybatecMeterSensor(coordinator, account, serial).unique_id
     occupant = registry.async_get_entity_id("sensor", DOMAIN, desired)
+    state = hass.states.get(entity_id)
     if occupant not in (None, entity_id):
-        raise ValueError("Expected new unique_id belongs to a different entity")
+        # b6/b15 can legitimately leave the prior physical meter statistic
+        # under the original entity_id, and its active verified successor
+        # under a Home Assistant generated *_2 entity_id. Never seize a
+        # registered unique_id or relabel either existing Recorder statistic.
+        successor = registry.async_get(occupant)
+        successor_state = hass.states.get(occupant)
+        if (existing.unique_id != f"{account}_{serial}_index"
+                or successor is None
+                or successor.platform != DOMAIN
+                or successor.config_entry_id != coordinator.entry.entry_id
+                or successor.unique_id != desired
+                or existing.device_id is None
+                or successor.device_id != existing.device_id):
+            raise ValueError("Occupied technical identity is not a proven same-device successor")
+        if (state is None or state.attributes.get("unit_of_measurement") != expected
+                or state.attributes.get("lot") not in (None, lot)):
+            raise ValueError("Legacy entity lacks compatible historical unit evidence")
+        if (successor_state is None
+                or successor_state.state in ("unknown", "unavailable")
+                or successor_state.attributes.get("lot") != lot
+                or successor_state.attributes.get("source_unit") != meter["verified_unit"]
+                or successor_state.attributes.get("unit_of_measurement") != expected
+                or successor_state.attributes.get("unit_verified") is not True
+                or successor_state.attributes.get("deposed") is not False):
+            raise ValueError("Successor entity lacks verified live meter evidence")
+        record = {
+            "entity_id": entity_id, "active_entity_id": occupant,
+            "old_unique_id": existing.unique_id,
+            "new_unique_id": successor.unique_id,
+            "lot": lot, "fluid": fluid, "serial": serial,
+            "source_unit": meter["verified_unit"],
+        }
+        return {
+            "status": "coexisting_physical_entities",
+            **record, "before_fingerprint": _fingerprint(record),
+            "entity_id_preserved": True, "recorder_history_preserved": True,
+            "requires_backup": False,
+            "requires_explicit_confirmation": False,
+            "would_change_registry": False,
+            "energy_switch_must_be_previewed_separately": True,
+        }
+    if state is None or state.attributes.get("lot") != lot:
+        raise ValueError("Original entity lacks exact dwelling identity evidence")
+    if (state.attributes.get("unit_of_measurement") != expected
+            or state.attributes.get("source_unit") != meter["verified_unit"]):
+        raise ValueError("Original entity does not prove matching physical unit")
     record = {
         "entity_id": entity_id, "old_unique_id": existing.unique_id,
         "new_unique_id": desired, "lot": lot, "fluid": fluid,
@@ -99,6 +140,18 @@ async def apply_identity_migration(
     )
     if plan["before_fingerprint"] != before_fingerprint:
         raise ValueError("Stale migration plan; preview again")
+    if plan["status"] == "coexisting_physical_entities":
+        # Both registry identities and all historical statistics remain
+        # untouched. The live sensor can be selected through the separate
+        # guarded Energy handoff, never by force-changing its unique_id.
+        return {
+            "status": "coexisting_entities_preserved_no_registry_write",
+            "entity_id": entity_id,
+            "active_entity_id": plan["active_entity_id"],
+            "entity_id_unchanged": True,
+            "recorder_unchanged": True,
+            "energy_unchanged": True,
+        }
     if not plan["would_change_registry"]:
         return {"status": "already_migrated", "entity_id": entity_id}
     store = _audit(hass, coordinator.entry.entry_id)

@@ -75,7 +75,15 @@ def _validate_energy_destination(
         elif section != "device_consumption_water" or field != "stat_consumption":
             raise ValueError("Water series cannot replace a non-water Energy source")
     elif fluid == "CET":
-        if section != "device_consumption" or field != "stat_consumption":
+        # HA Core 2026.11 validates a gas source backed by an ENERGY sensor
+        # in kWh. This preserves the user's existing heat-source category;
+        # never silently switch it to electricity or a different slot.
+        if section == "energy_sources":
+            if (prefs[section][index].get("type") != "gas"
+                    or field != "stat_energy_from"
+                    or ledger["series"][logical].get("unit") != "kWh"):
+                raise ValueError("Heating gas source requires a verified kWh statistic")
+        elif section != "device_consumption" or field != "stat_consumption":
             raise ValueError("Heating kWh series requires a compatible consumption slot")
     else:
         raise ValueError("Unsupported energy fluid")

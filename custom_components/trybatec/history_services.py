@@ -737,6 +737,7 @@ def register_history_actions(hass: HomeAssistant) -> None:
         async_preview_b15_energy, async_apply_b15_energy,
         async_archive_b15_meters, async_preview_b15_migration,
         async_apply_b15_migration,
+        async_preview_live_meter_energy, async_apply_live_meter_energy,
     )
 
     async def b15_preview(call: ServiceCall) -> dict[str, Any]:
@@ -766,7 +767,16 @@ def register_history_actions(hass: HomeAssistant) -> None:
         outcome = await async_apply_b15_migration(hass, call)
         return outcome if call.return_response else None
 
+    async def live_energy_preview(call: ServiceCall) -> dict[str, Any]:
+        return await async_preview_live_meter_energy(hass, call)
+
+    async def live_energy_apply(call: ServiceCall) -> dict[str, Any] | None:
+        result = await async_apply_live_meter_energy(hass, call)
+        return result if call.return_response else None
+
     for name, handler, response in (
+        ("preview_live_meter_energy", live_energy_preview, SupportsResponse.ONLY),
+        ("activate_live_meter_energy", live_energy_apply, SupportsResponse.OPTIONAL),
         ("archive_b15_meters", b15_archive, SupportsResponse.ONLY),
         ("preview_b15_migration", b15_migration_preview, SupportsResponse.ONLY),
         ("apply_b15_migration", b15_migration_apply, SupportsResponse.OPTIONAL),

@@ -354,3 +354,81 @@ apply_b15_migration:
       required: true
       selector:
         boolean: {}
+
+preview_live_meter_energy:
+  name: Preview legacy-to-live meter Energy handoff (b17)
+  description: Administrator-only read-only proof of matching physical meter, Recorder statistics units, and existing compatible Energy slot. Leaves all IDs and history intact.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      description: Original legacy Trybatec sensor entity_id currently used in Energy.
+      required: true
+      selector:
+        entity:
+          domain: sensor
+    lot:
+      description: Exact dwelling lot from the live Trybatec meter.
+      required: true
+      selector:
+        text: {}
+    fluid:
+      description: EF (cold water), ECS (hot water), or CET (heating).
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      description: Exact physical meter serial.
+      required: true
+      selector:
+        text: {}
+
+activate_live_meter_energy:
+  name: Confirm guarded live meter Energy handoff (b17)
+  description: Administrator-only. Moves exactly one Energy reference from a proven legacy meter to its active counterpart after explicit backup, fresh preview and confirmation. Does not modify Recorder or registry. Preserves all historical statistics under their original IDs.
+  fields:
+    entry_id:
+      selector:
+        text: {}
+    entity_id:
+      description: Original legacy Trybatec sensor entity_id selected in Energy.
+      required: true
+      selector:
+        entity:
+          domain: sensor
+    lot:
+      required: true
+      selector:
+        text: {}
+    fluid:
+      required: true
+      selector:
+        select:
+          options:
+            - EF
+            - ECS
+            - CET
+    serial:
+      required: true
+      selector:
+        text: {}
+    before_fingerprint:
+      description: Exact fingerprint from a fresh preview_live_meter_energy response.
+      required: true
+      selector:
+        text: {}
+    backup_confirmed:
+      description: Confirm a recoverable HA backup exists and contains Recorder.
+      required: true
+      selector:
+        boolean: {}
+    confirm:
+      description: Explicitly approve the Energy preference write.
+      required: true
+      selector:
+        boolean: {}
