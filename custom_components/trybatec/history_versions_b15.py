@@ -82,15 +82,18 @@ def prepare_version(
     versions = records["versions"]
     if records.get("unit") != unit:
         raise ValueError("Existing series unit changed")
+    previous = versions[-1] if versions else None
+    if previous is not None and (
+        previous["snapshot_hash"] == digest
+        and previous["source_fingerprint"] == source_fingerprint
+    ):
+        # Read-only idempotent preview: prepared/imported does NOT become
+        # verified, and the importer must still enforce its pending guard.
+        return current, {"status": "unchanged", "version": deepcopy(previous)}
     if any(v["state"] in ("prepared", "imported") for v in versions):
         raise ValueError("Pending import must be verified or explicitly recovered")
-    previous = versions[-1] if versions else None
-    if previous is not None:
-        if (previous["snapshot_hash"] == digest
-                and previous["source_fingerprint"] == source_fingerprint):
-            return current, {"status": "unchanged", "version": deepcopy(previous)}
-        if not approve_revision:
-            raise ValueError("Explicit revision approval required")
+    if previous is not None and not approve_revision:
+        raise ValueError("Explicit revision approval required")
     if len(versions) >= _MAX_VERSIONS:
         raise ValueError("Version limit exceeded")
     num = len(versions) + 1
