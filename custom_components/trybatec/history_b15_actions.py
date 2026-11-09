@@ -25,6 +25,7 @@ from .history_recorder_b15 import (
 )
 from .history_smoothing_store import load_choices
 from .history_devices_b15 import persist_historical_inventory
+from .migration_runtime_b15 import preview_identity_migration, apply_identity_migration
 from .units import resolve_meter_unit, validate_meter_units
 from .energy_runtime_b15 import (
     preview_energy_activation, activate_energy_version,
@@ -46,6 +47,10 @@ B15_SERVICE_SCHEMA = vol.Schema({
     vol.Optional("new_statistic_id"): str,
     vol.Optional("before_fingerprint"): str,
     vol.Optional("confirm_rollback", default=False): bool,
+    vol.Optional("entity_id"): str,
+    vol.Optional("lot"): str,
+    vol.Optional("fluid"): str,
+    vol.Optional("serial"): str,
 }, extra=vol.PREVENT_EXTRA)
 
 
@@ -232,3 +237,41 @@ async def async_archive_b15_meters(hass: Any, call: Any) -> dict[str, Any]:
         "requested_end": end.isoformat(),
         "api_requests": requests,
     }
+
+
+async def async_preview_b15_migration(hass: Any, call: Any) -> dict[str, Any]:
+    """Exact identity proof without scanning or altering unrelated entities."""
+    from .history_services import _require_admin, _coordinator
+    await _require_admin(hass, call)
+    coordinator = _coordinator(hass, call.data)
+    try:
+        return preview_identity_migration(
+            hass, coordinator,
+            entity_id=call.data["entity_id"],
+            lot=call.data["lot"], fluid=call.data["fluid"],
+            serial=call.data["serial"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ServiceValidationError(str(exc)) from exc
+
+
+async def async_apply_b15_migration(hass: Any, call: Any) -> dict[str, Any]:
+    """Explicit single-entity non-destructive migration with audit."""
+    from .history_services import _require_admin, _coordinator
+    await _require_admin(hass, call)
+    coordinator = _coordinator(hass, call.data)
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        try:
+            return await apply_identity_migration(
+                hass, coordinator,
+                entity_id=call.data["entity_id"],
+                lot=call.data["lot"], fluid=call.data["fluid"],
+                serial=call.data["serial"],
+                before_fingerprint=call.data["before_fingerprint"],
+                confirm=call.data.get("confirm") is True,
+                backup_confirmed=call.data.get("backup_confirmed") is True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ServiceValidationError(str(exc)) from exc
