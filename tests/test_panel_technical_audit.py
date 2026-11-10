@@ -74,7 +74,7 @@ def test_unavailable_does_not_mean_obsolete_without_exact_technical_identity():
 
 @pytest.mark.parametrize("bad", [
     [{"entity_id": "sensor.legacy", "unique_id": ""}],
-    [{"entity_id": "light.not_sensor", "unique_id": "anything"}],
+    [{"entity_id": ".not_sensor", "unique_id": "anything"}],
     [record("sensor.same", "first"), record("sensor.same", "second")],
     None,
 ])
