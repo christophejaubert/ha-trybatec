@@ -1,3 +1,31 @@
+# 0.3.1b1 — Interface et identité Trybatec (préversion candidate, non publiée)
+
+**Périmètre de cette tranche : corrections d'interface non destructrices.** Ce candidat n'autorise aucune migration ni modification d'une installation Home Assistant.
+
+### Changements par rapport à 0.3.0b1
+- Le choix de l'exercice annuel est limité aux années des relevés datés du compte (première année −1, dernière année +1), y compris les compteurs déposés. Les exercices tarifés existants hors plage restent sélectionnables individuellement ; une plage de secours explicitée est utilisée en l'absence de relevés datés.
+- La version effective de l'intégration installée apparaît dans l'en-tête de toutes les pages du panneau, sans valeur présumée.
+- Contraste des surfaces et de la sélection des compteurs amélioré en thèmes Home Assistant clair/sombre ; sélection sans déplacement du contenu, états accessibles et pictogrammes EF/ECS/CET distincts.
+- Palette Trybatec documentée et harmonisée entre l'interface et les ressources graphiques ; exigences WCAG 2.2 AA conservées comme **critères à vérifier**, non comme conformité démontrée.
+- Arbitrages détaillés A01–A31 et registre des décisions repris depuis la PR #72 à titre de spécifications futures, sans activation des fonctionnalités destructrices.
+
+### Exclusions explicites
+- **Aucun outil de désinstallation, réinitialisation ou purge** : l'assistant destructeur A01–A31 n'est pas implémenté ni exposé dans cette préversion, en attente des garanties d'appartenance, de conservation, de reprise et des scénarios T01–T40.
+- Aucune écriture vers le portail fournisseur Trybatec.
+- Aucun effacement d'entités, d'historique Recorder, de statistiques ou de préférences Énergie ; les anciennes interfaces et identifiants sont conservés.
+- Aucune sauvegarde, importation historique, bascule Énergie ou redémarrage automatique.
+- Aucune publication ni fusion ne résulte de la préparation de cette note.
+
+### Validation requise avant fusion
+- CI intégrale verte sur **le SHA final** : tests Python 3.13/3.14, HACS, hassfest, qualité, sécurité, Recorder et navigateur synthétique.
+- Vérification du nouvel emblème approuvé dans les deux PNG officiels (256/512 px) et de son rendu à 24/32/64 px, sur fonds clair/sombre.
+- Recette fonctionnelle/visuelle Home Assistant réel sur bureau/mobile et en FR/EN restant à exécuter ; la recette Chromium synthétique n'en tient pas lieu.
+- La fusion dans `main` et la publication d'une release nécessitent chacune une autorisation explicite distincte.
+
+Sources : [périmètre 0.3.1b1](docs/RELEASE_SCOPE_0.3.1b1.md) · [système de conception](docs/DESIGN_SYSTEM.md) · [spécifications A01–A31](docs/specifications/trybatec-cleanup-reset-purge-A01-A31.md).
+
+---
+
 # 0.3.0b1 — Unified Trybatec panel (experimental beta)
 
 **Experimental prerelease.** This version brings together the additive Home Assistant sidebar panel **Trybatec** and the current work on history smoothing, physical meter inventory and annual tariffs (issues #36, #37, #42 and integration tracking #45). It is intended for evaluation, not a claim that all acceptance criteria have been completed.
