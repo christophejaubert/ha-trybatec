@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from custom_components.trybatec.history import build_history
-from custom_components.trybatec.history_origin_decisions import proposed_choice
+from custom_components.trybatec.history_origin_decisions import proposed_choice, origin_boundary_fingerprint
 from custom_components.trybatec.history_plan_b15 import make_b15_plan
 from custom_components.trybatec.history_variants_b15 import variants_preview
 from custom_components.trybatec.units import meter_key
@@ -28,7 +28,11 @@ def _history(first_index=332.0):
     first_at, first_value = meter["reviewed_readings"][0]
     approval = proposed_choice(
         lot=key[0], fluid=key[1], serial=key[2],
-        source_fingerprint=meter["source_fingerprint"],
+        source_fingerprint=origin_boundary_fingerprint(
+            lot=key[0], fluid=key[1], serial=key[2],
+            first_observed_at=first_at.isoformat(),
+            first_observed_index=first_value, source_unit="m³",
+        ),
         first_observed_at=first_at.isoformat(),
         first_observed_index=first_value,
         estimated_start_date="2022-01-18",
@@ -80,8 +84,15 @@ def test_unapproved_or_stale_origin_cannot_be_selected_silently():
     changed = {key: {**origins[key], "source_fingerprint": "b" * 64}}
     with pytest.raises(ValueError):
         variants_preview(history, units, approved_origins=changed)
-    history["__physical_meters__"][next(iter(units))]["source_fingerprint"] = "b" * 64
-    with pytest.raises(ValueError, match="stale"):
+    meter = history["__physical_meters__"][next(iter(units))]
+    meter["source_fingerprint"] = "b" * 64  # a later legitimate observation
+    assert variants_preview(history, units, approved_origins=origins)[
+        "meters"
+    ][0]["smoothed_total"] == pytest.approx(20.0)
+    # The originally approved first observed reading is still authoritative.
+    first_at, _ = meter["reviewed_readings"][0]
+    meter["reviewed_readings"][0] = (first_at, 333.0)
+    with pytest.raises(ValueError, match="first observed source changed"):
         variants_preview(history, units, approved_origins=origins)
 
 
@@ -96,3 +107,12 @@ def test_origin_refuses_other_meter_or_unsupported_source():
     assert blocked["meters"][0]["status"] == "blocked_source_conflict"
     with pytest.raises(ValueError, match="Unverified or conflicted"):
         make_b15_plan(history, units, {}, "SYNTH-ACCOUNT", approved_origins=origins)
+
+
+
+def test_origin_unit_change_requires_new_approval_before_any_import():
+    history, units, origins = _history()
+    assert variants_preview(history, units, approved_origins=origins)["approved_estimated_origins"] == 1
+    key = next(iter(units))
+    with pytest.raises(ValueError, match="source boundary or unit is stale"):
+        variants_preview(history, {key: "L"}, approved_origins=origins)
