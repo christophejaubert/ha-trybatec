@@ -75,3 +75,18 @@ def test_reviewed_reading_links_to_exact_preceding_smoothing_interval():
     assert 'Aucun intervalle précédent vérifiable' in source
     assert 'aucune décision enregistrée' in source
     assert 'this._historySelected=match.interval_key' in source
+
+
+def test_estimated_origin_panel_requires_separate_confirmed_save():
+    """An estimated assumption must be previewed, confirmed and kept out of Recorder."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert 'type:"trybatec/panel_estimated_origin_preview"' in source
+    assert 'type:"trybatec/panel_estimated_origin_save"' in source
+    assert 'data-origin-save' in source
+    assert 'expected_fingerprint:preview.approval_fingerprint' in source
+    assert 'confirm:true,confirm_revision:this._originRevision' in source
+    assert "saved.source_indices_unchanged!==true" in source
+    assert "saved.recorder_writes!==false" in source
+    assert "saved.energy_writes!==false" in source
+    assert "Motif déclaré pour cette hypothèse" in source
+    assert "l’index initial n’est pas un relevé" not in source
