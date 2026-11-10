@@ -657,7 +657,8 @@ def test_main_menu_keeps_six_readable_direct_destinations(ui):
         "history_smoothing",
     ]
     assert menu["type"] == "menu"
-    assert menu["menu_options"] == expected
+    assert list(menu["menu_options"]) == expected
+    assert all(isinstance(v, str) and v.strip() for v in menu["menu_options"].values())
     assert all(not step.endswith("_menu") for step in expected)
     root = Path("custom_components/trybatec")
     for filename in ("strings.json", "translations/en.json", "translations/fr.json"):
@@ -790,6 +791,7 @@ def test_native_menu_handlers_need_no_second_submit(ui, monkeypatch):
         assert menu["type"] == "menu"
         assert menu["menu_options"] == [
             "history_decision_accept", "history_decision_correct",
+            "history_decision_smoothing",
             "history_decision_reject", "history_decision_postpone",
             "history_review", "init",
         ]
@@ -946,7 +948,8 @@ def test_ui_smoothing_shortcut_selects_exact_gap_and_does_not_write(ui, monkeypa
     }
     candidate = {
         "interval_key": "f" * 32, "lot": "FAKE-HOME", "fluid": "EF",
-        "meter_serial": "FAKE-METER", "start_date": "2024-12-22",
+        "meter_serial": "FAKE-METER", "source_end_at": "2025-01-20T00:00:00+01:00",
+        "start_date": "2024-12-22",
         "end_date": "2025-01-20",
         "status": "linear_available_after_explicit_confirmation",
         "bounded_consumption": 16.,
@@ -978,7 +981,8 @@ def test_ui_smoothing_shortcut_does_not_bypass_unreviewed_zero(ui, monkeypatch):
     }
     candidate = {
         "interval_key": "e" * 32, "lot": "FAKE-HOME", "fluid": "EF",
-        "meter_serial": "FAKE-METER", "start_date": "2024-12-22",
+        "meter_serial": "FAKE-METER", "source_end_at": "2025-01-20T00:00:00+01:00",
+        "start_date": "2024-12-22",
         "end_date": "2025-01-20",
         "status": "blocked_unreviewed_zero",
     }
@@ -1007,3 +1011,26 @@ def test_ui_smoothing_shortcut_has_translation_in_all_locales():
         assert steps["init"]["menu_options"]["history_smoothing"].strip()
         assert steps["history_decision"]["menu_options"]["history_decision_smoothing"].strip()
         assert "history_smoothing_choice" in steps
+
+
+
+def test_ui_smoothing_shortcut_refuses_same_day_but_other_source_timestamp(ui, monkeypatch):
+    """A same-day reading from another source interval must never be targeted."""
+    flow, _ = new_ui(ui)
+    flow._selected_reading = {
+        "lot": "FAKE-HOME", "fluid": "EF", "meter_serial": "FAKE-METER",
+        "source_date": "2025-01-20T12:00:00+01:00",
+    }
+    candidate = {
+        "interval_key": "d" * 32, "lot": "FAKE-HOME", "fluid": "EF",
+        "meter_serial": "FAKE-METER", "start_date": "2024-12-22",
+        "end_date": "2025-01-20", "source_end_at": "2025-01-20T08:00:00+01:00",
+        "status": "linear_available_after_explicit_confirmation",
+    }
+    async def candidates():
+        return [candidate]
+    monkeypatch.setattr(flow, "_smoothing_candidates", candidates)
+    result = asyncio.run(flow.async_step_history_decision_smoothing())
+    assert result["step_id"] == "history_smoothing"
+    assert flow._selected_sparse is None
+    assert flow.config_entry.options == {"poll_minutes": 720}
