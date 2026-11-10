@@ -11,7 +11,8 @@ import json
 from math import isfinite
 from typing import Any
 
-from .const import FLUIDS
+from .const import FLUIDS, TIMEZONE
+from zoneinfo import ZoneInfo
 from .units import meter_key, normalized_unit, unit_factor
 
 _MAX_CHOICES = 500
@@ -77,7 +78,8 @@ def approval_fingerprint(
         raise ValueError("Invalid estimated origin scope")
     start = date.fromisoformat(estimated_start_date)
     observed = _aware_timestamp(first_observed_at)
-    span = (datetime.fromisoformat(observed).date() - start).days
+    # Consumption buckets and the UI use civil days in the dwelling timezone.
+    span = (datetime.fromisoformat(observed).astimezone(ZoneInfo(TIMEZONE)).date() - start).days
     if not 1 <= span <= 3660:
         raise ValueError("Estimated origin span is outside the supported period")
     if _nonnegative(estimated_start_index) > _nonnegative(first_observed_index):
