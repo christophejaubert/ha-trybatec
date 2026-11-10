@@ -1,3 +1,28 @@
+# 0.3.0b1 — Unified Trybatec panel (experimental beta)
+
+**Experimental prerelease.** This version brings together the additive Home Assistant sidebar panel **Trybatec** and the current work on history smoothing, physical meter inventory and annual tariffs (issues #36, #37, #42 and integration tracking #45). It is intended for evaluation, not a claim that all acceptance criteria have been completed.
+
+### New and improved
+
+- A dedicated **Trybatec** sidebar panel presents account information, meters, history and smoothing, tariffs, Energy and version management, diagnostics and administrative tools. The existing Home Assistant **Configure / Options** interface remains available; its seven menu destinations and FR/EN labels have regression coverage.
+- Historical reviews preserve actual source readings and meter identities. An administrator can explicitly record an **estimated starting index** as a separate hypothesis with its own source fingerprint, reason and revision confirmation. Approved hypotheses affect the **smoothed** consumption alternative only; the raw physical-meter series remains unchanged. Previews distinguish measurements, assumptions, units and boundaries.
+- Historical Recorder series are versioned rather than silently rewritten. The importer revalidates its exact plan, source provenance, meter identity and units; Energy activation is an explicitly confirmed, separately audited operation with double-counting safeguards and rollback handling. No import or activation is triggered by installation.
+- Annual tariffs can be edited through the panel without manual JSON editing. The tariff page also requests read-only yearly consumption/cost estimates (EUR/m³ for water, EUR/kWh for heating), visibly distinguishing missing rates, unverified measurements and provisional versus approved values.
+- A separate technical-entity audit distinguishes **physical meters, including retired meters**, from possible older duplicate Home Assistant entities. The audit includes known Energy references. An unavailable entity or an `_index_2` suffix alone never proves that an entity is safe to delete.
+- French and English panel text has additional automated execution tests. An isolated synthetic Chromium test covers both languages, desktop and mobile layouts, and all seven panel sections without connecting to the user's Home Assistant installation.
+
+### Explicit limitations and safe upgrade
+
+- **Real Home Assistant visual and end-to-end acceptance has not yet been performed** in FR/EN on desktop and mobile. Synthetic browser/isolated Home Assistant tests do not replace production acceptance. Further corrections may be needed in later betas.
+- **Controlled deletion of legacy technical entities is not included.** Recorder, dashboards, automations and other references have not all been exhaustively audited. Potentially obsolete entities are presented for investigation only: no automatic cleanup is permitted.
+- This beta does **not** guarantee complete historical reconstruction, migration or seamless continuity of existing Energy statistics. Estimated values are not source readings, and historical costs are not invoices.
+- Before any subsequent history import, migration, Energy switch or cleanup on a real installation, first make and verify a **backup of Home Assistant, Recorder and `.storage`**, inspect the preview and obtain separate explicit approval for that operation. Updating or installing this beta itself is not permission to perform those actions.
+- Do not select multiple versions or physical and consolidated alternatives for the **same consumption** in Energy: doing so may double-count.
+
+**Scope:** issues #36, #37, #42 and #45. **Status:** open beta; outstanding real-world acceptance and safe cleanup remain tracked rather than represented as completed.
+
+---
+
 # 0.2.0b17 — Preserve coexisting physical meters and safely switch Energy
 
 - Recognize a legacy Trybatec meter alongside its already registered live
