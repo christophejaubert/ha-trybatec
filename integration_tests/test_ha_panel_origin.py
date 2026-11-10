@@ -155,7 +155,8 @@ async def test_estimated_origin_save_rechecks_exact_source_and_user_consent(monk
     assert result["status"] == "estimated_origin_decision_saved"
     assert saved.await_count == 1
     choice = saved.await_args.args[2]
-    assert choice["source_fingerprint"] == raw["source_fingerprint"]
+    assert choice["source_fingerprint"] == preview["source_fingerprint"]
+    assert choice["source_fingerprint"] != raw["source_fingerprint"]  # distinct, first-bound proof
     assert choice["first_observed_index"] == 332.0
     assert choice["estimated_start_index"] == 316.0
     assert choice["reason"] == "manual_periodic"
