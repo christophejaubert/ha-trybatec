@@ -6,6 +6,7 @@ Energy preferences are never changed by registering this interface.
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,22 @@ _PANEL_PATH = "trybatec"
 _PANEL_ASSETS = "/api/trybatec_panel"
 _MAX_METERS = 500
 _MAX_ENTITIES = 1500
+
+
+def _installed_version() -> str | None:
+    """Read the actual installed integration manifest, not a hardcoded UI version.
+
+    Only public metadata is exposed. The manifest on disk may change during a
+    package update; a new panel snapshot reflects the installed package.
+    """
+    try:
+        manifest = json.loads(
+            (Path(__file__).parent / "manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, TypeError, ValueError):
+        return None
+    version = manifest.get("version") if isinstance(manifest, dict) else None
+    return version if isinstance(version, str) and 0 < len(version) <= 32 else None
 
 
 def _timestamp(value: Any) -> str | None:
@@ -346,6 +363,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
     return {
         "domain": DOMAIN,
         "panel": "Trybatec",
+        "version": _installed_version(),
         "mode": "administrator_read_only",
         "accounts": accounts,
         "energy": energy,
