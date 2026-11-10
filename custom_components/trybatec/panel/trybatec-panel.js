@@ -10,8 +10,37 @@ const TABS = [
 ];
 const FLUID = {EF:"Eau froide", ECS:"Eau chaude", CET:"Chauffage", unknown:"Fluide non identifié"};
 const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
-const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:thermometer", CET:"mdi:fire"};
+const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
 const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
+
+/* Scoped annual tariffs: observed years per account/housing + individually
+ * stored common and physical-meter tariff years. No synthetic readings.
+ */
+function trybatecTariffYears(account, currentYear) {
+  const allowable = year => Number.isInteger(year) && year >= 2000 && year <= 2100;
+  const years = new Set();
+  const observed = [];
+  for (const meter of (account?.meters || [])) {
+    for (const date of [meter.first_observed_at, meter.last_source_observed_at]) {
+      if (typeof date !== "string") continue;
+      const m = /^([0-9]{4})-[0-9]{2}-[0-9]{2}/.exec(date);
+      if (m && allowable(Number(m[1]))) observed.push(Number(m[1]));
+    }
+  }
+  const fallback = observed.length === 0;
+  const today = allowable(currentYear) ? currentYear : new Date().getFullYear();
+  const start = fallback ? today - 1 : Math.min(...observed) - 1;
+  const end = fallback ? today + 1 : Math.max(...observed) + 1;
+  for (let year = Math.max(2000,start); year <= Math.min(2100,end); year++) years.add(year);
+  for (const source of [account?.tariffs, account?.meter_tariffs]) {
+    for (const key of Object.keys(source || {})) {
+      if (!/^[0-9]{4}$/.test(key)) continue;
+      const year=Number(key);
+      if (allowable(year)) years.add(year);
+    }
+  }
+  return {years:[...years].sort((a,b)=>b-a), fallback};
+}
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
@@ -392,7 +421,7 @@ const style = [
   "h2{font-size:22px;line-height:1.25;margin:0 0 7px}h3{font-size:16px;margin:0 0 7px}",
   "p{margin:0;line-height:1.45}.muted{color:var(--secondary-text-color,#67728a);font-size:13px}",
   ".headline-sub{color:var(--secondary-text-color,#67728a);margin-top:5px;font-size:14px}",
-  ".badge{display:inline-block;padding:5px 9px;background:#e9f1ff;border-radius:14px;color:#254a94;font-weight:650;font-size:12px}",
+  ".badge{display:inline-block;padding:5px 9px;background:var(--trybatec-ef-bg,#e9f1ff);border-radius:14px;color:var(--trybatec-ef-fg,#254a94);font-weight:650;font-size:12px}",
   ".pill{font-size:12px;font-weight:650;border-radius:16px;padding:5px 9px;white-space:nowrap}",
   ".pill.on{background:#e4f5e8;color:#1b7539}.pill.off{background:#eef1f5;color:#556379}",
   ".pill.audit{background:#fff0d5;color:#9d6207}.pill.unknown{background:#eef1f5;color:#4c5566}",
@@ -458,7 +487,7 @@ class TrybatecPanel extends HTMLElement {
     this._error = "";
     this._message = "";
     this._started = false;
-    this._tariffInput = {year:2026,fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+    this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
     this._costPreview=null;
     this._costBusy=false;
@@ -558,7 +587,12 @@ class TrybatecPanel extends HTMLElement {
     if (!btn) return;
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
-    if (btn.dataset.account !== undefined) {this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._render();return;}
+    if (btn.dataset.account !== undefined) {
+      this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;
+      this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+      this._costPreview=null;this._costYear=null;this._costError="";
+      this._render();return;
+    }
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
@@ -743,8 +777,13 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   _header() {
-    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png" alt="Trybatec" loading="eager"></div>' +
-      '<div><h1>Trybatec <span class="badge">Bêta</span></h1>' +
+    const version=this._data?.version;
+    const label=typeof version==="string" && /^[0-9][0-9A-Za-z.+-]{0,31}$/.test(version)?
+      '<span class="badge" title="Version installée">v'+safe(version)+'</span>':
+      '<span class="badge">Bêta</span>';
+    const cache=typeof version==="string"?("?v="+encodeURIComponent(version)):"";
+    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
+      '<div><h1>Trybatec '+label+'</h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
   _nav() {
@@ -1429,7 +1468,13 @@ class TrybatecPanel extends HTMLElement {
           '</td><td>'+safe(t.rate)+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
           '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
       }));
-    const yearOptions=Array.from({length:111},(_,i)=>2000+i).filter(y=>y<=2100).reverse().map(year=>
+    const range=trybatecTariffYears(a,new Date().getFullYear());
+    if (!range.years.includes(Number(f.year))) {
+      f.year=range.years.includes(new Date().getFullYear())?
+        new Date().getFullYear():range.years[0];
+      f.rate="";f.status="provisional";f.physical_key="";
+    }
+    const yearOptions=range.years.map(year=>
       '<option value="'+year+'" '+(Number(f.year)===year?"selected":"")+'>'+year+'</option>').join("");
     const current=a.meters.filter(m=>m.fluid===f.fluid);
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
@@ -1438,6 +1483,7 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
+      (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
       (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
       (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
