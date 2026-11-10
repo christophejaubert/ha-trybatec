@@ -97,6 +97,7 @@ def test_annual_cost_preview_uses_readonly_yearly_source():
     source = PANEL.read_text(encoding="utf-8")
     assert 'data-cost-preview' in source
     assert 'service:"preview_costs"' in source
+    assert 'include_cold_water:true,include_hot_water:true,include_heating:true' in source
     assert 'result?.mode!=="read_only_historical_cost_estimates"' in source
     assert 'result.currency!=="EUR"' in source
     assert 'result.persisted!==false' in source
