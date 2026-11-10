@@ -168,7 +168,21 @@ async def test_estimated_origin_save_rechecks_exact_source_and_user_consent(monk
         )
     assert saved.await_count == 1
 
-    raw["source_fingerprint"] = "b" * 64
+    raw["reviewed_readings"] = [(FIRST, 333.0)]
     with pytest.raises(ValueError, match="source or parameters changed"):
         await panel_origin.save_confirmed_estimated_origin(object(), coord, **args)
     assert saved.await_count == 1
+
+
+
+@pytest.mark.asyncio
+async def test_estimated_origin_preview_normalizes_source_litres_to_cubic_metres(monkeypatch):
+    coord, raw = _case(monkeypatch, unit="L")
+    raw["portal_unit"] = "L"
+    result = await _preview(object(), coord)
+    assert result["source_index_unit"] == "L"
+    assert result["unit"] == "m³"
+    assert result["first_observed_index"] == 332.0  # raw source index, litres
+    assert result["estimated_initial_index"] == 316.0
+    assert result["estimated_total"] == pytest.approx(0.016)
+    assert sum(point["quantity"] for point in result["daily_preview"]) == pytest.approx(0.016)
