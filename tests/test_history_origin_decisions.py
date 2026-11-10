@@ -94,3 +94,15 @@ def test_initial_source_proof_is_unit_sensitive_and_stable_across_newer_readings
     assert stable != origin_boundary_fingerprint(**{**params, "first_observed_index": 333.0})
     with pytest.raises(ValueError):
         origin_boundary_fingerprint(**{**params, "source_unit": "kWh"})
+
+
+def test_origin_span_uses_paris_calendar_day_for_utc_source_timestamp():
+    """23:30Z is the following civil day in France during winter."""
+    args = {
+        **BASE,
+        "first_observed_at": "2022-01-20T23:30:00+00:00",
+        "estimated_start_date": "2022-01-20",
+    }
+    assert len(approval_fingerprint(**args)) == 64
+    with pytest.raises(ValueError, match="outside the supported period"):
+        approval_fingerprint(**{**args, "estimated_start_date": "2022-01-21"})
