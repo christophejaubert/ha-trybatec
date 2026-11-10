@@ -1,0 +1,46 @@
+name: Synthetic panel browser acceptance
+
+on:
+  pull_request:
+    paths:
+      - "custom_components/trybatec/panel/**"
+      - "scripts/browser-ci/**"
+      - ".github/workflows/browser-acceptance.yml"
+  push:
+    paths:
+      - "custom_components/trybatec/panel/**"
+      - "scripts/browser-ci/**"
+      - ".github/workflows/browser-acceptance.yml"
+  workflow_dispatch:
+
+# No repository write permissions, no secrets, no production HA credentials.
+permissions: {}
+
+jobs:
+  trybatec-browser-synthetic:
+    name: Browser FR/EN desktop/mobile (synthetic)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Report runner JavaScript runtime
+        run: |
+          node --version
+          npm --version
+      - name: Install isolated Playwright (version pinned)
+        run: |
+          npm install --prefix scripts/browser-ci --no-save --ignore-scripts playwright@1.56.1
+          ./scripts/browser-ci/node_modules/.bin/playwright install --with-deps chromium
+      - name: Exercise the real web component in Chromium using synthetic data only
+        run: node scripts/browser-ci/acceptance.cjs
+      - name: Save synthetic screenshots, including on test failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trybatec-browser-synthetic
+          path: browser-acceptance-artifacts/*.png
+          if-no-files-found: warn
+          retention-days: 7
