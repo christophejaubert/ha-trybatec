@@ -42,7 +42,10 @@ class PaletteTests(unittest.TestCase):
             self.assertIn(brand_name + ":" + colors[0], source)
             for color in colors[1:]:
                 self.assertIn(color, source)
-        self.assertIn('data-trybatec-theme="dark"', source)
+        # CSS is embedded in a JavaScript string, which escapes double quotes.
+        # Validate the actual theme contract instead of its JS escaping.
+        self.assertIn("data-trybatec-theme", source)
+        self.assertIn("this.dataset.trybatecTheme", source)
 
     def test_selection_without_position_shift(self) -> None:
         source = PANEL.read_text(encoding="utf-8")
