@@ -917,3 +917,93 @@ def test_b15_smoothing_blocks_unverified_gap(ui, monkeypatch):
         assert okay["step_id"] == "history_smoothing_confirm"
 
     asyncio.run(exercise())
+
+
+def test_ui_main_menu_has_nonempty_labels_without_translation_cache(ui):
+    """Home Assistant accepts menu dictionaries; never render a blank last row."""
+    flow, _ = new_ui(ui)
+    flow.hass.config = SimpleNamespace(language="fr-FR")
+    fr = asyncio.run(flow.async_step_init())
+    assert fr["type"] == "menu"
+    assert isinstance(fr["menu_options"], dict)
+    assert len(fr["menu_options"]) == 7
+    assert all(isinstance(value, str) and value.strip()
+               for value in fr["menu_options"].values())
+    assert fr["menu_options"]["history_smoothing"] == "Lissage des intervalles historiques"
+    flow.hass.config = SimpleNamespace(language="en")
+    en = asyncio.run(flow.async_step_init())
+    assert en["menu_options"]["history_smoothing"] == "Review sparse intervals"
+    assert set(en["menu_options"]) == set(fr["menu_options"])
+    assert flow.config_entry.options == {"poll_minutes": 720}
+
+
+def test_ui_smoothing_shortcut_selects_exact_gap_and_does_not_write(ui, monkeypatch):
+    """A reading's decision menu points to its exact physical interval, not a date edit."""
+    flow, coordinator = new_ui(ui)
+    flow._selected_reading = {
+        "lot": "FAKE-HOME", "fluid": "EF", "meter_serial": "FAKE-METER",
+        "source_date": "2025-01-20T00:00:00+01:00",
+    }
+    candidate = {
+        "interval_key": "f" * 32, "lot": "FAKE-HOME", "fluid": "EF",
+        "meter_serial": "FAKE-METER", "start_date": "2024-12-22",
+        "end_date": "2025-01-20",
+        "status": "linear_available_after_explicit_confirmation",
+        "bounded_consumption": 16.,
+    }
+    async def candidates():
+        return [candidate]
+    async def choices(*args):
+        return {}
+    async def unexpected_save(*args, **kwargs):
+        pytest.fail("Just opening the lissage choice must not save a decision")
+    monkeypatch.setattr(flow, "_smoothing_candidates", candidates)
+    monkeypatch.setattr(ui, "load_choices", choices)
+    monkeypatch.setattr(ui, "save_choice", unexpected_save)
+    before = dict(flow.config_entry.options)
+    screen = asyncio.run(flow.async_step_history_decision_smoothing())
+    assert screen["type"] == "form"
+    assert screen["step_id"] == "history_smoothing_choice"
+    assert flow._selected_sparse == candidate
+    assert flow.config_entry.options == before
+    assert coordinator._history_review_candidates
+
+
+def test_ui_smoothing_shortcut_does_not_bypass_unreviewed_zero(ui, monkeypatch):
+    """A flagged zero cannot be approved by merely opening a smoothing shortcut."""
+    flow, _ = new_ui(ui)
+    flow._selected_reading = {
+        "lot": "FAKE-HOME", "fluid": "EF", "meter_serial": "FAKE-METER",
+        "source_date": "2025-01-20T00:00:00+01:00",
+    }
+    candidate = {
+        "interval_key": "e" * 32, "lot": "FAKE-HOME", "fluid": "EF",
+        "meter_serial": "FAKE-METER", "start_date": "2024-12-22",
+        "end_date": "2025-01-20",
+        "status": "blocked_unreviewed_zero",
+    }
+    async def candidates():
+        return [candidate]
+    async def choices(*args):
+        return {}
+    monkeypatch.setattr(flow, "_smoothing_candidates", candidates)
+    monkeypatch.setattr(ui, "load_choices", choices)
+    screen = asyncio.run(flow.async_step_history_decision_smoothing())
+    assert screen["step_id"] == "history_smoothing_choice"
+    blocked = asyncio.run(flow.async_step_history_smoothing_choice({
+        "mode": "linear", "reason": "manual_periodic",
+    }))
+    assert blocked["errors"]["base"] == "smoothing_blocked"
+    assert flow._pending_sparse is None
+    assert flow.config_entry.options == {"poll_minutes": 720}
+
+
+def test_ui_smoothing_shortcut_has_translation_in_all_locales():
+    import json
+    from pathlib import Path
+    root = Path("custom_components/trybatec")
+    for filename in ("strings.json", "translations/en.json", "translations/fr.json"):
+        steps = json.loads((root / filename).read_text())["options"]["step"]
+        assert steps["init"]["menu_options"]["history_smoothing"].strip()
+        assert steps["history_decision"]["menu_options"]["history_decision_smoothing"].strip()
+        assert "history_smoothing_choice" in steps
