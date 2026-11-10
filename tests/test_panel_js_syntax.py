@@ -132,3 +132,13 @@ def test_trybatec_panel_english_labels_are_local_and_safe():
          "No reliable earlier baseline: simulate an estimated origin"),
     ):
         assert f'["{fr}","{en}"]' in source
+
+
+def test_trybatec_panel_localizes_confirmations_without_mutation():
+    source = PANEL.read_text(encoding="utf-8")
+    assert "function localizeTrybatecText(value, language)" in source
+    assert "return window.confirm(localizeTrybatecText(message,this._hass?.language));" in source
+    assert '["Confirmer les réglages Trybatec ?","Confirm Trybatec settings?"]' in source
+    assert '["Importer les séries historiques dans Recorder ?","Import historical series into Recorder?"]' in source
+    assert "this._confirm(" in source
+    assert 'this._hass?.language' in source
