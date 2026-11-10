@@ -273,6 +273,56 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.","Cleanup prohibited without a complete audit, backup and separate confirmation."],
   ["Non vérifié","Not verified"],
 
+  ["Prévisualiser le basculement Énergie","Preview Energy switch"],
+  ["Aperçu vérifié :","Verified preview:"],
+  ["Je confirme disposer d’une sauvegarde récupérable incluant Recorder.","I confirm that a recoverable backup including Recorder is available."],
+  ["Confirmer et vérifier le basculement","Confirm and verify switch"],
+  ["Première observation connue","First known observation"],
+  ["Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.","Technical identities must not be deleted while their references remain unknown."],
+  ["Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.","No verified technical-identity association. Check the entity audit."],
+  ["Par logement et fluide, fondée uniquement sur les observations. Les dates exactes de remplacement ne sont pas déduites.","Grouped by dwelling and utility from observations only; actual replacement dates are not inferred."],
+  ["Le détail journalier est tronqué pour cette longue période.","Daily details are truncated for this long interval."],
+  ["Panne de télérelève","Remote-reading failure"],
+  ["Comparaison journalière non disponible : les bornes ou le détail doivent être revérifiés.","Daily comparison unavailable; recheck boundaries and details."],
+  ["Aperçu limité aux 90 premiers jours. Total et validation calculés sur l’ensemble de la période.","Preview limited to the first 90 days. Totals and validation cover the entire period."],
+  ["Le détail journalier est indisponible pour cette période. Aucun historique fictif n’est généré.","Daily details unavailable for this interval. No fictitious history is generated."],
+  ["Estimé : bleu","Estimated: blue"],
+  ["Une correction de date réelle exige une preuve ; une imputation comptable ne modifie pas la date de mesure.","Changing the actual reading date requires evidence; accounting allocation does not change the measurement timestamp."],
+  ["Je confirme explicitement une imputation en dehors de la période source, si applicable.","I explicitly confirm allocation outside the source period, if applicable."],
+  ["Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.","Select an interval to compare before/after and optionally record a smoothing decision."],
+  ["Période incomplète","Incomplete period"],
+  ["Lecture des relevés et calcul en cours.","Reading source data and calculating."],
+  ["Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.","Choose the year, utility and optionally a meter. Existing rates are preserved."],
+  ["Portée","Scope"],
+  ["Préparer une version historique Recorder","Prepare a Recorder history version"],
+  ["Plan non importé","Plan not imported"],
+  ["Une sauvegarde récupérable de HA/Recorder existe","A recoverable HA/Recorder backup is available"],
+  ["3. Vérifier la persistance Recorder","3. Verify Recorder persistence"],
+  ["Choisir une version vérifiée pour Énergie","Choose a verified Energy version"],
+  ["Série actuellement sélectionnée","Currently selected series"],
+  ["Sélectionner une source Trybatec versionnée","Select a versioned Trybatec source"],
+  ["Sélectionner une version vérifiée","Select a verified version"],
+  ["4. Prévisualiser le basculement","4. Preview switch"],
+  ["Sauvegarde Énergie confirmée","Energy backup confirmed"],
+  ["J’approuve le retour vers une version archivée","I approve switching back to an archived version"],
+  ["5. Confirmer le basculement Énergie","5. Confirm Energy switch"],
+  ["Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.","No Trybatec source is identified in the currently available Energy configuration."],
+  ["Aucune série versionnée enregistrée. Une importation historique ne sera pas démarrée automatiquement.","No versioned series recorded. Historical imports are never started automatically."],
+  ["Inventaire archivé :","Archived inventory:"],
+  ["Entités Trybatec recensées :","Trybatec entities found:"],
+  ["Compteurs physiques connus :","Known physical meters:"],
+  ["Synchronisation actuelle :","Current synchronization:"],
+  ["Aucune entité recensée.","No entities found."],
+  ["Synchronisation et contrôle des relevés","Reading synchronization and verification"],
+  ["Ces valeurs sont partagées avec Options Trybatec et conservées lors des mises à jour.","These values are shared with Trybatec Options and preserved across updates."],
+  ["Enregistrer les réglages","Save settings"],
+  ["Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.","Units, diagnostic options and historical flows remain available in the existing Home Assistant interface."],
+  ["Chargement des données Trybatec…","Loading Trybatec data…"],
+  ["Réessayer","Try again"],
+  ["Aucune entrée Trybatec actuellement chargée. Configurez l’intégration dans Paramètres → Appareils et services.","No Trybatec entry is currently loaded. Configure the integration under Settings → Devices & services."],
+  ["Une entité indisponible n’est pas nécessairement obsolète : elle peut avoir des historiques Recorder et des références actives. Une génération technique n’est pas un compteur physique déposé.","An unavailable entity is not necessarily obsolete: it may have Recorder history and active references. A technical generation is not a retired physical meter."],
+  ["Les références aux tableaux de bord, automatisations et statistiques Recorder ne sont pas vérifiées exhaustivement. Un résultat vide dans Énergie ne prouve pas qu’une entité est inutilisée.","Dashboard, automation and Recorder statistics references have not been comprehensively checked. An empty Energy result does not establish that an entity is unused."],
+
 ]);
 
 function localizeTrybatecText(value, language) {
@@ -280,7 +330,17 @@ function localizeTrybatecText(value, language) {
   if (!/^en(?:$|[-_])/i.test(String(language||""))) return raw;
   const trimmed=raw.trim();
   const translated=TRYBATEC_EN_LABELS.get(trimmed);
-  return translated?raw.replace(trimmed,translated):raw;
+  if (translated) return raw.replace(trimmed,translated);
+  // Only punctuated static labels may prefix dynamic values (counts, IDs).
+  // Never translate arbitrary source readings, serial numbers or user text.
+  for (const [label, english] of TRYBATEC_EN_LABELS) {
+    if ((label.endsWith(":") || label.endsWith(" :") || label.endsWith("?"))
+        && trimmed.startsWith(label) && trimmed.length>label.length
+        && /\s/.test(trimmed.charAt(label.length))) {
+      return raw.replace(label,english);
+    }
+  }
+  return raw;
 }
 function localizeTrybatecPanel(root, language) {
   if (!/^en(?:$|[-_])/i.test(String(language||""))) return;
