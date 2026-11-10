@@ -22,6 +22,8 @@ def _case(monkeypatch, *, readings=None, unit="m³", conflicts=False, zero_times
         "fatal_conflicts": [],
         "unreviewed_zero_times": zero_times,
         "qualified_zero_times": [],
+        # A synthetic, stable digest shaped like the real build_history source proof.
+        "source_fingerprint": "a" * 64,
     }
     payloads = [{"synthetic": "not a real API reading"}]
     coord = SimpleNamespace(
@@ -122,3 +124,51 @@ async def test_estimated_origin_first_source_zero_cannot_be_invented(monkeypatch
     coord, _ = _case(monkeypatch, readings=[(FIRST, 0.0)])
     with pytest.raises(ValueError, match="zero index"):
         await _preview(object(), coord, estimated_start_index=0)
+
+
+@pytest.mark.asyncio
+async def test_estimated_origin_refuses_missing_raw_source_proof(monkeypatch):
+    coord, meter = _case(monkeypatch)
+    del meter["source_fingerprint"]
+    with pytest.raises(ValueError, match="verified raw source fingerprint"):
+        await _preview(object(), coord)
+
+
+@pytest.mark.asyncio
+async def test_estimated_origin_save_rechecks_exact_source_and_user_consent(monkeypatch):
+    """Persist an assumption only with fresh identical source proof, never an index."""
+    coord, raw = _case(monkeypatch)
+    source_before = list(raw["reviewed_readings"])
+    preview = await _preview(object(), coord)
+    saved = AsyncMock(return_value={"status": "estimated_origin_decision_saved"})
+    monkeypatch.setattr(panel_origin, "save_origin_choice", saved)
+    args = {
+        "lot": "LOT", "fluid": "EF", "serial": "METER",
+        "estimated_start_date": "2021-12-22",
+        "estimated_start_index": 316.0,
+        "reason": "manual_periodic",
+        "expected_fingerprint": preview["approval_fingerprint"],
+        "confirm": True,
+        "confirm_revision": False,
+    }
+    result = await panel_origin.save_confirmed_estimated_origin(object(), coord, **args)
+    assert result["status"] == "estimated_origin_decision_saved"
+    assert saved.await_count == 1
+    choice = saved.await_args.args[2]
+    assert choice["source_fingerprint"] == raw["source_fingerprint"]
+    assert choice["first_observed_index"] == 332.0
+    assert choice["estimated_start_index"] == 316.0
+    assert choice["reason"] == "manual_periodic"
+    assert saved.await_args.kwargs["confirm_revision"] is False
+    assert raw["reviewed_readings"] == source_before
+
+    with pytest.raises(ValueError, match="explicit confirmation"):
+        await panel_origin.save_confirmed_estimated_origin(
+            object(), coord, **{**args, "confirm": False},
+        )
+    assert saved.await_count == 1
+
+    raw["source_fingerprint"] = "b" * 64
+    with pytest.raises(ValueError, match="source or parameters changed"):
+        await panel_origin.save_confirmed_estimated_origin(object(), coord, **args)
+    assert saved.await_count == 1

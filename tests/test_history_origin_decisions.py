@@ -1,0 +1,78 @@
+"""Pure regression tests for explicit, source-bound estimated-origin decisions."""
+from copy import deepcopy
+
+import pytest
+
+from custom_components.trybatec.history_origin_decisions import (
+    approval_fingerprint,
+    proposed_choice,
+    validate_choice,
+    validate_store,
+)
+from custom_components.trybatec.units import meter_key
+
+
+BASE = {
+    "lot": "SYNTH-LOT",
+    "fluid": "EF",
+    "serial": "SYNTH-001",
+    "source_fingerprint": "a" * 64,
+    "first_observed_at": "2022-01-20T10:00:00+01:00",
+    "first_observed_index": 332.0,
+    "estimated_start_date": "2021-12-22",
+    "estimated_start_index": 316.0,
+}
+
+
+def test_estimated_origin_choice_is_bounded_to_exact_source_and_meter():
+    choice = proposed_choice(**BASE, reason="manual_periodic")
+    assert choice["estimated_start_index"] == 316.0
+    assert choice["unit"] == "m³"
+    assert choice["approval_fingerprint"] == approval_fingerprint(**BASE)
+    identity = meter_key(BASE["lot"], BASE["fluid"], BASE["serial"])
+    assert validate_store({"version": 1, "choices": {identity: choice}})[identity] == choice
+    assert validate_store(None) == {}
+
+    for field, replacement in (
+        ("source_fingerprint", "b" * 64),
+        ("serial", "ANOTHER-METER"),
+        ("first_observed_index", 333.0),
+        ("estimated_start_date", "2021-12-23"),
+    ):
+        changed = {**BASE, field: replacement}
+        assert approval_fingerprint(**changed) != choice["approval_fingerprint"]
+
+
+@pytest.mark.parametrize("field, bad", [
+    ("estimated_start_index", -1.0),
+    ("estimated_start_index", float("nan")),
+    ("estimated_start_index", 400.0),
+    ("first_observed_at", "2022-01-20T10:00:00"),
+    ("estimated_start_date", "2022-01-20"),
+    ("estimated_start_date", "2010-01-01"),
+])
+def test_estimated_origin_refuses_invalid_or_unproven_boundaries(field, bad):
+    case = {**BASE, field: bad}
+    with pytest.raises(ValueError):
+        approval_fingerprint(**case)
+
+
+def test_estimated_origin_store_refuses_corruption_and_foreign_identity():
+    choice = proposed_choice(**BASE, reason="telemetry_failure")
+    wrong_identity = meter_key("FOREIGN-LOT", BASE["fluid"], BASE["serial"])
+    with pytest.raises(ValueError, match="Foreign physical meter"):
+        validate_store({"version": 1, "choices": {wrong_identity: choice}})
+    with pytest.raises(ValueError, match="Invalid estimated origin ledger"):
+        validate_store({"version": 99, "choices": {}})
+    with pytest.raises(ValueError, match="Invalid estimated origin ledger"):
+        validate_store({"version": 1, "choices": []})
+
+    tampered = deepcopy(choice)
+    tampered["estimated_start_index"] = 0.0
+    with pytest.raises(ValueError, match="fingerprint changed"):
+        validate_choice(tampered)
+
+    altered_reason = deepcopy(choice)
+    altered_reason["reason"] = "unknown vendor-derived value"
+    with pytest.raises(ValueError, match="reason"):
+        validate_choice(altered_reason)

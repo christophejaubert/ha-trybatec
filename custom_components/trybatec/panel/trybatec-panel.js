@@ -110,6 +110,9 @@ class TrybatecPanel extends HTMLElement {
     this._originPreview=null;
     this._originBusy=false;
     this._originError="";
+    this._originReason="manual_periodic";
+    this._originRevision=false;
+    this._originSaved="";
     this._settingsInput=null;
     this._settingsBusy=false;
     this._settingsMessage="";
@@ -193,6 +196,7 @@ class TrybatecPanel extends HTMLElement {
     }
     if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
     if (btn.dataset.originPreview !== undefined) {this._previewOrigin();return;}
+    if (btn.dataset.originSave !== undefined) {this._saveOrigin();return;}
     if (btn.dataset.readingSelect !== undefined) {
       this._readingSelected=btn.dataset.readingSelect;
       const item=(this._historyPreview?.review_candidates||[]).find(
@@ -283,8 +287,10 @@ class TrybatecPanel extends HTMLElement {
       if (originField==="meter") this._originMeter=event.target.value;
       if (originField==="date") this._originDate=event.target.value;
       if (originField==="index") this._originIndex=event.target.value;
-      this._originPreview=null;
-      this._render();return;
+      if (originField==="reason") this._originReason=event.target.value;
+      if (originField==="revision") this._originRevision=Boolean(event.target.checked);
+      if (["meter","date","index"].includes(originField)) this._originPreview=null;
+      this._originSaved="";this._render();return;
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
@@ -642,7 +648,7 @@ class TrybatecPanel extends HTMLElement {
       "Confirmer que la date et l’index initial sont des HYPOTHÈSES, pas des relevés mesurés ?"+
       "\\n\\nCet aperçu n’enregistre aucune décision et ne modifie ni Recorder ni Énergie."
     )) return;
-    this._originBusy=true;this._originError="";this._originPreview=null;this._render();
+    this._originBusy=true;this._originError="";this._originSaved="";this._originPreview=null;this._render();
     try {
       this._originPreview=await this._hass.callWS({
         type:"trybatec/panel_estimated_origin_preview",
@@ -654,6 +660,50 @@ class TrybatecPanel extends HTMLElement {
       });
     } catch (_) {
       this._originError="Aperçu refusé : vérifiez la date de départ, le premier relevé, l’unité et les anomalies. Rechargez un historique couvrant l’origine choisie.";
+    } finally {
+      this._originBusy=false;this._render();
+    }
+  }
+
+  async _saveOrigin() {
+    const preview=this._originPreview;
+    if (!this._current || !preview || this._originBusy) return;
+    const m=this._meters().find(x=>x.physical_key===this._originMeter);
+    if (!m || !/^[a-f0-9]{64}$/.test(preview.approval_fingerprint||"")) {
+      this._originError="Un nouvel aperçu vérifié est nécessaire avant l’enregistrement.";
+      this._render();return;
+    }
+    if (!window.confirm(
+      "Enregistrer cette origine comme HYPOTHÈSE APPROUVÉE ?"+
+      "\n\nLa date et l’index estimés ne sont pas des relevés mesurés."+
+      "\nCette décision ne modifie ni les index réels, ni Recorder, ni Énergie."
+    )) return;
+    if (this._originRevision && !window.confirm(
+      "Autoriser explicitement le remplacement d’une hypothèse déjà approuvée pour ce compteur ?"
+    )) return;
+    this._originBusy=true;this._originError="";this._originSaved="";this._render();
+    try {
+      const saved=await this._hass.callWS({
+        type:"trybatec/panel_estimated_origin_save",
+        entry_id:this._current.entry_id,
+        lot:m.lot,fluid:m.fluid,serial:m.serial,
+        estimated_start_date:this._originDate,
+        estimated_start_index:Number(this._originIndex),
+        reason:this._originReason,
+        expected_fingerprint:preview.approval_fingerprint,
+        confirm:true,confirm_revision:this._originRevision
+      });
+      if (saved.status!=="estimated_origin_decision_saved" ||
+          saved.source_indices_unchanged!==true ||
+          saved.recorder_writes!==false || saved.energy_writes!==false) {
+        throw new Error("Unverified estimated-origin response");
+      }
+      this._originSaved="Hypothèse approuvée enregistrée séparément des index réels. "+
+        "Aucun import Recorder ni changement Énergie : ces opérations nécessitent leur propre validation.";
+      this._originRevision=false;
+    } catch (_) {
+      this._originError="Enregistrement refusé : source ou paramètres modifiés, décision antérieure "+
+        "non remplaçable sans confirmation, ou historique à actualiser.";
     } finally {
       this._originBusy=false;this._render();
     }
@@ -675,7 +725,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="actions"><button type="button" class="secondary" data-origin-preview '+
       (this._originBusy||!this._historyPreview?"disabled":"")+'>Calculer l’aperçu hypothétique</button></div>'+
       (this._originError?'<div class="notice warning">'+safe(this._originError)+'</div>':"")+
-      (preview?'<div class="notice"><strong>Simulation non enregistrée.</strong> Du '+
+      (preview?'<div class="notice"><strong>Simulation calculée.</strong> Du '+
       safe(preview.start_date)+' au '+safe(preview.end_date)+', quantité estimée : '+
       safe(preview.estimated_total)+' '+safe(preview.unit)+
       '. Premier index réellement observé : '+safe(preview.first_observed_index)+
@@ -684,8 +734,22 @@ class TrybatecPanel extends HTMLElement {
       ' est une hypothèse, pas une mesure. Aucune donnée n’a été enregistrée.</div>'+
       (preview.daily_preview?this._historyDayBars({
         daily_preview:preview.daily_preview,unit:preview.unit
-      }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>'):"")+
-      '<p class="muted" style="margin-top:13px">La persistance de cette hypothèse et son incorporation à une version Recorder feront l’objet d’une validation distincte.</p></section>';
+      }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>')+
+      '<div class="form-grid" style="margin-top:14px"><div>'+
+      '<label for="origin-reason">Motif déclaré pour cette hypothèse</label>'+
+      '<select id="origin-reason" data-origin-field="reason">'+
+      '<option value="manual_periodic" '+(this._originReason==="manual_periodic"?"selected":"")+'>Relève manuelle périodique</option>'+
+      '<option value="telemetry_failure" '+(this._originReason==="telemetry_failure"?"selected":"")+'>Panne de télérelève</option>'+
+      '<option value="other" '+(this._originReason==="other"?"selected":"")+'>Autre motif déclaré</option>'+
+      '</select></div></div>'+
+      '<label style="display:block;margin-top:12px"><input type="checkbox" data-origin-field="revision" '+
+      (this._originRevision?"checked":"")+'>'+
+      ' Autoriser le remplacement d’une hypothèse déjà approuvée (confirmation supplémentaire)</label>'+
+      '<div class="actions"><button type="button" class="primary" data-origin-save '+
+      (this._originBusy?"disabled":"")+
+      '>Approuver et enregistrer l’hypothèse</button></div>':"")+
+      (this._originSaved?'<div class="notice">'+safe(this._originSaved)+'</div>':"")+
+      '<p class="muted" style="margin-top:13px">Une hypothèse enregistrée reste distincte d’un index mesuré. Son incorporation à une version Recorder nécessite une validation distincte.</p></section>';
   }
   _historyComparison(proposal) {
     const comparison=proposal.before_after;

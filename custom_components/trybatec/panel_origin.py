@@ -7,6 +7,7 @@ It does not authorize a Recorder import or change the shared decision store.
 from __future__ import annotations
 
 from datetime import date, datetime
+import asyncio
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,8 @@ from .history import build_history
 from .history_reconstruction import propose_interval
 from .panel_history import _options
 from .history_store import load_decisions
+from .history_origin_decisions import approval_fingerprint, proposed_choice
+from .history_origin_store import save_origin_choice
 from .units import resolve_meter_unit, normalized_unit, validate_meter_units
 
 _MAX_PREVIEW_DAYS = 3660
@@ -95,9 +98,22 @@ async def preview_first_observed_meter(
         confirm_estimated_start=True,
         zero_index_verified=zero_qualified,
     )
+    source_fingerprint = meter.get("source_fingerprint")
+    if not isinstance(source_fingerprint, str) or not source_fingerprint:
+        raise ValueError("Estimated origin requires verified raw source fingerprint")
+    approval = approval_fingerprint(
+        lot=lot, fluid=fluid, serial=serial,
+        source_fingerprint=source_fingerprint,
+        first_observed_at=first_at.isoformat(),
+        first_observed_index=first_value,
+        estimated_start_date=estimated_start_date,
+        estimated_start_index=estimated_start_index,
+    )
     return {
         **result,
         "status": "estimated_origin_preview_only",
+        "approval_fingerprint": approval,
+        "source_fingerprint": source_fingerprint,
         "meter": {"lot": lot, "fluid": fluid, "serial": serial},
         "first_observed_at": first_at.isoformat(),
         "first_observed_index": first_value,
@@ -146,6 +162,85 @@ async def ws_panel_estimated_origin_preview(
         connection.send_error(
             msg["id"], "estimated_origin_refused",
             "The first observed index, unit, date or explicit estimated origin requires review",
+        )
+        return
+    connection.send_result(msg["id"], result)
+
+async def save_confirmed_estimated_origin(
+    hass: HomeAssistant, coordinator: Any, *,
+    lot: str, fluid: str, serial: str,
+    estimated_start_date: str, estimated_start_index: float,
+    reason: str, expected_fingerprint: str,
+    confirm: bool, confirm_revision: bool,
+) -> dict[str, Any]:
+    """Recompute raw proof before an opt-in decision-only write."""
+    if confirm is not True:
+        raise ValueError("Saving a hypothetical origin requires explicit confirmation")
+    if not isinstance(expected_fingerprint, str) or len(expected_fingerprint) != 64:
+        raise ValueError("Fresh estimated-origin preview fingerprint required")
+    if not hasattr(coordinator, "_history_import_lock"):
+        coordinator._history_import_lock = asyncio.Lock()
+    async with coordinator._history_import_lock:
+        verified = await preview_first_observed_meter(
+            hass, coordinator,
+            lot=lot, fluid=fluid, serial=serial,
+            estimated_start_date=estimated_start_date,
+            estimated_start_index=estimated_start_index, confirm=True,
+        )
+        if verified["approval_fingerprint"] != expected_fingerprint:
+            raise ValueError("Estimated origin source or parameters changed")
+        choice = proposed_choice(
+            lot=lot, fluid=fluid, serial=serial,
+            source_fingerprint=verified["source_fingerprint"],
+            first_observed_at=verified["first_observed_at"],
+            first_observed_index=verified["first_observed_index"],
+            estimated_start_date=estimated_start_date,
+            estimated_start_index=estimated_start_index,
+            reason=reason,
+        )
+        return await save_origin_choice(
+            hass, coordinator.entry.entry_id, choice,
+            confirm_revision=confirm_revision,
+        )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "trybatec/panel_estimated_origin_save",
+    vol.Required("entry_id"): str,
+    vol.Required("lot"): str,
+    vol.Required("fluid"): vol.In(("EF", "ECS", "CET")),
+    vol.Required("serial"): str,
+    vol.Required("estimated_start_date"): str,
+    vol.Required("estimated_start_index"): vol.Any(int, float),
+    vol.Required("reason"): vol.In(("manual_periodic", "telemetry_failure", "other")),
+    vol.Required("expected_fingerprint"): str,
+    vol.Required("confirm"): bool,
+    vol.Required("confirm_revision"): bool,
+})
+@websocket_api.async_response
+async def ws_panel_estimated_origin_save(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    coordinator = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "trybatec_not_found", "Account is not loaded")
+        return
+    try:
+        result = await save_confirmed_estimated_origin(
+            hass, coordinator,
+            lot=msg["lot"], fluid=msg["fluid"], serial=msg["serial"],
+            estimated_start_date=msg["estimated_start_date"],
+            estimated_start_index=msg["estimated_start_index"],
+            reason=msg["reason"],
+            expected_fingerprint=msg["expected_fingerprint"],
+            confirm=msg["confirm"], confirm_revision=msg["confirm_revision"],
+        )
+    except (TypeError, KeyError, ValueError):
+        connection.send_error(
+            msg["id"], "estimated_origin_save_refused",
+            "Estimated initial index needs fresh source proof and explicit approval",
         )
         return
     connection.send_result(msg["id"], result)
