@@ -258,6 +258,21 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Par défaut : 27 h. Un intervalle strictement supérieur est considéré comme espacé.","Default: 27 h. Only intervals strictly above this limit are flagged."],
   ["Index nuls consécutifs (jours)","Consecutive zero-index days"],
   ["0 désactive la sollicitation ; 1 signale dès le premier jour avec un index nul.","0 disables prompts; 1 flags the first day containing a zero index."],
+
+  ["Anciennes générations techniques à examiner :","Legacy technical generations to review:"],
+  ["Entités encore référencées dans Énergie :","Entities still referenced in Energy:"],
+  ["Audit partiel, aucune suppression autorisée.","Partial audit; no deletion permitted."],
+  ["Ancienne génération technique à auditer","Legacy technical generation requiring audit"],
+  ["Entité technique non classée","Unclassified technical entity"],
+  ["Autre génération du même appareil :","Another generation of this device:"],
+  ["Références Énergie confirmées :","Confirmed Energy references:"],
+  ["Identité technique et vérifications manquantes","Technical identity and unverified dependencies"],
+  ["Identifiant technique :","Technical identifier:"],
+  ["Appareil :","Device:"],
+  ["Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.","Recorder, automations and dashboards: not exhaustively checked."],
+  ["Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.","Cleanup prohibited without a complete audit, backup and separate confirmation."],
+  ["Non vérifié","Not verified"],
+
 ]);
 
 function localizeTrybatecText(value, language) {
@@ -1541,20 +1556,36 @@ class TrybatecPanel extends HTMLElement {
   }
   _diagnostics() {
     const a=this._current;
+    const audit=a.technical_entity_audit||{};
     return this._heading("Diagnostics","Lecture des entités, disponibilités et état des données.")+
       '<div class="grid-two"><section class="card"><h3>Statut</h3><div class="line">Synchronisation actuelle : <strong>'+
       (a.data_loaded?"Données chargées":"En attente de données")+'</strong></div>'+
       '<div class="line">Compteurs physiques connus : '+this._meters().length+'</div>'+
       '<div class="line">Inventaire archivé : '+a.archived_inventory_count+'</div>'+
       '<div class="line">Entités Trybatec recensées : '+a.entities.length+'</div>'+
+      '<div class="line">Anciennes générations techniques à examiner : '+safe(audit.potential_legacy_entries??"Non vérifié")+'</div>'+
+      '<div class="line">Entités encore référencées dans Énergie : '+safe(audit.energy_referenced_entities??"Non vérifié")+'</div>'+
       a.warnings.map(x=>'<div class="notice warning">'+safe(x)+'</div>').join("")+
       '<div class="actions"><button class="secondary" type="button" data-refresh>Actualiser</button></div></section>'+
       '<section class="card"><h3>Audit des entités techniques</h3>'+
-      '<p class="muted">Une entité indisponible n’est pas nécessairement obsolète : elle peut avoir des historiques Recorder et des références actives.</p>'+
-      '<div class="scroll">'+(a.entities.length?a.entities.map(e=>
-      '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
-      '<div class="muted">État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+
-      ' · Nettoyage : interdit sans audit</div></div>').join(""):'<div class="empty">Aucune entité recensée.</div>')+
+      '<p class="muted">Une entité indisponible n’est pas nécessairement obsolète : elle peut avoir des historiques Recorder et des références actives. Une génération technique n’est pas un compteur physique déposé.</p>'+
+      '<div class="notice warning"><strong>Audit partiel, aucune suppression autorisée.</strong> Les références aux tableaux de bord, automatisations et statistiques Recorder ne sont pas vérifiées exhaustivement. Un résultat vide dans Énergie ne prouve pas qu’une entité est inutilisée.</div>'+
+      '<div class="scroll">'+(a.entities.length?a.entities.map(e=>{
+      const candidate=e.technical_role==="legacy_same_device_candidate";
+      const refs=Array.isArray(e.energy_references)?e.energy_references:[];
+      const label=candidate?"Ancienne génération technique à auditer":"Entité technique non classée";
+      const successors=Array.isArray(e.same_device_successors)?e.same_device_successors:[];
+      return '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
+      '<div class="muted">'+safe(label)+' · État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+'</div>'+
+      (successors.length?'<div class="muted">Autre génération du même appareil : '+successors.map(safe).join(", ")+'</div>':"")+
+      '<div class="muted">Références Énergie confirmées : '+safe(refs.length)+
+      (refs.length?' ('+refs.map(x=>safe(x.type||"?")+" #"+safe(x.index)).join(", ")+')':"")+'</div>'+
+      '<details><summary>Identité technique et vérifications manquantes</summary>'+
+      '<div class="muted">Identifiant technique : <span class="mono">'+safe(e.unique_id||"Inconnu")+'</span></div>'+
+      '<div class="muted">Appareil : <span class="mono">'+safe(e.device_id||"Non vérifié")+'</span></div>'+
+      '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
+      '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
+      }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
       '</div></section></div>';
   }
   async _saveSettings() {
