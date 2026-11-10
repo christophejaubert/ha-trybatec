@@ -142,3 +142,15 @@ def test_trybatec_panel_localizes_confirmations_without_mutation():
     assert '["Importer les séries historiques dans Recorder ?","Import historical series into Recorder?"]' in source
     assert "this._confirm(" in source
     assert 'this._hass?.language' in source
+
+
+def test_panel_shows_partial_dependency_audit_without_cleanup_controls():
+    source = PANEL.read_text(encoding="utf-8")
+    assert "a.technical_entity_audit||{}" in source
+    assert 'e.technical_role==="legacy_same_device_candidate"' in source
+    assert "same_device_successors" in source
+    assert "energy_references" in source
+    assert "Audit partiel, aucune suppression autorisée." in source
+    assert "non vérifiés exhaustivement" in source
+    assert "Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte." in source
+    assert "data-technical-delete" not in source
