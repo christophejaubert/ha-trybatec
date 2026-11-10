@@ -11,8 +11,9 @@ import json
 from math import isfinite
 from typing import Any
 
-from .const import FLUIDS
-from .units import meter_key, normalized_unit
+from .const import FLUIDS, TIMEZONE
+from zoneinfo import ZoneInfo
+from .units import meter_key, normalized_unit, unit_factor
 
 _MAX_CHOICES = 500
 
@@ -38,6 +39,33 @@ def _aware_timestamp(value: Any) -> str:
     return stamp.isoformat()
 
 
+
+def origin_boundary_fingerprint(
+    *, lot: str, fluid: str, serial: str,
+    first_observed_at: str, first_observed_index: float,
+    source_unit: str,
+) -> str:
+    """Stable first-source proof; later valid vendor readings do not revoke it.
+
+    The actual physical meter unit matters: changing L to m³ (or MWh to kWh)
+    must not silently rescale a formerly approved numerical origin.
+    The complete vendor source fingerprint remains independently bound to
+    every Recorder preview/import plan and is rechecked before import.
+    """
+    if not all(isinstance(v, str) and 1 <= len(v) <= 128
+               for v in (lot, serial)) or fluid not in FLUIDS:
+        raise ValueError("Invalid estimated origin physical identity")
+    if not isinstance(source_unit, str):
+        raise ValueError("Unverified index source unit")
+    unit_factor(fluid, source_unit)
+    payload = [
+        lot, fluid, serial, _aware_timestamp(first_observed_at),
+        _nonnegative(first_observed_index), source_unit,
+    ]
+    return sha256(json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+
 def approval_fingerprint(
     *, lot: str, fluid: str, serial: str, source_fingerprint: str,
     first_observed_at: str, first_observed_index: float,
@@ -50,7 +78,8 @@ def approval_fingerprint(
         raise ValueError("Invalid estimated origin scope")
     start = date.fromisoformat(estimated_start_date)
     observed = _aware_timestamp(first_observed_at)
-    span = (datetime.fromisoformat(observed).date() - start).days
+    # Consumption buckets and the UI use civil days in the dwelling timezone.
+    span = (datetime.fromisoformat(observed).astimezone(ZoneInfo(TIMEZONE)).date() - start).days
     if not 1 <= span <= 3660:
         raise ValueError("Estimated origin span is outside the supported period")
     if _nonnegative(estimated_start_index) > _nonnegative(first_observed_index):

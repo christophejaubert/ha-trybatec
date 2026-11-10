@@ -13,8 +13,9 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .const import TIMEZONE
-from .history_reconstruction import preview_sparse_intervals
-from .units import unit_factor, normalized_unit
+from .history_reconstruction import preview_sparse_intervals, propose_interval
+from .history_origin_decisions import validate_choice, origin_boundary_fingerprint
+from .units import unit_factor, normalized_unit, meter_key
 
 ZONE = ZoneInfo(TIMEZONE)
 
@@ -43,6 +44,7 @@ def variants_preview(
     confirmed_decisions: Mapping[str, Mapping[str, str]] | None = None,
     *,
     sparse_hours: int = 27,
+    approved_origins: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Do not activate either source in Energy or enqueue Recorder rows.
 
@@ -56,6 +58,12 @@ def variants_preview(
     if not isinstance(records, dict):
         raise ValueError("Physical history unavailable")
     selections = dict(confirmed_decisions or {})
+    origins = dict(approved_origins or {})
+    if not all(isinstance(identity, str) for identity in origins):
+        raise ValueError("Invalid approved-origin identities")
+    known_origins = {meter_key(*key) for key in records}
+    if set(origins) - known_origins:
+        raise ValueError("Approved estimated origin belongs to a missing physical meter")
     gaps = preview_sparse_intervals(
         dict(history), verified_units, sparse_hours=sparse_hours,
         max_intervals=100, max_daily_rows=3660,
@@ -87,6 +95,49 @@ def variants_preview(
         raw = _measured_daily(meter.get("rows", []), factor)
         smoothed = dict(raw)
         chosen_keys = []
+        approved_origin = origins.get(meter_key(lot, fluid, serial))
+        if approved_origin is not None:
+            choice = validate_choice(approved_origin)
+            if (choice["lot"], choice["fluid"], choice["serial"]) != key:
+                raise ValueError("Approved estimated origin belongs to another physical meter")
+            readings = meter.get("reviewed_readings") or []
+            if not readings or not isinstance(readings[0][0], datetime):
+                raise ValueError("Approved estimated origin has no verified source boundary")
+            first_at, first_value = readings[0]
+            if (first_at.isoformat() != choice["first_observed_at"] or
+                    float(first_value) != choice["first_observed_index"]):
+                raise ValueError("Approved estimated origin's first observed source changed")
+            stable_source_proof = origin_boundary_fingerprint(
+                lot=lot, fluid=fluid, serial=serial,
+                first_observed_at=first_at.isoformat(), first_observed_index=first_value,
+                source_unit=unit,
+            )
+            if choice["source_fingerprint"] != stable_source_proof:
+                raise ValueError("Approved estimated origin source boundary or unit is stale")
+            if any(at <= first_at for at in meter.get("unreviewed_zero_times", ())):
+                raise ValueError("Unreviewed zero blocks approved estimated origin")
+            zero_ok = first_value != 0 or first_at in meter.get("qualified_zero_times", ())
+            plan = propose_interval(
+                end_reading=(first_at, first_value), start_reading=None,
+                measured_by_day={}, mode="linear",
+                estimated_start_date=date.fromisoformat(choice["estimated_start_date"]),
+                estimated_start_index=choice["estimated_start_index"],
+                confirm_estimated_start=True, zero_index_verified=zero_ok,
+            )
+            if plan["origin"] != "estimated_confirmed":
+                raise ValueError("Origin must remain explicitly estimated")
+            for allocation in plan["allocations"]:
+                day = date.fromisoformat(allocation["date"])
+                # A source increment later on the first observed civil day
+                # follows the approved origin boundary; these time periods
+                # are distinct and their daily consumptions may be combined.
+                if day in smoothed and day != first_at.astimezone(ZONE).date():
+                    raise ValueError("Approved origin overlaps measured consumption")
+                smoothed[day] = (
+                    smoothed.get(day, Decimal(0)) +
+                    Decimal(str(allocation["quantity"])) * Decimal(str(factor))
+                )
+            chosen_keys.append("approved_origin:" + choice["approval_fingerprint"])
         for gap in gaps["intervals"]:
             if (gap["lot"], gap["fluid"], gap["meter_serial"]) != key:
                 continue
@@ -127,4 +178,5 @@ def variants_preview(
         "meters": result,
         "intervals": gaps["total_sparse_intervals"],
         "selected_intervals": len([s for s in selections.values() if s.get("mode") == "linear"]),
+        "approved_estimated_origins": len(origins),
     }

@@ -68,6 +68,7 @@ def make_b15_plan(
     *,
     sparse_hours: int = 27,
     explicitly_parallel: set[frozenset[str]] | None = None,
+    approved_origins: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Both physical variants plus ONE consolidated series per dwelling/fluid.
 
@@ -77,7 +78,10 @@ def make_b15_plan(
     """
     if not isinstance(account_key, str) or not account_key:
         raise ValueError("Missing account key")
-    variants = variants_preview(history, verified_units, decisions, sparse_hours=sparse_hours)
+    variants = variants_preview(
+        history, verified_units, decisions, sparse_hours=sparse_hours,
+        approved_origins=approved_origins,
+    )
     series = []
     groups: dict[tuple[str, str], list[dict]] = {}
     source_digests: dict[tuple[str, str], list] = {}
@@ -153,6 +157,7 @@ def make_b15_plan(
         "series": series,
         "logical_groups": len(groups),
         "physical_meters": len(variants["meters"]),
+        "approved_estimated_origins": variants["approved_estimated_origins"],
         "fingerprint": _digest([{
             "logical": item["logical_id"],
             "source": item["source_fingerprint"],

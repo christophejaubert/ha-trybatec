@@ -5,6 +5,7 @@ import pytest
 
 from custom_components.trybatec.history_origin_decisions import (
     approval_fingerprint,
+    origin_boundary_fingerprint,
     proposed_choice,
     validate_choice,
     validate_store,
@@ -76,3 +77,32 @@ def test_estimated_origin_store_refuses_corruption_and_foreign_identity():
     altered_reason["reason"] = "unknown vendor-derived value"
     with pytest.raises(ValueError, match="reason"):
         validate_choice(altered_reason)
+
+
+
+def test_initial_source_proof_is_unit_sensitive_and_stable_across_newer_readings():
+    params = {
+        "lot": BASE["lot"], "fluid": BASE["fluid"], "serial": BASE["serial"],
+        "first_observed_at": BASE["first_observed_at"],
+        "first_observed_index": BASE["first_observed_index"],
+        "source_unit": "m³",
+    }
+    stable = origin_boundary_fingerprint(**params)
+    assert stable == origin_boundary_fingerprint(**params)
+    assert len(stable) == 64
+    assert stable != origin_boundary_fingerprint(**{**params, "source_unit": "L"})
+    assert stable != origin_boundary_fingerprint(**{**params, "first_observed_index": 333.0})
+    with pytest.raises(ValueError):
+        origin_boundary_fingerprint(**{**params, "source_unit": "kWh"})
+
+
+def test_origin_span_uses_paris_calendar_day_for_utc_source_timestamp():
+    """23:30Z is the following civil day in France during winter."""
+    args = {
+        **BASE,
+        "first_observed_at": "2022-01-20T23:30:00+00:00",
+        "estimated_start_date": "2022-01-20",
+    }
+    assert len(approval_fingerprint(**args)) == 64
+    with pytest.raises(ValueError, match="outside the supported period"):
+        approval_fingerprint(**{**args, "estimated_start_date": "2022-01-21"})

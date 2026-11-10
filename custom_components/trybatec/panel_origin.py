@@ -7,6 +7,7 @@ It does not authorize a Recorder import or change the shared decision store.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 import asyncio
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -21,9 +22,9 @@ from .history import build_history
 from .history_reconstruction import propose_interval
 from .panel_history import _options
 from .history_store import load_decisions
-from .history_origin_decisions import approval_fingerprint, proposed_choice
+from .history_origin_decisions import approval_fingerprint, proposed_choice, origin_boundary_fingerprint
 from .history_origin_store import save_origin_choice
-from .units import resolve_meter_unit, normalized_unit, validate_meter_units
+from .units import resolve_meter_unit, normalized_unit, validate_meter_units, unit_factor
 
 _MAX_PREVIEW_DAYS = 3660
 
@@ -98,9 +99,27 @@ async def preview_first_observed_meter(
         confirm_estimated_start=True,
         zero_index_verified=zero_qualified,
     )
-    source_fingerprint = meter.get("source_fingerprint")
-    if not isinstance(source_fingerprint, str) or not source_fingerprint:
+    raw_fingerprint = meter.get("source_fingerprint")
+    if (not isinstance(raw_fingerprint, str) or len(raw_fingerprint) != 64
+            or any(ch not in "0123456789abcdef" for ch in raw_fingerprint)):
         raise ValueError("Estimated origin requires verified raw source fingerprint")
+    source_fingerprint = origin_boundary_fingerprint(
+        lot=lot, fluid=fluid, serial=serial,
+        first_observed_at=first_at.isoformat(), first_observed_index=first_value,
+        source_unit=unit,
+    )
+    factor = Decimal(str(unit_factor(fluid, unit)))
+    normalized_preview = {
+        **result,
+        "total": float(Decimal(str(result["total"])) * factor),
+        "measured_total": float(Decimal(str(result["measured_total"])) * factor),
+        "estimated_total": float(Decimal(str(result["estimated_total"])) * factor),
+        "unallocated_total": float(Decimal(str(result["unallocated_total"])) * factor),
+        "allocations": [
+            {**row, "quantity": float(Decimal(str(row["quantity"])) * factor)}
+            for row in result["allocations"]
+        ],
+    }
     approval = approval_fingerprint(
         lot=lot, fluid=fluid, serial=serial,
         source_fingerprint=source_fingerprint,
@@ -110,7 +129,7 @@ async def preview_first_observed_meter(
         estimated_start_index=estimated_start_index,
     )
     return {
-        **result,
+        **normalized_preview,
         "status": "estimated_origin_preview_only",
         "approval_fingerprint": approval,
         "source_fingerprint": source_fingerprint,
@@ -119,7 +138,8 @@ async def preview_first_observed_meter(
         "first_observed_index": first_value,
         "estimated_initial_index": estimated_start_index,
         "unit": normalized_unit(fluid),
-        "daily_preview": result["allocations"] if span <= 366 else None,
+        "source_index_unit": unit,
+        "daily_preview": normalized_preview["allocations"] if span <= 366 else None,
         "daily_preview_truncated": span > 366,
         "origin_is_not_a_measured_reading": True,
         "original_index_unchanged": True,

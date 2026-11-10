@@ -716,7 +716,7 @@ class TrybatecPanel extends HTMLElement {
     return '<section class="card" style="margin-top:16px">'+
       '<div class="panel-title"><h3>Aucune borne antérieure fiable : simuler une origine estimée</h3>'+
       '<span class="pill audit">Hypothèse non mesurée</span></div>'+
-      '<p class="muted">Indiquez une date de début et un index initial estimé (0 par défaut, modifiable). Le premier index réellement observé servira de borne finale. La période analysée doit commencer avant la date estimée.</p>'+
+      '<p class="muted">Indiquez une date de début et un index initial estimé (0 par défaut, modifiable), exprimé dans l’unité de l’index source (m³, L, kWh, MWh ou GJ selon le compteur). Le premier index réellement observé servira de borne finale. La période analysée doit commencer avant la date estimée.</p>'+
       '<div class="form-grid" style="margin-top:15px">'+
       '<div><label for="origin-meter">Compteur physique</label><select id="origin-meter" data-origin-field="meter">'+
       '<option value="">Choisir un compteur</option>'+meterOptions+'</select></div>'+
@@ -729,9 +729,9 @@ class TrybatecPanel extends HTMLElement {
       safe(preview.start_date)+' au '+safe(preview.end_date)+', quantité estimée : '+
       safe(preview.estimated_total)+' '+safe(preview.unit)+
       '. Premier index réellement observé : '+safe(preview.first_observed_index)+
-      ' à '+safe(preview.first_observed_at)+
-      '. L’index initial '+safe(preview.estimated_initial_index)+
-      ' est une hypothèse, pas une mesure. Aucune donnée n’a été enregistrée.</div>'+
+      ' '+safe(preview.source_index_unit||"unité à vérifier")+' à '+safe(preview.first_observed_at)+
+      '. L’index initial '+safe(preview.estimated_initial_index)+' '+safe(preview.source_index_unit||"")+
+      ' est une hypothèse, pas une mesure. Cet aperçu ne crée aucune mesure source.</div>'+
       (preview.daily_preview?this._historyDayBars({
         daily_preview:preview.daily_preview,unit:preview.unit
       }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>')+
