@@ -169,6 +169,6 @@ async def test_estimated_origin_save_rechecks_exact_source_and_user_consent(monk
     assert saved.await_count == 1
 
     raw["source_fingerprint"] = "b" * 64
-    with pytest.raises(ValueError, match="Source or parameters changed"):
+    with pytest.raises(ValueError, match="source or parameters changed"):
         await panel_origin.save_confirmed_estimated_origin(object(), coord, **args)
     assert saved.await_count == 1
