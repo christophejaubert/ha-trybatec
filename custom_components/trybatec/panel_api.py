@@ -33,6 +33,7 @@ from .panel_energy import (
     ws_panel_energy_handoff_apply,
 )
 from .panel_review import ws_panel_reading_decision
+from .panel_technical_audit import audited_entity_inventory
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -286,6 +287,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
     """Return only data required by the authenticated admin's Trybatec panel."""
     loaded = hass.data.get(DOMAIN, {})
     accounts = []
+    energy = await _energy_preview(hass)
     for entry_id, coordinator in loaded.items():
         warnings = []
         try:
@@ -315,6 +317,9 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             ledger = {"status": "invalid_requires_review", "series": [], "pending": 0}
             warnings.append("history_version_ledger_requires_recovery")
         physical_meters = _meter_inventory(coordinator.data, archive)
+        technical_audit = audited_entity_inventory(
+            _entity_inventory(hass, entry_id), energy,
+        )
         accounts.append({
             "entry_id": entry_id,
             "title": coordinator.entry.title,
@@ -322,7 +327,10 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             "meters": physical_meters,
             "physical_meter_timeline": _physical_meter_timeline(physical_meters),
             "archived_inventory_count": len(archive),
-            "entities": _entity_inventory(hass, entry_id),
+            "entities": technical_audit["entities"],
+            "technical_entity_audit": {
+                k: value for k, value in technical_audit.items() if k != "entities"
+            },
             "tariffs": tariffs,
             "meter_tariffs": meter_tariffs,
             "tariff_fingerprint": tariff_fingerprint(dict(coordinator.entry.options)),
@@ -340,7 +348,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "panel": "Trybatec",
         "mode": "administrator_read_only",
         "accounts": accounts,
-        "energy": await _energy_preview(hass),
+        "energy": energy,
         "no_automatic_cleanup": True,
         "no_automatic_recorder_or_energy_changes": True,
     }
