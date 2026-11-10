@@ -108,3 +108,27 @@ def test_annual_cost_preview_uses_readonly_yearly_source():
     assert 'm.estimated_cost===null?"coût indisponible"' in source
     assert 'fmt(m.quantity)' in source
     assert 'Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.' in source
+
+
+def test_trybatec_panel_english_labels_are_local_and_safe():
+    """UI translation operates on rendered text, never on source data or services."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert "function localizeTrybatecPanel(root, language)" in source
+    assert 'if (!/^en(?:$|[-_])/i.test(String(language||"")))' in source
+    assert "NodeFilter.SHOW_TEXT" in source
+    assert 'tag!=="STYLE" && tag!=="SCRIPT"' in source
+    assert "localizeTrybatecPanel(this.shadowRoot,this._hass?.language)" in source
+    for fr, en in (
+        ("Vue d’ensemble", "Overview"),
+        ("Compteurs", "Meters"),
+        ("Historique & lissage", "History & smoothing"),
+        ("Tarifs", "Tariffs"),
+        ("Énergie & versions", "Energy & versions"),
+        ("Diagnostics", "Diagnostics"),
+        ("Réglages", "Settings"),
+        ("Tarif commun du fluide", "Default fluid rate"),
+        ("Coût estimé", "Estimated cost"),
+        ("Aucune borne antérieure fiable : simuler une origine estimée",
+         "No reliable earlier baseline: simulate an estimated origin"),
+    ):
+        assert f'["{fr}","{en}"]' in source
