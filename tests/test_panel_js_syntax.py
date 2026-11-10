@@ -105,4 +105,6 @@ def test_annual_cost_preview_uses_readonly_yearly_source():
     assert 'this._costPreview=null;this._costYear=null;' in source
     assert 'x.estimated_cost===null?"Indisponible"' in source
     assert 'p.withheld_total' in source
+    assert 'm.estimated_cost===null?"coût indisponible"' in source
+    assert 'fmt(m.quantity)' in source
     assert 'Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.' in source
