@@ -99,7 +99,9 @@ async def preview_first_observed_meter(
         confirm_estimated_start=True,
         zero_index_verified=zero_qualified,
     )
-    if not isinstance(meter.get("source_fingerprint"), str):
+    raw_fingerprint = meter.get("source_fingerprint")
+    if (not isinstance(raw_fingerprint, str) or len(raw_fingerprint) != 64
+            or any(ch not in "0123456789abcdef" for ch in raw_fingerprint)):
         raise ValueError("Estimated origin requires verified raw source fingerprint")
     source_fingerprint = origin_boundary_fingerprint(
         lot=lot, fluid=fluid, serial=serial,
