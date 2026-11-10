@@ -35,8 +35,26 @@ async def save_origin_choice(
     identity = meter_key(valid["lot"], valid["fluid"], valid["serial"])
     choices = await load_origin_choices(hass, entry_id)
     current = choices.get(identity)
-    if current is not None and current != valid and not confirm_revision:
-        raise ValueError("Replacing an approved initial assumption requires confirmation")
+    if current is not None:
+        # Re-approving an identical hypothesis is idempotent: an audit
+        # timestamp alone is not a change and must not demand revision.
+        same_decision = all(
+            current.get(field) == value for field, value in valid.items()
+            if field != "updated_at"
+        )
+        if same_decision:
+            return {
+                "status": "estimated_origin_decision_saved",
+                "physical_key": identity,
+                "approval_fingerprint": valid["approval_fingerprint"],
+                "origin_is_estimated_not_measured": True,
+                "recorder_writes": False,
+                "energy_writes": False,
+                "source_indices_unchanged": True,
+                "unchanged": True,
+            }
+        if not confirm_revision:
+            raise ValueError("Replacing an approved initial assumption requires confirmation")
     if current is None and len(choices) >= _MAX_CHOICES:
         raise ValueError("Estimated origin decision limit reached")
     choices[identity] = valid
