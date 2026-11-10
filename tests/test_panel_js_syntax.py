@@ -154,3 +154,43 @@ def test_panel_shows_partial_dependency_audit_without_cleanup_controls():
     assert "non vérifiés exhaustivement" in source
     assert "Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte." in source
     assert "data-technical-delete" not in source
+
+
+def test_english_translation_executes_without_changing_readings():
+    """Run the real standalone module under a minimal Node VM sandbox."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js unavailable; frontend syntax CI remains required")
+    script = r"""
+const vm = require("node:vm");
+const fs = require("node:fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const sandbox = {
+  HTMLElement: class {},
+  customElements: {get: () => false, define: () => {}},
+};
+vm.runInNewContext(
+  source + "\n globalThis.translate = localizeTrybatecText;",
+  sandbox, {timeout: 2000}
+);
+const cases = [
+  ["Vue d’ensemble", "en", "Overview"],
+  ["Inventaire archivé : 7", "en-US", "Archived inventory: 7"],
+  ["Confirmer les réglages Trybatec ?", "en-GB", "Confirm Trybatec settings?"],
+  ["2025-10-31T12:00:00+01:00", "en", "2025-10-31T12:00:00+01:00"],
+  ["H24UA-425982", "en", "H24UA-425982"],
+  ["Vue d’ensemble", "fr-FR", "Vue d’ensemble"],
+  ["Consommations et coûts estimés par exercice", "en", "Estimated annual consumption and costs"],
+];
+for (const [source,lang,expected] of cases) {
+  const actual = sandbox.translate(source,lang);
+  if (actual !== expected) throw new Error(
+    JSON.stringify({source,lang,expected,actual})
+  );
+}
+"""
+    outcome = subprocess.run(
+        [node, "-e", script, str(PANEL)],
+        capture_output=True, text=True, check=False, timeout=15,
+    )
+    assert outcome.returncode == 0, outcome.stderr
