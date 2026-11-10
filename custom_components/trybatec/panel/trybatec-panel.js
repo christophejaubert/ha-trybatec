@@ -966,7 +966,8 @@ class TrybatecPanel extends HTMLElement {
     try {
       const response=await this._hass.callWS({
         type:"call_service",domain:"trybatec",service:"preview_costs",
-        service_data:{entry_id:this._current.entry_id,start_date,end_date},
+        service_data:{entry_id:this._current.entry_id,start_date,end_date,
+          include_cold_water:true,include_hot_water:true,include_heating:true},
         return_response:true
       });
       const result=response?.response;
