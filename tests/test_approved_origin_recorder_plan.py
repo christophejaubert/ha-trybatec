@@ -116,3 +116,24 @@ def test_origin_unit_change_requires_new_approval_before_any_import():
     key = next(iter(units))
     with pytest.raises(ValueError, match="source boundary or unit is stale"):
         variants_preview(history, {key: "L"}, approved_origins=origins)
+
+
+def test_legacy_full_history_origin_requires_explicit_reapproval():
+    """Old full-source approvals are retained, but never silently reinterpreted."""
+    history, units, _ = _history()
+    key = next(iter(units))
+    meter = history["__physical_meters__"][key]
+    first_at, first_value = meter["reviewed_readings"][0]
+    legacy = proposed_choice(
+        lot=key[0], fluid=key[1], serial=key[2],
+        source_fingerprint=meter["source_fingerprint"],
+        first_observed_at=first_at.isoformat(),
+        first_observed_index=first_value,
+        estimated_start_date="2022-01-18",
+        estimated_start_index=316.0,
+        reason="manual_periodic",
+    )
+    with pytest.raises(ValueError, match="source boundary or unit is stale"):
+        variants_preview(
+            history, units, approved_origins={meter_key(*key): legacy},
+        )
