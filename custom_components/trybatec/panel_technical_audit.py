@@ -31,7 +31,7 @@ def audited_entity_inventory(
         if not isinstance(entity, Mapping):
             raise ValueError("Invalid Trybatec entity record")
         entity_id, unique_id = entity.get("entity_id"), entity.get("unique_id")
-        if (not isinstance(entity_id, str) or not entity_id.startswith("sensor.")
+        if (not isinstance(entity_id, str) or ("." not in entity_id or entity_id.startswith("."))
                 or not isinstance(unique_id, str) or not unique_id):
             raise ValueError("Invalid Trybatec technical entity identity")
         if entity_id in seen_ids:
