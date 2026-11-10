@@ -10,6 +10,298 @@ const TABS = [
 ];
 const FLUID = {EF:"Eau froide", ECS:"Eau chaude", CET:"Chauffage", unknown:"Fluide non identifié"};
 const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
+
+/* English is a local presentation layer; measurement and decision records stay unchanged. */
+const TRYBATEC_EN_LABELS = new Map([
+  ["Vue d’ensemble","Overview"],
+  ["Compteurs","Meters"],
+  ["Historique & lissage","History & smoothing"],
+  ["Tarifs","Tariffs"],
+  ["Énergie & versions","Energy & versions"],
+  ["Diagnostics","Diagnostics"],
+  ["Réglages","Settings"],
+  ["Bêta","Beta"],
+  ["Gestion des compteurs, historiques, tarifs et énergie","Meters, history, tariffs and energy"],
+  ["Compteurs en service","Meters in service"],
+  ["Compteurs déposés","Retired meters"],
+  ["Statut inconnu","Status unknown"],
+  ["En service","In service"],
+  ["Déposé","Retired"],
+  ["Statut à vérifier","Status to verify"],
+  ["Aucune donnée disponible.","No data available."],
+  ["Historique préservé.","History preserved."],
+  ["Voir les compteurs","View meters"],
+  ["Auditer les entités","Audit entities"],
+  ["Audit des relations techniques","Technical relationships audit"],
+  ["Ancienne entité :","Legacy entity:"],
+  ["Nouvelle entité :","New entity:"],
+  ["Statistiques Recorder :","Recorder statistics:"],
+  ["Références Énergie :","Energy references:"],
+  ["Tableaux de bord et automatisations :","Dashboards and automations:"],
+  ["Nettoyage :","Cleanup:"],
+  ["aucune suppression autorisée automatiquement","no automatic deletion allowed"],
+  ["audit non exhaustif","non-exhaustive audit"],
+  ["Non identifiée","Not identified"],
+  ["présente","present"],
+  ["absente","absent"],
+  ["unité inconnue","unknown unit"],
+  ["Relations techniques Home Assistant","Home Assistant technical relationships"],
+  ["Sélectionnez un compteur pour consulter ses informations.","Select a meter to view its details."],
+  ["Compteur physique","Physical meter"],
+  ["Lot","Unit / apartment"],
+  ["Fluide","Utility"],
+  ["Unité","Unit"],
+  ["Dernier index disponible","Latest available meter index"],
+  ["Dernière observation source","Latest source observation"],
+  ["Dernier index exploitable","Latest usable meter index"],
+  ["Statut de l’unité","Unit verification status"],
+  ["Vérifiée","Verified"],
+  ["À vérifier","To verify"],
+  ["Non renseigné","Not provided"],
+  ["Non disponible","Not available"],
+  ["Non vérifié","Unverified"],
+  ["Inconnu","Unknown"],
+  ["Auditer","Audit"],
+  ["Chronologie des compteurs physiques","Physical meter timeline"],
+  ["Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.","No matching meter. A historical preview may be required first."],
+  ["Historique & lissage","History & smoothing"],
+  ["Auditer les identifiants","Audit identifiers"],
+  ["Revue des relevés signalés","Review flagged readings"],
+  ["Décision sur le relevé","Reading decision"],
+  ["Traitement","Handling"],
+  ["Type","Type"],
+  ["Date réelle vérifiée","Verified actual date"],
+  ["Imputation comptable","Accounting allocation"],
+  ["Date","Date"],
+  ["Heure","Time"],
+  ["Justification obligatoire","Reason required"],
+  ["Confirmer la décision","Confirm decision"],
+  ["Aucun relevé à examiner. Lancez l’analyse historique.","No readings to review. Run a history analysis."],
+  ["Aucun intervalle précédent vérifié dans cet aperçu.","No verified preceding interval in this preview."],
+  ["Examiner et éventuellement lisser les jours précédents","Review and optionally smooth preceding days"],
+  ["Sélectionnez un relevé pour le qualifier ou corriger son attribution.","Select a reading to review or correct its attribution."],
+  ["Charger une période","Load a period"],
+  ["Aperçu en lecture seule","Read-only preview"],
+  ["Depuis le","From"],
+  ["Jusqu’au","Through"],
+  ["Analyser les relevés","Analyze readings"],
+  ["Ancienne IHM de révision","Existing review interface"],
+  ["Intervalles entre relevés","Intervals between readings"],
+  ["L’analyse ne déduit jamais une origine manuelle ou automatique.","The analysis never infers whether readings are manual or automatic."],
+  ["Reconstituer l’intervalle sélectionné","Reconstruct the selected interval"],
+  ["Consommation bornée","Bounded consumption"],
+  ["Index avant → après","Index before → after"],
+  ["Jours","Days"],
+  ["État","Status"],
+  ["Aperçu après lissage linéaire","Preview after linear smoothing"],
+  ["Décision","Decision"],
+  ["Lisser le résiduel","Smooth the residual"],
+  ["Ne pas lisser","Do not smooth"],
+  ["Motif déclaré","Declared reason"],
+  ["Relève périodique","Periodic reading"],
+  ["Autre motif","Other reason"],
+  ["Avant / après","Before / after"],
+  ["Source préservée.","Source preserved."],
+  ["Aucune borne antérieure fiable : simuler une origine estimée","No reliable earlier baseline: simulate an estimated origin"],
+  ["Hypothèse non mesurée","Unmeasured assumption"],
+  ["Choisir un compteur","Choose a meter"],
+  ["Début estimé","Estimated start"],
+  ["Index initial estimé","Estimated initial index"],
+  ["Calculer l’aperçu hypothétique","Calculate hypothetical preview"],
+  ["Simulation calculée.","Simulation calculated."],
+  ["Motif déclaré pour cette hypothèse","Declared reason for this assumption"],
+  ["Relève manuelle périodique","Periodic manual reading"],
+  ["Autre motif déclaré","Other declared reason"],
+  ["Approuver et enregistrer l’hypothèse","Approve and save assumption"],
+  ["Comparaison avant / après · consommation et cumul","Before / after · consumption and cumulative total"],
+  ["Total entre bornes","Bounded total"],
+  ["Consommation réellement mesurée","Actually measured consumption"],
+  ["Consommation estimée","Estimated consumption"],
+  ["Jour","Day"],
+  ["Avant · mesuré","Before · measured"],
+  ["Après · consommation","After · consumption"],
+  ["Cumul après","Cumulative after"],
+  ["Nature","Type"],
+  ["Mesuré","Measured"],
+  ["Estimé linéaire","Linearly estimated"],
+  ["Année","Year"],
+  ["Origine","Origin"],
+  ["Consommation","Consumption"],
+  ["Tarif","Rate"],
+  ["Coût estimé","Estimated cost"],
+  ["Fiabilité","Reliability"],
+  ["Tarif commun du fluide","Default fluid rate"],
+  ["Saisir ou modifier un tarif","Enter or edit a rate"],
+  ["Exercice annuel","Annual period"],
+  ["Enregistrer ce tarif","Save this rate"],
+  ["Retirer ce tarif","Remove this rate"],
+  ["Tarifs communs","Default rates"],
+  ["Tarifs spécifiques aux compteurs","Meter-specific rates"],
+  ["Tarifs par compteur","Rates per meter"],
+  ["Consommations et coûts estimés par exercice","Estimated annual consumption and costs"],
+  ["Aucune consommation justifiable pour cet exercice. Aucun coût fictif n’est produit.","No verifiable consumption for this year. No fictitious cost is calculated."],
+  ["Aucun tarif commun enregistré.","No default rate saved."],
+  ["Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.","No meter-specific override. The default rate still applies where available for the year."],
+  ["Tarif approuvé","Approved rate"],
+  ["Tarif provisoire","Provisional rate"],
+  ["Tarif absent","Missing rate"],
+  ["Tarifs hétérogènes","Mixed rates"],
+  ["Spécifique au compteur","Meter-specific"],
+  ["Commun au fluide","Default fluid rate"],
+  ["Relevés journaliers","Daily readings"],
+  ["Imputation approuvée","Approved accounting allocation"],
+  ["Non qualifié","Unreviewed"],
+  ["Indisponible","Unavailable"],
+  ["Approuvé","Approved"],
+  ["Provisoire","Provisional"],
+  ["Aperçu, import, contrôle de persistance et basculement Énergie sont quatre étapes distinctes. Aucune n’est lancée automatiquement.","Preview, import, persistence verification and Energy activation are four separate steps. None runs automatically."],
+  ["Début","Start"],
+  ["Fin","End"],
+  ["1. Prévisualiser Recorder","1. Preview Recorder"],
+  ["Sources Trybatec dans Énergie","Trybatec sources in Energy"],
+  ["Séries historiques versionnées","Versioned historical statistics"],
+  ["Ouvrir Énergie","Open Energy"],
+  ["Diagnostics","Diagnostics"],
+  ["Statut","Status"],
+  ["Audit des entités techniques","Technical entity audit"],
+  ["Actualiser","Refresh"],
+  ["Réglages","Settings"],
+  ["Gestion des compteurs, historiques, tarifs et énergie","Meter management, history, rates and energy"],
+  ["Trybatec — Interface expérimentale · Aucune suppression ni écriture Recorder ou Énergie automatique.","Trybatec — Experimental interface · No automatic deletion or Recorder or Energy writes."],
+  ["Impossible de charger les informations Trybatec. Consultez les journaux et réessayez.","Unable to load Trybatec. Check the logs and try again."],
+  ["Aucun intervalle précédent vérifiable : actualisez l’analyse.","No verifiable preceding interval; refresh the analysis."],
+  ["Intervalle précédent sélectionné pour examen ; aucune décision enregistrée.","Previous interval selected for review; no decision has been saved."],
+  ["Le tarif doit être un montant non négatif et valide.","Enter a valid nonnegative rate."],
+  ["Supprimer ce tarif ? Le tarif commun sera de nouveau applicable à ce compteur, si défini.","Remove this rate? The default rate will apply again to this meter, if configured."],
+  ["Enregistrer ce tarif annuel ? Les historiques Recorder et les préférences Énergie resteront inchangés.","Save this annual rate? Recorder history and Energy preferences will not change."],
+  ["Tarif retiré.","Rate removed."],
+  ["Tarif enregistré.","Rate saved."],
+  ["Modification refusée : vérifiez les données et actualisez les tarifs avant de réessayer.","Change refused: check the data and refresh rates before trying again."],
+  ["Lot non renseigné","Unit not provided"],
+  ["Unité à vérifier","Unit needs verification"],
+  ["Entités à auditer","Entities requiring audit"],
+  ["Les compteurs physiques sont distincts des anciennes entités Home Assistant.","Physical meters are distinct from legacy Home Assistant entities."],
+  ["Entités à examiner","Entities to review"],
+  ["Compteurs physiques actuellement relevés.","Physical meters currently reporting."],
+  ["Compteurs retirés conservés pour leur historique.","Retired meters retained for their history."],
+  ["Anciennes entités ou entités indisponibles : aucune suppression automatique.","Legacy or unavailable entities: no automatic deletion."],
+  ["Association non démontrée : ne supprimez pas cette entité. Vérifiez son identité et ses références.","Association unverified: do not delete this entity. Check identity and references."],
+  ["Basculement impossible : Recorder ou Énergie ne valide pas les deux séries. Aucune modification effectuée.","Handoff blocked: Recorder or Energy cannot validate the two series. No changes made."],
+  ["Référence Énergie enregistrée et vérifiée. Les deux historiques sont conservés.","Energy reference saved and verified. Both histories are preserved."],
+  ["Le résultat nécessite une vérification.","The result needs verification."],
+  ["Opération interrompue ou refusée. Consultez les journaux et vérifiez Énergie avant toute nouvelle tentative.","Operation interrupted or refused. Check logs and Energy before retrying."],
+  ["Relevé par l’API","Reported by API"],
+  ["Archivé localement","Locally archived"],
+  ["Inventaire physique : en service, déposés, ou statut non confirmé.","Physical inventory: in service, retired or unverified status."],
+  ["Aperçu de l’historique actualisé. Aucune série Recorder n’a été modifiée.","Historical preview refreshed. No Recorder series were changed."],
+  ["Prévisualisation impossible : vérifiez la période, la connexion et les journaux Trybatec.","Unable to preview: check dates, connection and Trybatec logs."],
+  ["Répartition linéaire du résiduel entre les index sources vérifiés.","Linear allocation of the residual between verified source indexes."],
+  ["Aucun lissage : conserver l’intervalle sans répartition.","No smoothing: preserve the interval without allocation."],
+  ["Décision enregistrée. Les index sources et Énergie restent inchangés.","Decision saved. Source indexes and Energy remain unchanged."],
+  ["Décision refusée : l’intervalle a changé ou doit être réexaminé. Actualisez l’aperçu.","Decision refused: the interval changed or needs review. Refresh the preview."],
+  ["L’index initial estimé doit être un nombre positif ou nul.","The estimated initial index must be nonnegative."],
+  ["Confirmer que la date et l’index initial sont des HYPOTHÈSES, pas des relevés mesurés ?","Confirm that the date and initial index are ASSUMPTIONS, not measured readings?"],
+  ["Aperçu refusé : vérifiez la date de départ, le premier relevé, l’unité et les anomalies. Rechargez un historique couvrant l’origine choisie.","Preview refused: check start date, first reading, unit and anomalies. Reload history covering the chosen origin."],
+  ["Un nouvel aperçu vérifié est nécessaire avant l’enregistrement.","A fresh verified preview is required before saving."],
+  ["Enregistrer cette origine comme HYPOTHÈSE APPROUVÉE ?","Save this origin as an APPROVED ASSUMPTION?"],
+  ["Autoriser explicitement le remplacement d’une hypothèse déjà approuvée pour ce compteur ?","Explicitly authorize replacing a previously approved assumption for this meter?"],
+  ["Hypothèse approuvée enregistrée séparément des index réels. ","Approved assumption saved separately from real indexes. "],
+  ["Aucun import Recorder ni changement Énergie : ces opérations nécessitent leur propre validation.","No Recorder import or Energy change: each requires its own approval."],
+  ["Enregistrement refusé : source ou paramètres modifiés, décision antérieure non remplaçable sans confirmation, ou historique à actualiser.","Save refused: source or parameters changed, prior decision requires revision approval, or history needs refreshing."],
+  ["La correction exige un justificatif explicite (au moins 8 caractères).","The correction requires an explicit reason of at least 8 characters."],
+  ["Conserver ce relevé","Keep this reading"],
+  ["Corriger/imputer ce relevé","Correct/allocate this reading"],
+  ["Écarter ce relevé du calcul","Exclude this reading from calculations"],
+  ["Reporter l’examen (le relevé sera temporairement écarté du calcul)","Postpone review (temporarily exclude this reading)"],
+  ["Décision enregistrée ; index source, Recorder et Énergie inchangés.","Decision saved; source indexes, Recorder and Energy unchanged."],
+  ["Décision refusée : vérifiez la date, le motif ou l’imputation hors période, puis actualisez l’historique.","Decision refused: check date, reason or out-of-period allocation, then refresh history."],
+  ["Intervalle espacé (pas une erreur avérée)","Sparse interval (not necessarily an error)"],
+  ["Index nul à qualifier","Zero index requires review"],
+  ["Baisse d’index à vérifier","Index decrease requires review"],
+  ["Relevés sources contradictoires","Conflicting source readings"],
+  ["Conflit d’index à examiner","Index conflict requires review"],
+  ["Unité non vérifiée","Unverified unit"],
+  ["Index nul non qualifié","Unreviewed zero index"],
+  ["Bornes à vérifier","Boundaries require review"],
+  ["Lissage envisageable après confirmation","Smoothing available after confirmation"],
+  ["Répartition linéaire contrôlée, sans modification des relevés bruts.","Controlled linear allocation without modifying raw readings."],
+  ["Aucun intervalle à signaler sur cette période.","No flagged intervals in this period."],
+  ["Analysez une période pour afficher les intervalles concernés.","Analyze a period to view its intervals."],
+  ["Non déterminée","Undetermined"],
+  ["À déterminer","To be determined"],
+  ["Choisissez un exercice commencé, entre 2000 et l’année courante.","Choose a year between 2000 and the current year."],
+  ["Coûts indisponibles : vérifiez la connexion, les unités et les relevés source. Aucun coût manquant n’est remplacé par une valeur supposée.","Costs unavailable: check connection, units and source readings. Missing costs are never inferred."],
+  ["coût indisponible","cost unavailable"],
+  ["spécifique","meter-specific"],
+  ["Aperçu Recorder obtenu. Aucun import n’a commencé.","Recorder preview obtained. No import has started."],
+  ["Plan impossible : vérifiez unités, zéros et décisions de lissage, puis recommencez l’aperçu.","Plan unavailable: verify units, zero readings and smoothing decisions, then retry preview."],
+  ["Importer les séries historiques dans Recorder ?","Import historical series into Recorder?"],
+  ["Import refusé : aperçu périmé, sauvegarde manquante ou série déjà présente. Aucune réussite n’est présumée.","Import refused: stale preview, missing backup or existing series. No success is assumed."],
+  ["Vérification Recorder exécutée. Consultez les états détaillés ci-dessous.","Recorder verification executed. See detailed statuses below."],
+  ["Vérification Recorder impossible. N’activez aucune nouvelle série dans Énergie.","Unable to verify Recorder. Do not activate any new Energy series."],
+  ["Aperçu Énergie compatible, sans écriture.","Energy preview is compatible; no writes performed."],
+  ["Basculement refusé : série non vérifiée, mauvaise unité, référence absente ou double comptage possible.","Energy switch refused: unverified series, incompatible unit, missing reference or possible double counting."],
+  ["Confirmer le remplacement de la série dans Énergie ?","Confirm replacing the series in Energy?"],
+  ["Activation refusée ou contrôle après écriture échoué. Consultez les diagnostics ; aucun succès n’est présumé.","Activation refused or post-write verification failed. Check diagnostics; success is not assumed."],
+  ["Références configurées et versions historiques vérifiables.","Configured references and verifiable historical versions."],
+  ["Unité inconnue","Unknown unit"],
+  ["Lecture des entités, disponibilités et état des données.","Read entities, availability and data status."],
+  ["Données chargées","Data loaded"],
+  ["En attente de données","Awaiting data"],
+  ["Indiquez des nombres entiers dans les limites autorisées.","Enter whole numbers within the permitted ranges."],
+  ["Confirmer les réglages Trybatec ?","Confirm Trybatec settings?"],
+  ["Réglages enregistrés dans la configuration Home Assistant partagée.","Settings saved in the shared Home Assistant configuration."],
+  ["Modification refusée ou intégration en cours de rechargement. Actualisez et vérifiez les valeurs.","Change refused or integration reloading. Refresh and verify the values."],
+  ["Modifiez les paramètres existants sans supprimer l’ancienne interface.","Edit existing parameters without removing the previous interface."],
+  ["De 60 minutes à 7 jours. Une modification peut recharger l’intégration.","From 60 minutes to 7 days. Changing this may reload the integration."],
+  ["Intervalle à signaler (heures)","Flag intervals longer than (hours)"],
+  ["Par défaut : 27 h. Un intervalle strictement supérieur est considéré comme espacé.","Default: 27 h. Only intervals strictly above this limit are flagged."],
+  ["Index nuls consécutifs (jours)","Consecutive zero-index days"],
+  ["0 désactive la sollicitation ; 1 signale dès le premier jour avec un index nul.","0 disables prompts; 1 flags the first day containing a zero index."],
+
+  ["Anciennes générations techniques à examiner :","Legacy technical generations to review:"],
+  ["Entités encore référencées dans Énergie :","Entities still referenced in Energy:"],
+  ["Audit partiel, aucune suppression autorisée.","Partial audit; no deletion permitted."],
+  ["Ancienne génération technique à auditer","Legacy technical generation requiring audit"],
+  ["Entité technique non classée","Unclassified technical entity"],
+  ["Autre génération du même appareil :","Another generation of this device:"],
+  ["Références Énergie confirmées :","Confirmed Energy references:"],
+  ["Identité technique et vérifications manquantes","Technical identity and unverified dependencies"],
+  ["Identifiant technique :","Technical identifier:"],
+  ["Appareil :","Device:"],
+  ["Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.","Recorder, automations and dashboards: not exhaustively checked."],
+  ["Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.","Cleanup prohibited without a complete audit, backup and separate confirmation."],
+  ["Non vérifié","Not verified"],
+
+]);
+
+function localizeTrybatecText(value, language) {
+  const raw=String(value);
+  if (!/^en(?:$|[-_])/i.test(String(language||""))) return raw;
+  const trimmed=raw.trim();
+  const translated=TRYBATEC_EN_LABELS.get(trimmed);
+  return translated?raw.replace(trimmed,translated):raw;
+}
+function localizeTrybatecPanel(root, language) {
+  if (!/^en(?:$|[-_])/i.test(String(language||""))) return;
+  const translate = (value) => localizeTrybatecText(value,language);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const tag = node.parentElement?.tagName;
+    if (tag!=="STYLE" && tag!=="SCRIPT") textNodes.push(node);
+  }
+  for (const node of textNodes) node.nodeValue=translate(node.nodeValue);
+  for (const element of root.querySelectorAll("[placeholder],[aria-label],[title]")) {
+    for (const attr of ["placeholder","aria-label","title"]) {
+      if (element.hasAttribute(attr)) {
+        element.setAttribute(attr, translate(element.getAttribute(attr)));
+      }
+    }
+  }
+}
+
 const escapeText = (value) => String(value === null || value === undefined ? "" : value)
   .replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
@@ -156,8 +448,10 @@ class TrybatecPanel extends HTMLElement {
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
   }
   set hass(value) {
+    const previousLanguage=this._hass?.language;
     this._hass = value;
     if (this.isConnected && !this._started) this._fetch();
+    else if (this.isConnected && previousLanguage!==value?.language) this._render();
   }
   set narrow(value) { this._narrow = value; }
   set panel(value) { this._panel = value; }
@@ -179,6 +473,9 @@ class TrybatecPanel extends HTMLElement {
       this._loading = false;
       this._render();
     }
+  }
+  _confirm(message) {
+    return window.confirm(localizeTrybatecText(message,this._hass?.language));
   }
   _click(event) {
     const btn = event.target.closest("button");
@@ -340,7 +637,7 @@ class TrybatecPanel extends HTMLElement {
     const message=remove?
       "Supprimer ce tarif ? Le tarif commun sera de nouveau applicable à ce compteur, si défini.":
       "Enregistrer ce tarif annuel ? Les historiques Recorder et les préférences Énergie resteront inchangés.";
-    if (!window.confirm(message)) return;
+    if (!this._confirm(message)) return;
     this._tariffBusy=true;this._error="";this._render();
     try {
       const request={
@@ -473,7 +770,7 @@ class TrybatecPanel extends HTMLElement {
   async _applyHandoff() {
     const m=this._meters()[this._meter],a=this._meterAudit,p=this._energyHandoffPreview;
     if (this._meterAuditBusy||!m||!a||!p||!this._energyBackup) return;
-    if (!window.confirm(
+    if (!this._confirm(
       "Confirmer le remplacement de la référence Énergie suivante ?\n\n"+
       p.old_statistic_id+" → "+p.new_statistic_id+
       "\n\nLa sauvegarde complète (dont Recorder) doit déjà être disponible. Les autres préférences restent conservées."
@@ -614,7 +911,7 @@ class TrybatecPanel extends HTMLElement {
     const eligible=proposal.status==="linear_available_after_explicit_confirmation";
     if (this._historyMode==="linear" && !eligible) return;
     const summary=proposal.start_date+" → "+proposal.end_date+" · "+proposal.meter_serial;
-    if (!window.confirm("Confirmer la décision pour "+summary+" ?\n\n"+
+    if (!this._confirm("Confirmer la décision pour "+summary+" ?\n\n"+
         (this._historyMode==="linear"?
           "Répartition linéaire du résiduel entre les index sources vérifiés.":
           "Aucun lissage : conserver l’intervalle sans répartition.")+
@@ -651,7 +948,7 @@ class TrybatecPanel extends HTMLElement {
       this._originError="L’index initial estimé doit être un nombre positif ou nul.";
       this._render();return;
     }
-    if (!window.confirm(
+    if (!this._confirm(
       "Confirmer que la date et l’index initial sont des HYPOTHÈSES, pas des relevés mesurés ?"+
       "\\n\\nCet aperçu n’enregistre aucune décision et ne modifie ni Recorder ni Énergie."
     )) return;
@@ -680,12 +977,12 @@ class TrybatecPanel extends HTMLElement {
       this._originError="Un nouvel aperçu vérifié est nécessaire avant l’enregistrement.";
       this._render();return;
     }
-    if (!window.confirm(
+    if (!this._confirm(
       "Enregistrer cette origine comme HYPOTHÈSE APPROUVÉE ?"+
       "\n\nLa date et l’index estimés ne sont pas des relevés mesurés."+
       "\nCette décision ne modifie ni les index réels, ni Recorder, ni Énergie."
     )) return;
-    if (this._originRevision && !window.confirm(
+    if (this._originRevision && !this._confirm(
       "Autoriser explicitement le remplacement d’une hypothèse déjà approuvée pour ce compteur ?"
     )) return;
     this._originBusy=true;this._originError="";this._originSaved="";this._render();
@@ -813,7 +1110,7 @@ class TrybatecPanel extends HTMLElement {
       this._readingAction==="correct"?"Corriger/imputer ce relevé":
       this._readingAction==="reject"?"Écarter ce relevé du calcul":
       "Reporter l’examen (le relevé sera temporairement écarté du calcul)";
-    if (!window.confirm(description+" ?\n\n"+
+    if (!this._confirm(description+" ?\n\n"+
         item.fluid+" · "+item.meter_serial+" · "+item.source_date+
         "\nIndex source : "+item.index+
         "\n\nLes données brutes ne seront jamais modifiées.")) return;
@@ -1110,7 +1407,7 @@ class TrybatecPanel extends HTMLElement {
   async _importRecorderVersion() {
     const plan=this._versionPlan;
     if (!plan?.plan_fingerprint||this._versionBusy||!this._versionImportBackup) return;
-    if (!window.confirm(
+    if (!this._confirm(
       "Importer les séries historiques dans Recorder ?"+
       "\\n\\nSauvegarde confirmée : "+String(this._versionImportBackup)+
       "\\nNombre de séries : "+String(plan.series?.length||0)+
@@ -1162,7 +1459,7 @@ class TrybatecPanel extends HTMLElement {
     if (!p||this._versionBusy||!this._versionEnergyBackup) return;
     if (p.old_statistic_id!==this._versionOld ||
         p.new_statistic_id!==this._versionNew) return;
-    if (!window.confirm(
+    if (!this._confirm(
       "Confirmer le remplacement de la série dans Énergie ?"+
       "\\n\\nAncienne : "+p.old_statistic_id+
       "\\nNouvelle : "+p.new_statistic_id+
@@ -1259,20 +1556,36 @@ class TrybatecPanel extends HTMLElement {
   }
   _diagnostics() {
     const a=this._current;
+    const audit=a.technical_entity_audit||{};
     return this._heading("Diagnostics","Lecture des entités, disponibilités et état des données.")+
       '<div class="grid-two"><section class="card"><h3>Statut</h3><div class="line">Synchronisation actuelle : <strong>'+
       (a.data_loaded?"Données chargées":"En attente de données")+'</strong></div>'+
       '<div class="line">Compteurs physiques connus : '+this._meters().length+'</div>'+
       '<div class="line">Inventaire archivé : '+a.archived_inventory_count+'</div>'+
       '<div class="line">Entités Trybatec recensées : '+a.entities.length+'</div>'+
+      '<div class="line">Anciennes générations techniques à examiner : '+safe(audit.potential_legacy_entries??"Non vérifié")+'</div>'+
+      '<div class="line">Entités encore référencées dans Énergie : '+safe(audit.energy_referenced_entities??"Non vérifié")+'</div>'+
       a.warnings.map(x=>'<div class="notice warning">'+safe(x)+'</div>').join("")+
       '<div class="actions"><button class="secondary" type="button" data-refresh>Actualiser</button></div></section>'+
       '<section class="card"><h3>Audit des entités techniques</h3>'+
-      '<p class="muted">Une entité indisponible n’est pas nécessairement obsolète : elle peut avoir des historiques Recorder et des références actives.</p>'+
-      '<div class="scroll">'+(a.entities.length?a.entities.map(e=>
-      '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
-      '<div class="muted">État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+
-      ' · Nettoyage : interdit sans audit</div></div>').join(""):'<div class="empty">Aucune entité recensée.</div>')+
+      '<p class="muted">Une entité indisponible n’est pas nécessairement obsolète : elle peut avoir des historiques Recorder et des références actives. Une génération technique n’est pas un compteur physique déposé.</p>'+
+      '<div class="notice warning"><strong>Audit partiel, aucune suppression autorisée.</strong> Les références aux tableaux de bord, automatisations et statistiques Recorder ne sont pas vérifiées exhaustivement. Un résultat vide dans Énergie ne prouve pas qu’une entité est inutilisée.</div>'+
+      '<div class="scroll">'+(a.entities.length?a.entities.map(e=>{
+      const candidate=e.technical_role==="legacy_same_device_candidate";
+      const refs=Array.isArray(e.energy_references)?e.energy_references:[];
+      const label=candidate?"Ancienne génération technique à auditer":"Entité technique non classée";
+      const successors=Array.isArray(e.same_device_successors)?e.same_device_successors:[];
+      return '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
+      '<div class="muted">'+safe(label)+' · État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+'</div>'+
+      (successors.length?'<div class="muted">Autre génération du même appareil : '+successors.map(safe).join(", ")+'</div>':"")+
+      '<div class="muted">Références Énergie confirmées : '+safe(refs.length)+
+      (refs.length?' ('+refs.map(x=>safe(x.type||"?")+" #"+safe(x.index)).join(", ")+')':"")+'</div>'+
+      '<details><summary>Identité technique et vérifications manquantes</summary>'+
+      '<div class="muted">Identifiant technique : <span class="mono">'+safe(e.unique_id||"Inconnu")+'</span></div>'+
+      '<div class="muted">Appareil : <span class="mono">'+safe(e.device_id||"Non vérifié")+'</span></div>'+
+      '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
+      '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
+      }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
       '</div></section></div>';
   }
   async _saveSettings() {
@@ -1289,7 +1602,7 @@ class TrybatecPanel extends HTMLElement {
     }
     const message="Confirmer les réglages Trybatec ?"+
       "\\n\\nCertains réglages peuvent recharger l’intégration, mais ne modifient ni Recorder ni Énergie.";
-    if (!window.confirm(message)) return;
+    if (!this._confirm(message)) return;
     this._settingsBusy=true;this._settingsError="";this._render();
     try {
       await this._hass.callWS({
@@ -1356,6 +1669,7 @@ class TrybatecPanel extends HTMLElement {
     this.shadowRoot.innerHTML='<style>'+style+'</style><div class="wrap">'+this._header()+
       '<div class="shell">'+this._nav()+'<main class="main" id="main">'+this._content()+'</main></div>'+
       '<footer class="footer">Trybatec — Interface expérimentale · Aucune suppression ni écriture Recorder ou Énergie automatique.</footer></div>';
+    localizeTrybatecPanel(this.shadowRoot,this._hass?.language);
   }
 }
 if (!customElements.get("trybatec-panel")) customElements.define("trybatec-panel", TrybatecPanel);

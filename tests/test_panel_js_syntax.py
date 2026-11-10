@@ -108,3 +108,49 @@ def test_annual_cost_preview_uses_readonly_yearly_source():
     assert 'm.estimated_cost===null?"coût indisponible"' in source
     assert 'fmt(m.quantity)' in source
     assert 'Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.' in source
+
+
+def test_trybatec_panel_english_labels_are_local_and_safe():
+    """UI translation operates on rendered text, never on source data or services."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert "function localizeTrybatecPanel(root, language)" in source
+    assert 'if (!/^en(?:$|[-_])/i.test(String(language||"")))' in source
+    assert "NodeFilter.SHOW_TEXT" in source
+    assert 'tag!=="STYLE" && tag!=="SCRIPT"' in source
+    assert "localizeTrybatecPanel(this.shadowRoot,this._hass?.language)" in source
+    for fr, en in (
+        ("Vue d’ensemble", "Overview"),
+        ("Compteurs", "Meters"),
+        ("Historique & lissage", "History & smoothing"),
+        ("Tarifs", "Tariffs"),
+        ("Énergie & versions", "Energy & versions"),
+        ("Diagnostics", "Diagnostics"),
+        ("Réglages", "Settings"),
+        ("Tarif commun du fluide", "Default fluid rate"),
+        ("Coût estimé", "Estimated cost"),
+        ("Aucune borne antérieure fiable : simuler une origine estimée",
+         "No reliable earlier baseline: simulate an estimated origin"),
+    ):
+        assert f'["{fr}","{en}"]' in source
+
+
+def test_trybatec_panel_localizes_confirmations_without_mutation():
+    source = PANEL.read_text(encoding="utf-8")
+    assert "function localizeTrybatecText(value, language)" in source
+    assert "return window.confirm(localizeTrybatecText(message,this._hass?.language));" in source
+    assert '["Confirmer les réglages Trybatec ?","Confirm Trybatec settings?"]' in source
+    assert '["Importer les séries historiques dans Recorder ?","Import historical series into Recorder?"]' in source
+    assert "this._confirm(" in source
+    assert 'this._hass?.language' in source
+
+
+def test_panel_shows_partial_dependency_audit_without_cleanup_controls():
+    source = PANEL.read_text(encoding="utf-8")
+    assert "a.technical_entity_audit||{}" in source
+    assert 'e.technical_role==="legacy_same_device_candidate"' in source
+    assert "same_device_successors" in source
+    assert "energy_references" in source
+    assert "Audit partiel, aucune suppression autorisée." in source
+    assert "non vérifiés exhaustivement" in source
+    assert "Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte." in source
+    assert "data-technical-delete" not in source
