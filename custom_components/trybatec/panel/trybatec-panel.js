@@ -95,6 +95,10 @@ class TrybatecPanel extends HTMLElement {
     this._started = false;
     this._tariffInput = {year:2026,fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
+    this._costPreview=null;
+    this._costBusy=false;
+    this._costError="";
+    this._costYear=null;
     this._historyStart="2021-01-01";
     this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
     this._historyPreview=null;
@@ -188,6 +192,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
+    if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
     if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
@@ -303,6 +308,7 @@ class TrybatecPanel extends HTMLElement {
     const field=event.target.dataset.tariffField;
     if (field) {
       this._tariffInput[field]=event.target.value;
+      if (field==="year") {this._costPreview=null;this._costYear=null;this._costError="";}
       if (["year","fluid","physical_key"].includes(field)) {
         const item=this._existingTariff();
         this._tariffInput.rate=item?String(item.rate):"";
@@ -349,6 +355,7 @@ class TrybatecPanel extends HTMLElement {
       await this._hass.callWS(request);
       this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
       this._message=remove?"Tarif retiré.":"Tarif enregistré.";
+      this._costPreview=null;this._costYear=null;
       this._tariffInput.rate="";
       this._tariffInput.status="provisional";
       const existing=this._existingTariff();
@@ -943,6 +950,86 @@ class TrybatecPanel extends HTMLElement {
       '</section></div>'+this._readingReview()+this._originView()+
       '<div class="notice"><strong>Source préservée.</strong> Les décisions servent à préparer les séries historisées. Elles ne créent aucune mesure réelle, ne lancent aucun import Recorder et n’activent aucune source dans Énergie.</div>';
   }
+
+  async _previewAnnualCosts() {
+    if (!this._current||this._costBusy||this._tariffBusy) return;
+    const year=Number(this._tariffInput.year);
+    const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+    const currentYear=Number(today.slice(0,4));
+    if (!Number.isInteger(year)||year<2000||year>currentYear) {
+      this._costError="Choisissez un exercice commencé, entre 2000 et l’année courante.";
+      this._render();return;
+    }
+    const start_date=String(year)+"-01-01";
+    const end_date=String(year)===String(currentYear)?today:String(year)+"-12-31";
+    this._costPreview=null;this._costBusy=true;this._costError="";this._render();
+    try {
+      const response=await this._hass.callWS({
+        type:"call_service",domain:"trybatec",service:"preview_costs",
+        service_data:{entry_id:this._current.entry_id,start_date,end_date},
+        return_response:true
+      });
+      const result=response?.response;
+      if (result?.mode!=="read_only_historical_cost_estimates" ||
+          result.currency!=="EUR" || result.persisted!==false ||
+          !Array.isArray(result.annual) || !Array.isArray(result.withheld) ||
+          result.start_date!==start_date || result.end_date!==end_date) {
+        throw new Error("Unverified annual-cost response");
+      }
+      this._costPreview=result;this._costYear=year;
+    } catch (_) {
+      this._costError="Coûts indisponibles : vérifiez la connexion, les unités et les relevés source. "+
+        "Aucun coût manquant n’est remplacé par une valeur supposée.";
+    } finally {this._costBusy=false;this._render();}
+  }
+  _annualCostsView() {
+    const p=this._costPreview;
+    const rows=(p?.annual||[]).slice(0,100);
+    const fmt=n=>Number(n).toLocaleString("fr-FR",{maximumFractionDigits:6});
+    const table=rows.map(x=>{
+      const unit=x.unit==="kWh"?"kWh":"m³";
+      const evidence=x.evidence_type==="measured_daily"?"Relevés journaliers":
+        x.evidence_type==="accounting_allocation"?"Imputation approuvée":"Non qualifié";
+      const status=x.tariff_status==="approved"?"Tarif approuvé":
+        x.tariff_status==="provisional"?"Tarif provisoire":
+        x.tariff_status==="missing"?"Tarif absent":"Tarifs hétérogènes";
+      const origin=x.rate_origin==="meter_override"?"Spécifique au compteur":
+        x.rate_origin==="fluid_default"?"Commun au fluide":
+        x.rate_origin==="missing"?"Aucun":"Mixte";
+      const costs=x.estimated_cost===null?"Indisponible":fmt(x.estimated_cost)+" EUR";
+      const rate=x.rate===null?(x.tariff_status==="missing"?"Manquant":"Multiple"):
+        fmt(x.rate)+" "+(unit==="kWh"?"EUR/kWh":"EUR/m³");
+      const meterDetails=(x.meter_rates||[]).slice(0,30).map(m=>
+        '<li>'+safe(m.meter_serial)+" · "+safe(m.lot)+" · "+
+        safe(m.rate===null?"tarif absent":fmt(m.rate)+" "+(unit==="kWh"?"EUR/kWh":"EUR/m³"))+
+        ' · '+safe(m.origin==="meter_override"?"spécifique":m.origin==="fluid_default"?"commun":"aucun")+
+        '</li>').join("");
+      return '<tr><td>'+safe(x.year)+'</td><td>'+safe(FLUID[x.fluid]||x.fluid)+'</td>'+
+        '<td>'+safe(evidence)+'</td><td>'+safe(fmt(x.quantity))+' '+safe(unit)+'</td>'+
+        '<td>'+safe(rate)+'<div class="muted">'+safe(origin)+'</div></td>'+
+        '<td>'+safe(costs)+'</td><td>'+safe(status)+
+        (x.coverage==="partial_or_uncertain"?'<div class="muted">Période incomplète</div>':'')+
+        (meterDetails?'<details><summary>Tarifs par compteur</summary><ul>'+meterDetails+'</ul></details>':'')+
+        '</td></tr>';
+    }).join("");
+    return '<section class="card" style="margin-top:16px">'+
+      '<h3>Consommations et coûts estimés par exercice</h3>'+
+      '<p class="muted">Aperçu en lecture seule pour l’exercice sélectionné. Les quantités vérifiées au pas journalier et les imputations comptables explicites sont séparées. Les intervalles inconnus, hypothèses initiales et lissages non incorporés restent exclus : ce ne sont pas des charges facturées.</p>'+
+      '<div class="actions"><button type="button" class="secondary" data-cost-preview '+
+      (this._costBusy?"disabled":"")+'>Calculer les coûts de '+safe(this._tariffInput.year)+'</button></div>'+
+      (this._costBusy?'<p class="muted">Lecture des relevés et calcul en cours.</p>':"")+
+      (this._costError?'<div class="notice warning">'+safe(this._costError)+'</div>':"")+
+      (p?'<p class="muted">Exercice '+safe(this._costYear)+' · '+safe(p.start_date)+
+      ' au '+safe(p.end_date)+' · '+safe(p.withheld_total||0)+
+      ' compteur(s) exclu(s) faute de justification suffisante.</p>'+
+      (rows.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Fluide</th>'+
+      '<th>Origine</th><th>Consommation</th><th>Tarif</th><th>Coût estimé</th>'+
+      '<th>Fiabilité</th></tr></thead><tbody>'+table+'</tbody></table></div>':
+      '<div class="empty">Aucune consommation justifiable pour cet exercice. Aucun coût fictif n’est produit.</div>')+
+      (p.withheld_total?'<div class="notice warning">Certains compteurs sont exclus du calcul : unité non vérifiée, conflit ou historique invalide. Consultez les diagnostics avant toute interprétation.</div>':"")+
+      '<p class="muted">Coûts uniquement estimés, en EUR ; un tarif « approuvé » ne vaut pas validation des charges. Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.</p>':"")+
+      '</section>';
+  }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
     const rows=Object.entries(a.tariffs).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
@@ -989,7 +1076,7 @@ class TrybatecPanel extends HTMLElement {
       '<section class="card"><h3>Tarifs spécifiques aux compteurs</h3>'+
       (overrides.length?'<table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table>':
       '<div class="empty">Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.</div>')+
-      '</section></div>';
+      '</section></div>'+this._annualCostsView();
   }
   async _callVersionService(service, payload) {
     const result=await this._hass.callWS({
