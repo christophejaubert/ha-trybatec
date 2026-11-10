@@ -109,7 +109,8 @@ def estimate_historical_costs(
     aggregate = defaultdict(lambda: {
         "quantity": Decimal(0), "meters": set(), "incomplete_meters": set(),
         "cost": Decimal(0), "missing_tariff": False, "applied_tariffs": set(),
-        "meter_rates": {},
+        "meter_rates": {}, "meter_quantities": defaultdict(Decimal),
+        "meter_costs": defaultdict(Decimal), "meter_missing_tariffs": set(),
     })
     withheld = []
     withheld_count = 0
@@ -154,6 +155,7 @@ def estimate_historical_costs(
                 continue
             entry = aggregate[(year, fluid, kind)]
             entry["quantity"] += quantity
+            entry["meter_quantities"][meter_id] += quantity
             entry["meters"].add(meter_id)
             if incomplete:
                 entry["incomplete_meters"].add(meter_id)
@@ -163,6 +165,7 @@ def estimate_historical_costs(
             origin = "meter_override" if specific is not None else "fluid_default"
             if rate is None:
                 entry["missing_tariff"] = True
+                entry["meter_missing_tariffs"].add(meter_id)
                 entry["meter_rates"][meter_id] = {
                     "rate": None, "status": "missing", "origin": "none",
                 }
@@ -172,6 +175,7 @@ def estimate_historical_costs(
                 raise ValueError("Invalid individual historical tariff")
             amount = _number(rate.get("rate"))
             entry["cost"] += quantity * amount
+            entry["meter_costs"][meter_id] += quantity * amount
             entry["applied_tariffs"].add((
                 amount, rate["status"], origin,
             ))
@@ -204,7 +208,25 @@ def estimate_historical_costs(
                 "mixed" if rates and not missing else "missing"
             ),
             "meter_rates": [
-                {"lot": k[0], "fluid": k[1], "meter_serial": k[2], **v}
+                {
+                    "lot": k[0], "fluid": k[1], "meter_serial": k[2], **v,
+                    "quantity": float(entry["meter_quantities"][k].quantize(
+                        _PRECISION, rounding=ROUND_HALF_UP,
+                    )),
+                    "unit": normalized_unit(fluid),
+                    "estimated_cost": (
+                        None if k in entry["meter_missing_tariffs"]
+                        else float(entry["meter_costs"][k].quantize(
+                            _CENT, rounding=ROUND_HALF_UP,
+                        ))
+                    ),
+                    "currency": "EUR",
+                    "coverage": (
+                        "partial_or_uncertain" if k in entry["incomplete_meters"]
+                        else "observed_intervals_only"
+                    ),
+                    "billing_status": "estimate_not_approved_charges",
+                }
                 for k, v in sorted(entry["meter_rates"].items())
             ][:max_details],
             "meter_count": len(entry["meters"]),
