@@ -1,6 +1,6 @@
 # Système de conception Trybatec — palette et accessibilité visuelle
 
-> **Référence normative interne** : décision du 10 novembre 2026. Périmètre : toutes les interfaces de l'intégration Trybatec, ses pictogrammes, ses graphiques et ses fichiers de marque. Issue de recette : [#70](https://github.com/christophejaubert/ha-trybatec/issues/70), bloquante pour [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) (0.3.0b1). **Document de spécification, non preuve de conformité**.
+> **Référence normative interne** : décision du 10 novembre 2026. Périmètre : toutes les interfaces de l'intégration Trybatec, ses pictogrammes, ses graphiques et ses fichiers de marque. Issue de recette : [#70](https://github.com/christophejaubert/ha-trybatec/issues/70), désormais rattachée à la préversion progressive [0.3.1b1](RELEASE_SCOPE_0.3.1b1.md). **Document de spécification, non preuve de conformité**.
 
 ## Palette canonique de marque
 
@@ -11,7 +11,7 @@
 | Chauffage | CTH | `CET` | Ambre doré | `#E0A126` |
 | Identité Trybatec | — | — | Vert | `#4E9E4A` |
 
-Les couleurs de référence sont **identiques** sur les logos, indépendamment du thème de l'hôte. Ne pas adapter les couleurs du logo aux modes sombre/clair. Préserver à l'identique la géométrie, les pictogrammes, les proportions, la résolution de chaque fichier et le canal alpha des originaux. Pour les interfaces, les couleurs ci-dessous **dérivent** de la palette canonique afin de garder une lisibilité acceptable.
+Les couleurs de référence sont **identiques** sur les logos, indépendamment du thème de l'hôte. Ne pas adapter les couleurs du logo aux modes sombre/clair. Pour 0.3.1b1, le **nouveau visuel approuvé** remplace cette ancienne consigne de non-refonte : symbole sans texte, trois formes circulaires entrelacées, séparation blanche, accents verts internes et **aucun cercle vert extérieur**. Pictogrammes : goutte EF, goutte ECS avec trois traits de chaleur, flamme CET. Les précédentes icônes de la PR #71 ne constituent pas le logo final validé. Pour les interfaces, les couleurs ci-dessous **dérivent** de la palette canonique afin de garder une lisibilité acceptable.
 
 **Identification :** la couleur de fluide ne code **jamais** l'état d'un compteur. Les états « En service », « Déposé », « Inconnu », « Erreur » restent des données distinctes, avec libellés et états sémantiques propres.
 
@@ -62,7 +62,7 @@ Calculs avec la luminance relative sRGB et la formule de contraste [WCAG 2.2](ht
 
 - EF : `mdi:water` + libellé « Eau froide ».
 - ECS : goutte + indicateur de chaleur ou thermomètre (le pictogramme doit rester discernable d'EF) + libellé « Eau chaude ».
-- CET : `mdi:fire` (flamme) ou `mdi:radiator` clairement rendu + libellé « Chauffage ».
+- CET : `mdi:fire` (flamme) + libellé « Chauffage » ; même concept graphique dans le nouveau logo.
 - Un élément sélectionné comporte **au moins** : un fond distinct, un repère de bordure et un état textuel/accessible ; le contenu ne se décale pas lors de la sélection.
 - Statuts toujours lisibles indépendamment des teintes (ex. « En service » reste vert même sur un compteur ECS rouge).
 - Ne pas utiliser uniquement la couleur pour distinguer graphiques et séries : types de tracé/points, légende lisible, tableau de données en alternative.
@@ -85,9 +85,9 @@ Calculs avec la luminance relative sRGB et la formule de contraste [WCAG 2.2](ht
 
 Les tests doivent couvrir : modes clair/sombre réellement utilisés dans Home Assistant ; bascule de thème à chaud ; bureau et smartphone ; 200 % de texte ; zoom/reflow 320 CSS px ; valeurs longs numéros de compteurs ; clavier ; lecteurs d'écran ; monochromie ; simulations protanopie/deutéranopie/tritanopie. Les simulations ne reproduisent pas toutes les pathologies visuelles et ne remplacent pas les tests utilisateurs.
 
-## Checklist de préversion 0.3.0b1
+## Checklist de préversion 0.3.1b1
 
-- [ ] Références `icon.png` et `icon@2x.png` recolorées depuis les **sources binaires originales**, sans modification des pixels en dehors des couleurs ciblées ; dimensions/alpha inchangés et examen visuel aux tailles UI réelles.
+- [ ] Générer `icon.png` (256 px) et `icon@2x.png` (512 px) à partir du **nouvel emblème approuvé**, avec transparence et petits accents verts internes ; tester le rendu à petite taille sur fonds clair et sombre.
 - [ ] Références du logo utilisées par le panneau, les intégrations et la documentation identifiées et cohérentes.
 - [ ] Tokens clair/sombre utilisés partout (compteurs, listes, cartes, historique, tarifs, Énergie, diagnostics, réglages).
 - [ ] Libellés et pictogrammes cohérents EF/ECS/CET, repères de sélection sans décalage.
