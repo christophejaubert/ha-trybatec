@@ -1031,6 +1031,6 @@ def test_ui_smoothing_shortcut_refuses_same_day_but_other_source_timestamp(ui, m
         return [candidate]
     monkeypatch.setattr(flow, "_smoothing_candidates", candidates)
     result = asyncio.run(flow.async_step_history_decision_smoothing())
-    assert result["step_id"] == "history_smoothing"
+    assert result["step_id"] == "history_preview_missing"  # no cached general list
     assert flow._selected_sparse is None
     assert flow.config_entry.options == {"poll_minutes": 720}
