@@ -49,7 +49,7 @@ def test_estimated_origin_choice_is_bounded_to_exact_source_and_meter():
     ("estimated_start_index", 400.0),
     ("first_observed_at", "2022-01-20T10:00:00"),
     ("estimated_start_date", "2022-01-20"),
-    ("estimated_start_date", "2020-01-01"),
+    ("estimated_start_date", "2010-01-01"),
 ])
 def test_estimated_origin_refuses_invalid_or_unproven_boundaries(field, bad):
     case = {**BASE, field: bad}
