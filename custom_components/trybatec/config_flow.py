@@ -1108,16 +1108,18 @@ class TrybatecOptionsFlow(OptionsFlow):
         if selected is None:
             return self._history_notice("history_preview_missing")
         candidates = await self._smoothing_candidates()
-        target = datetime.fromisoformat(selected["source_date"]).astimezone(ZONE).date().isoformat()
+        # Match the exact source observation, not merely its civil day:
+        # two readings of the same meter can occur on the same calendar day.
+        target = datetime.fromisoformat(selected["source_date"])
+        if target.tzinfo is None:
+            return self._history_notice("history_preview_missing")
         matching = [
             item for item in candidates
-            if (
-                item["lot"], item["fluid"], item["meter_serial"],
-                item["end_date"],
-            ) == (
-                selected["lot"], selected["fluid"], selected["meter_serial"],
-                target,
-            )
+            if item["lot"] == selected["lot"]
+            and item["fluid"] == selected["fluid"]
+            and item["meter_serial"] == selected["meter_serial"]
+            and isinstance(item.get("source_end_at"), str)
+            and datetime.fromisoformat(item["source_end_at"]) == target
         ]
         if len(matching) == 1:
             self._selected_sparse = matching[0]
