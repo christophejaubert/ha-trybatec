@@ -1002,8 +1002,11 @@ class TrybatecPanel extends HTMLElement {
         fmt(x.rate)+" "+(unit==="kWh"?"EUR/kWh":"EUR/m³");
       const meterDetails=(x.meter_rates||[]).slice(0,30).map(m=>
         '<li>'+safe(m.meter_serial)+" · "+safe(m.lot)+" · "+
+        safe(fmt(m.quantity))+" "+safe(unit)+" · "+
         safe(m.rate===null?"tarif absent":fmt(m.rate)+" "+(unit==="kWh"?"EUR/kWh":"EUR/m³"))+
+        ' · '+safe(m.estimated_cost===null?"coût indisponible":fmt(m.estimated_cost)+" EUR")+
         ' · '+safe(m.origin==="meter_override"?"spécifique":m.origin==="fluid_default"?"commun":"aucun")+
+        (m.coverage==="partial_or_uncertain"?" · période incomplète":"")+
         '</li>').join("");
       return '<tr><td>'+safe(x.year)+'</td><td>'+safe(FLUID[x.fluid]||x.fluid)+'</td>'+
         '<td>'+safe(evidence)+'</td><td>'+safe(fmt(x.quantity))+' '+safe(unit)+'</td>'+
