@@ -194,3 +194,48 @@ def test_negative_or_unbounded_rates_refused_even_outside_service():
     for bad in (-1, float("nan"), True):
         with pytest.raises(ValueError):
             estimate_historical_costs(h, {"2026": {"EF": {"rate": bad, "status": "approved"}}})
+
+
+def test_costs_report_each_meters_quantity_and_inherited_rate():
+    """Two physical meters, including reused serials, never share cost overrides."""
+    h = history(
+        row("SAME", "EF", times("2026-02-01T00:00:00+01:00", [10, 12]),
+            lot="FAKE-A", unit="m3"),
+        row("SAME", "EF", times("2026-02-01T00:00:00+01:00", [1000, 3000]),
+            lot="FAKE-B", unit="L"),
+    )
+    default = {"2026": {"EF": {"rate": 2.0, "status": "approved"}}}
+    specific = {"2026": {
+        meter_key("FAKE-B", "EF", "SAME"): {"rate": 3.25, "status": "provisional"}
+    }}
+    item = find(estimate_historical_costs(
+        h, default, meter_tariffs=specific,
+    ), 2026, "EF")
+    meters = {m["lot"]: m for m in item["meter_rates"]}
+    assert item["quantity"] == 4.0
+    assert item["estimated_cost"] == 10.50
+    assert item["rate"] is None  # two rates, not missing or merged as one
+    assert item["rate_origin"] == "mixed"
+    assert item["tariff_status"] == "mixed"
+    assert meters["FAKE-A"]["quantity"] == 2.0
+    assert meters["FAKE-A"]["estimated_cost"] == 4.0
+    assert meters["FAKE-A"]["rate"] == 2.0
+    assert meters["FAKE-A"]["origin"] == "fluid_default"
+    assert meters["FAKE-B"]["quantity"] == 2.0
+    assert meters["FAKE-B"]["estimated_cost"] == 6.50
+    assert meters["FAKE-B"]["rate"] == 3.25
+    assert meters["FAKE-B"]["origin"] == "meter_override"
+    assert all(m["currency"] == "EUR" for m in item["meter_rates"])
+    assert all(m["billing_status"] == "estimate_not_approved_charges"
+               for m in item["meter_rates"])
+
+
+def test_missing_meter_tariff_never_creates_cost():
+    h = history(row("M", "ECS", times("2026-02-01T00:00:00+01:00", [0, 2]),
+                    lot="FAKE-A", unit="m3"))
+    item = find(estimate_historical_costs(h, {}), 2026, "ECS")
+    assert item["estimated_cost"] is None
+    assert item["meter_rates"][0]["quantity"] == 2.0
+    assert item["meter_rates"][0]["rate"] is None
+    assert item["meter_rates"][0]["estimated_cost"] is None
+    assert item["meter_rates"][0]["currency"] == "EUR"

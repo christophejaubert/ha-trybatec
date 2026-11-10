@@ -90,3 +90,21 @@ def test_estimated_origin_panel_requires_separate_confirmed_save():
     assert "saved.energy_writes!==false" in source
     assert "Motif déclaré pour cette hypothèse" in source
     assert "l’index initial n’est pas un relevé" not in source
+
+
+def test_annual_cost_preview_uses_readonly_yearly_source():
+    """Annual price view requests a verified read-only preview, not Recorder writes."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert 'data-cost-preview' in source
+    assert 'service:"preview_costs"' in source
+    assert 'include_cold_water:true,include_hot_water:true,include_heating:true' in source
+    assert 'result?.mode!=="read_only_historical_cost_estimates"' in source
+    assert 'result.currency!=="EUR"' in source
+    assert 'result.persisted!==false' in source
+    assert 'result.start_date!==start_date || result.end_date!==end_date' in source
+    assert 'this._costPreview=null;this._costYear=null;' in source
+    assert 'x.estimated_cost===null?"Indisponible"' in source
+    assert 'p.withheld_total' in source
+    assert 'm.estimated_cost===null?"coût indisponible"' in source
+    assert 'fmt(m.quantity)' in source
+    assert 'Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.' in source

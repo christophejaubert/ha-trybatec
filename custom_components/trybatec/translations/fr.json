@@ -74,6 +74,7 @@
         "menu_options": {
           "history_decision_accept": "Accepter le relevé (confirmation requise)",
           "history_decision_correct": "Corriger le relevé (confirmation requise)",
+          "history_decision_smoothing": "Lisser la consommation avant ce relevé",
           "history_decision_reject": "Exclure le relevé (confirmation requise)",
           "history_decision_postpone": "Reporter le traitement (confirmation requise)",
           "history_review": "← Retour à la liste des relevés",
@@ -82,7 +83,7 @@
       },
       "history_correction": {
         "title": "Corriger ou imputer un relevé",
-        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.\n\nAprès validation des champs, l’écran de confirmation obligatoire s’affiche. Aucun brouillon n’est enregistré comme décision tant que vous ne l’avez pas explicitement approuvé.",
+        "description": "La date réelle ne doit être corrigée que sur justificatif. La date comptable est une convention, pas une date de mesure.\n\nAprès validation des champs, l’écran de confirmation obligatoire s’affiche. Aucun brouillon n’est enregistré comme décision tant que vous ne l’avez pas explicitement approuvé. Pour lisser la consommation des jours précédents, revenez à « Décision sur le relevé » et choisissez « Lisser la consommation avant ce relevé » ; aucun index source ne sera modifié.",
         "data": {
           "mode": "Type de correction",
           "date": "Date",
