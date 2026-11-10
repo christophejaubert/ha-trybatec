@@ -731,7 +731,7 @@ class TrybatecPanel extends HTMLElement {
       '. Premier index réellement observé : '+safe(preview.first_observed_index)+
       ' '+safe(preview.source_index_unit||"unité à vérifier")+' à '+safe(preview.first_observed_at)+
       '. L’index initial '+safe(preview.estimated_initial_index)+' '+safe(preview.source_index_unit||"")+
-      ' est une hypothèse, pas une mesure. Aucune donnée n’a été enregistrée.</div>'+
+      ' est une hypothèse, pas une mesure. Cet aperçu ne crée aucune mesure source.</div>'+
       (preview.daily_preview?this._historyDayBars({
         daily_preview:preview.daily_preview,unit:preview.unit
       }):'<p class="muted">Le détail journalier est tronqué pour cette longue période.</p>')+
