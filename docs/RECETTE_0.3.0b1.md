@@ -31,7 +31,7 @@
 | C11 | Origine initiale manquante : date requise, index estimé 0 modifiable, approbation et révision explicites | CI, cas réels à vérifier |
 | C12 | Remplacements et chevauchements : consommations consolidées, index de compteurs distincts non additionnés | CI, cas réels à vérifier |
 | C13 | Versions Recorder V1/V2/V3, import isolé, readback, idempotence, incident, reprise et rollback | CI synthétique, staging à valider |
-| C14 | Activation Énergie contrôlée eau/chauffage, unitès vérifiées, rollback et conservation des sources tiers | CI synthétique, staging à valider |
+| C14 | Activation Énergie contrôlée eau/chauffage, unités vérifiées, rollback et conservation des sources tiers | CI synthétique, staging à valider |
 | C15 | Tarifs sur deux exercices EF/ECS/CET, défaut et dérogation, édition sans JSON, persistance et absence de tarif inventé | CI partielle, réel à tester |
 | C16 | Coûts historiques estimés exacts par année, provenance, unités et tarifs absents non inventés | CI partielle, réel à tester |
 | C17 | API indisponible, données invalides, réauthentification, logs sans secrets, messages actionnables | Recette à faire |
