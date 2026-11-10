@@ -10,6 +10,8 @@ const TABS = [
 ];
 const FLUID = {EF:"Eau froide", ECS:"Eau chaude", CET:"Chauffage", unknown:"Fluide non identifié"};
 const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
+const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:thermometer", CET:"mdi:fire"};
+const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
@@ -520,9 +522,12 @@ class TrybatecPanel extends HTMLElement {
   }
   set hass(value) {
     const previousLanguage=this._hass?.language;
+    const previousDark=this._hass?.themes?.darkMode;
     this._hass = value;
+    this.dataset.trybatecTheme=value?.themes?.darkMode===true?"dark":"light";
     if (this.isConnected && !this._started) this._fetch();
-    else if (this.isConnected && previousLanguage!==value?.language) this._render();
+    else if (this.isConnected &&
+      (previousLanguage!==value?.language || previousDark!==value?.themes?.darkMode)) this._render();
   }
   set narrow(value) { this._narrow = value; }
   set panel(value) { this._panel = value; }
@@ -766,12 +771,21 @@ class TrybatecPanel extends HTMLElement {
     return values;
   }
   _meterRow(m,i,action) {
-    const line='<span class="meter-name">'+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
+    const fluidClass=FLUID_CLASS[m.fluid]||"";
+    const fluidIcon=FLUID_ICON[m.fluid]?
+      '<ha-icon class="fluid-icon" icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':"";
+    const line='<span class="meter-name">'+fluidIcon+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
       '<span class="meter-sub">'+safe(m.lot||"Lot non renseigné")+' · '+safe(m.unit||"Unité à vérifier")+
       ' · '+(m.status==="depose"?"Déposé":m.status==="en_service"?"En service":"Statut inconnu")+'</span>';
-    if (action==="detail") return '<div class="meter-row"><button type="button" class="'+(i===this._meter?"selected":"")+
-      '" data-meter="'+i+'">'+line+'</button></div>';
-    return '<div class="meter-row"><button type="button" data-open-meter="'+i+'">'+line+'</button></div>';
+    if (action==="detail") {
+      const selected=i===this._meter;
+      return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
+        '" aria-pressed="'+(selected?"true":"false")+'" data-meter="'+i+'">'+line+
+        (selected?'<ha-icon class="selected-indicator" icon="mdi:check-circle" aria-hidden="true"></ha-icon>':"")+
+        '</button></div>';
+    }
+    return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+
+      '" data-open-meter="'+i+'">'+line+'</button></div>';
   }
   _overview() {
     const a=this._current, meters=this._meters(), counts=this._counts();
@@ -904,7 +918,7 @@ class TrybatecPanel extends HTMLElement {
     const account=this._current;
     const related=account.entities.filter(e=>
       e.unique_id && (e.unique_id.includes("_"+m.serial+"_")||e.unique_id.endsWith("_"+m.serial+"_index")));
-    return '<div class="card"><div class="panel-title"><h2>'+safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
+    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2>'+safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
       this._badge(m)+'</div><p class="muted">Compteur physique · '+safe(m.source==="live_api"?"Relevé par l’API":"Archivé localement")+'</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
@@ -931,7 +945,7 @@ class TrybatecPanel extends HTMLElement {
     if (!groups.length) return '';
     return '<section class="card" style="margin-top:16px"><h3>Chronologie des compteurs physiques</h3>'+
       '<p class="muted">Par logement et fluide, fondée uniquement sur les observations. Les dates exactes de remplacement ne sont pas déduites.</p>'+
-      groups.map(g=>'<div class="line" style="margin-top:12px"><strong>'+
+      groups.map(g=>'<div class="line '+safe(FLUID_CLASS[g.fluid]||"")+'" style="margin-top:12px;border-inline-start:4px solid var(--fluid-fg,var(--trybatec-section-border))"><strong>'+
         safe(FLUID[g.fluid]||g.fluid)+' · '+safe(g.lot||'Lot inconnu')+'</strong> '+
         '<span class="badge">'+safe(g.count)+' compteur(s)</span>'+
         '<div class="list" style="margin-top:10px">'+g.meters.map(m=>
