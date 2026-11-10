@@ -74,6 +74,7 @@
         "menu_options": {
           "history_decision_accept": "Accept reading (confirmation required)",
           "history_decision_correct": "Correct reading (confirmation required)",
+          "history_decision_smoothing": "Smooth consumption before this reading",
           "history_decision_reject": "Exclude reading (confirmation required)",
           "history_decision_postpone": "Postpone review (confirmation required)",
           "history_review": "← Back to reading list",
@@ -82,7 +83,7 @@
       },
       "history_correction": {
         "title": "Correct or attribute a reading",
-        "description": "Only correct measurement date with evidence. Accounting attribution is a convention, not a measurement timestamp.\n\nSubmitting these fields opens the mandatory confirmation form. No draft is stored as a decision until you explicitly approve it.",
+        "description": "Only correct measurement date with evidence. Accounting attribution is a convention, not a measurement timestamp.\n\nSubmitting these fields opens the mandatory confirmation form. No draft is stored as a decision until you explicitly approve it. To distribute consumption over preceding days, return to the reading decision and choose “Smooth consumption before this reading”; raw indexes are never changed.",
         "data": {
           "mode": "Correction type",
           "date": "Date",
