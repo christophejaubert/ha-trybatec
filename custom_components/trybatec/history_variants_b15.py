@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from .const import TIMEZONE
 from .history_reconstruction import preview_sparse_intervals, propose_interval
-from .history_origin_decisions import validate_choice
+from .history_origin_decisions import validate_choice, origin_boundary_fingerprint
 from .units import unit_factor, normalized_unit, meter_key
 
 ZONE = ZoneInfo(TIMEZONE)
@@ -100,8 +100,6 @@ def variants_preview(
             choice = validate_choice(approved_origin)
             if (choice["lot"], choice["fluid"], choice["serial"]) != key:
                 raise ValueError("Approved estimated origin belongs to another physical meter")
-            if choice["source_fingerprint"] != meter.get("source_fingerprint"):
-                raise ValueError("Approved estimated origin is stale after source changes")
             readings = meter.get("reviewed_readings") or []
             if not readings or not isinstance(readings[0][0], datetime):
                 raise ValueError("Approved estimated origin has no verified source boundary")
@@ -109,6 +107,13 @@ def variants_preview(
             if (first_at.isoformat() != choice["first_observed_at"] or
                     float(first_value) != choice["first_observed_index"]):
                 raise ValueError("Approved estimated origin's first observed source changed")
+            stable_source_proof = origin_boundary_fingerprint(
+                lot=lot, fluid=fluid, serial=serial,
+                first_observed_at=first_at.isoformat(), first_observed_index=first_value,
+                source_unit=unit,
+            )
+            if choice["source_fingerprint"] != stable_source_proof:
+                raise ValueError("Approved estimated origin source boundary or unit is stale")
             if any(at <= first_at for at in meter.get("unreviewed_zero_times", ())):
                 raise ValueError("Unreviewed zero blocks approved estimated origin")
             zero_ok = first_value != 0 or first_at in meter.get("qualified_zero_times", ())
