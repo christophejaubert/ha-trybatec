@@ -387,7 +387,8 @@ async def test_options_root_direct_steps_have_actual_homeassistant_translations(
     ]
     assert initial["type"] == "menu"
     assert initial["step_id"] == "init"
-    assert initial["menu_options"] == expected
+    assert list(initial["menu_options"]) == expected
+    assert all(isinstance(v, str) and v.strip() for v in initial["menu_options"].values())
     translations = await async_get_translations(
         hass, language, "options", {DOMAIN}
     )
