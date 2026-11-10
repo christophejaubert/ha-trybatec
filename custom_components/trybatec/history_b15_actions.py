@@ -23,6 +23,8 @@ from .history_recorder_b15 import (
     ledger_store, queue_b15_plan, verify_b15_recorder,
 )
 from .history_smoothing_store import load_choices
+from .history_origin_store import load_origin_choices
+from .units import meter_key
 from .history_devices_b15 import persist_historical_inventory
 from .migration_runtime_b15 import preview_identity_migration, apply_identity_migration
 from .units import resolve_meter_unit, validate_meter_units
@@ -82,12 +84,24 @@ async def _admin_plan(hass: Any, call: Any):
     choices = await load_choices(hass, coordinator.entry.entry_id)
     selected_history = {**history, "__physical_meters__": relevant}
     try:
+        saved_origins = await load_origin_choices(hass, coordinator.entry.entry_id)
+        selected_origins = {
+            identity: choice for identity, choice in saved_origins.items()
+            if choice["fluid"] in selected
+        }
+        known_meters = {meter_key(*key) for key in relevant}
+        if set(selected_origins) - known_meters:
+            raise ValueError(
+                "An approved estimated origin has no matching physical meter "
+                "in the selected complete source interval"
+            )
         plan = make_b15_plan(
             selected_history, units, choices,
             coordinator.entry.unique_id or coordinator.entry.entry_id,
             sparse_hours=int(coordinator.entry.options.get(
                 CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
             )),
+            approved_origins=selected_origins,
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ServiceValidationError(
@@ -106,6 +120,8 @@ async def async_preview_b15(hass: Any, call: Any) -> dict[str, Any]:
         "plan_fingerprint": plan["fingerprint"],
         "physical_meters": plan["physical_meters"],
         "dwelling_fluid_groups": plan["logical_groups"],
+        "approved_estimated_origins": plan["approved_estimated_origins"],
+        "origins_are_assumptions_not_measured_indexes": True,
         "series": [{
             "logical_id": item["logical_id"], "kind": item["kind"],
             "fluid": item["fluid"], "lot": item["lot"],
