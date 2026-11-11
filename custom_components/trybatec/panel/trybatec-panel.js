@@ -1225,7 +1225,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Dernier index exploitable</span><strong>'+safe(this._date(m.last_observed_at)||"Non vérifié")+'</strong></div>'+
       (m.status==="depose" && m.historical_last_index_raw!==undefined?
         '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
-        safe(this._number(m.historical_last_index_raw))+' '+safe(m.unit||"")+
+        safe(this._number(m.historical_last_index_raw))+
         '</strong><span class="muted">'+safe(this._date(m.historical_last_index_at))+
         (m.historical_index_conflict?" · conflit de relevés à vérifier":" · relevé historique à qualifier")+
         '</span></div>':"")+
