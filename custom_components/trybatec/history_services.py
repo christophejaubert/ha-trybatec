@@ -123,7 +123,7 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
                     begin, finish, reason,
                 )
                 raise ServiceValidationError(
-                    f"Trybatec history response invalid ({reason}); no partial history accepted"
+                    f"Trybatec history response invalid for {begin} to {finish} ({reason}); No partial history was accepted."
                 ) from exc
             if (finish - begin).days <= 1:
                 _LOGGER.warning(
