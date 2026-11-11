@@ -1,7 +1,7 @@
-# 0.3.1b3 — Correctifs HTTP, historique et Recorder (candidate non publiée)
+# 0.3.1b3 — Correctifs HTTP, historique et Recorder
 
 Cette préversion corrective fait suite aux vérifications après installation de 0.3.1b2.
-**État : en développement et en recette, aucune publication autorisée.**
+**Préversion bêta expérimentale : installation volontaire avec sauvegarde Home Assistant préalable recommandée.**
 
 - Lecture HTTP : attendre l'intégralité du corps, même avec fragmentation réseau,
   avant de décoder un JSON. Préserver le plafond des réponses d'index (16 Mio)
@@ -16,7 +16,9 @@ Cette préversion corrective fait suite aux vérifications après installation d
 - Diagnostics : préparer l'inventaire en lecture seule des limites techniques
   effectives, la traçabilité expurgée et les budgets candidats validés sous
   réserve de tests représentatifs ; ne pas les afficher comme actifs prématurément.
-- Progression historique : ne jamais présenter comme progression de la tâche\n  demandée les mesures d'une autre opération concurrente du même compte.\n- Plafonds de secours effectivement appliqués : 1 800 secondes et
+- Progression historique : ne jamais présenter comme progression de la tâche
+  demandée les mesures d'une autre opération concurrente du même compte.
+- Plafonds de secours effectivement appliqués : 1 800 secondes et
   512 tentatives HTTP par opération suivie ; arrêt avec rejet explicite de
   tous les résultats partiels. Ils sont distincts des budgets candidats
   standard 120 s / 24 appels et exhaustif 600 s / 80 appels, non activés :
@@ -35,7 +37,7 @@ Les opérations d'import Recorder, de nettoyage, de tarifs et de configuration
 
 **Exclusions :** aucune modification automatique de Home Assistant installé,
 du fournisseur Trybatec, des relevés sources, du tableau Énergie ou des
-statistiques Recorder. Aucune publication ni fusion sans autorisation explicite.
+statistiques Recorder. La disponibilité effective dépend d'une publication GitHub distincte.
 
 ---
 # 0.3.1b2 — Correctifs de recette du panneau Trybatec (candidate)
