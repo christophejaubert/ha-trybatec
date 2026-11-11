@@ -69,7 +69,12 @@ def test_unavailable_does_not_mean_obsolete_without_exact_technical_identity():
         "status": "unconfigured", "sources": [],
     })
     assert result["potential_legacy_entries"] == 0
-    assert all(x["technical_role"] == "unclassified" for x in result["entities"])
+    assert {x["entity_id"]:x["technical_role"] for x in result["entities"]} == {
+        "sensor.orphan": "unclassified",
+        "sensor.other": "active_physical_index",
+        "sensor.metric": "unclassified",
+    }
+    assert all(x["can_delete"] is False for x in result["entities"])
 
 
 @pytest.mark.parametrize("bad", [
@@ -88,3 +93,44 @@ def test_invalid_energy_reference_data_fails_closed():
         audited_entity_inventory([record("sensor.one", "ACCT_S_index")], {
             "status": "available", "sources": {"not": "a list"},
         })
+
+
+
+def test_known_technical_roles_classified_without_cleaning_authorization():
+    """All four real categories have explicit labels from exact unique IDs."""
+    records = [
+        {**record("sensor.active", "ACCOUNT_SERIAL_b6_m³_index", state="12"), "deposed": False},
+        {**record("sensor.old", "ACCOUNT_b15_retired_" + "a" * 24), "deposed": None},
+        {**record("sensor.price", "ACCOUNT_EF_price_b6_verified"), "deposed": None},
+        {**record("sensor.cost", "ACCOUNT_ECS_cost_b6_verified"), "deposed": None},
+        {**record("sensor.volume", "ACCOUNT_CET_volume_b6_verified"), "deposed": None},
+        {**record("sensor.ambiguous", "ACCOUNT_UNKNOWN_b6_m³_index"), "deposed": None},
+    ]
+    result = audited_entity_inventory(records, {"status": "available", "sources": []})
+    roles = {item["entity_id"]: item["technical_role"] for item in result["entities"]}
+    assert roles == {
+        "sensor.active": "active_physical_index",
+        "sensor.old": "retired_physical_index",
+        "sensor.price": "account_annual_unit_price",
+        "sensor.cost": "account_ytd_cost_estimate",
+        "sensor.volume": "account_ytd_usage_estimate",
+        "sensor.ambiguous": "physical_index_status_unknown",
+    }
+    assert all(x["can_delete"] is False for x in result["entities"])
+    assert all(x["eligible_for_automatic_cleanup"] is False for x in result["entities"])
+    assert result["no_deletion_permitted"] is True
+
+
+def test_entity_name_and_suffix_alone_do_not_prove_type_or_retirement():
+    records = [
+        record("sensor.synthetic_2", "unrelated_unique_id", state="unknown"),
+        record("sensor.synthetic_archived", "fake_b15_retired_NOT_A_HASH"),
+        {**record("sensor.synthetic_unknown", "ACCOUNT_SERIAL_b6_kWh_index"),
+         "deposed": None},
+    ]
+    out = audited_entity_inventory(records, {"status": "not_loaded", "sources": []})
+    result = {item["entity_id"]: item["technical_role"] for item in out["entities"]}
+    assert result["sensor.synthetic_2"] == "unclassified"
+    assert result["sensor.synthetic_archived"] == "unclassified"
+    assert result["sensor.synthetic_unknown"] == "physical_index_status_unknown"
+    assert all(item["energy_reference_check"] == "not_loaded" for item in out["entities"])
