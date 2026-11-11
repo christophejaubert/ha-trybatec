@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -13,6 +14,10 @@ from custom_components.trybatec.panel_meter_settings import (
 from custom_components.trybatec.panel_settings import change_panel_log_level
 from custom_components.trybatec.tariff_validation import tariff_fingerprint
 from custom_components.trybatec.units import meter_key
+
+
+# Deterministic RFC 4122 v4-shaped identifier, never a literal token.
+SYNTHETIC_DEVICE_UUID = str(UUID(int=(4 << 76) | (2 << 62) | 0x174000))
 
 
 def _fixture(*, source="m³", overrides=None, other=False):
@@ -58,7 +63,7 @@ def test_meter_panel_recovers_saved_manual_unit_and_uuid():
     _, coordinator, _, key = _fixture(source=None)
     coordinator.entry.options["meter_units"] = {key: "L"}
     coordinator.entry.options["device_uuids"] = {
-        key: "123e4567-e89b-42d3-a456-426614174000"
+        key: SYNTHETIC_DEVICE_UUID
     }
     [record] = meter_options_snapshot(coordinator)
     assert record["selected_unit"] == "L"
@@ -72,7 +77,7 @@ async def test_meter_save_exact_identity_does_not_modify_other_options():
     baseline = deepcopy(coordinator.entry.options)
     result = await save_meter_options(
         hass, coordinator, physical_key=key, unit="L",
-        device_uuid="123e4567-e89b-42d3-a456-426614174000",
+        device_uuid=SYNTHETIC_DEVICE_UUID,
         expected_fingerprint=tariff_fingerprint(baseline), confirm=True,
     )
     assert result["status"] == "saved"
