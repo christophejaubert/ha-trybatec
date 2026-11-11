@@ -731,6 +731,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
     if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
+    if (btn.dataset.copyDiagnostic !== undefined) {this._copyDiagnostics();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
     if (btn.dataset.historyCancel !== undefined) {this._cancelHistoryJob("historical_preview");return;}
     if (btn.dataset.tariffYearsCancel !== undefined) {this._cancelHistoryJob("tariff_year_coverage");return;}
@@ -1976,7 +1977,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
       '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
       }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
-      '</div></section></div>';
+      '</div></section></div>'+this._communicationDiagnostics();
   }
   async _saveSettings() {
     if (!this._current || this._settingsBusy) return;
@@ -2012,6 +2013,118 @@ class TrybatecPanel extends HTMLElement {
       this._settingsBusy=false;this._render();
     }
   }
+  _technicalLimits() {
+    const details=this._data?.technical_limits;
+    if (!details?.read_only) return '<p class="muted">'+this._t(
+      'Limites techniques non disponibles.',
+      'Technical limits unavailable.')+'</p>';
+    const effective=details.effective||{},proposed=details.proposed||{};
+    const number=value=>Number.isFinite(value)?safe(this._number(value)):this._t(
+      'Non défini','Not defined');
+    const bytes=(value,unit)=>Number.isFinite(value)?
+      number(value/(unit==="Mio"?1048576:1024))+' '+unit:
+      this._t('Non défini','Not defined');
+    const line=(fr,en,value)=>
+      '<div class="line">'+safe(this._t(fr,en))+': <strong>'+value+'</strong></div>';
+    const timeout=effective.timeouts_seconds||{};
+    return '<details class="technical-limits"><summary>'+
+      this._t('Limites et protections (lecture seule)',
+        'Limits and safeguards (read-only)')+'</summary>'+
+      '<p class="muted">'+this._t(
+        'Valeurs effectives issues de l’intégration, non modifiables.',
+        'Active limits reported by the integration; not editable.')+'</p>'+
+      line('Taille maximale des réponses d’index','Maximum index response',
+        bytes(effective.index_max_bytes,'Mio'))+
+      line('Taille maximale des métadonnées','Maximum metadata response',
+        bytes(effective.metadata_max_bytes,'Kio'))+
+      line('Volume historique reçu au total','Aggregate received history limit',
+        bytes(effective.max_history_received_bytes,'Mio'))+
+      line('Lignes par réponse','Rows per response',number(effective.max_index_lines))+
+      line('Points par réponse','Points per response',number(effective.max_index_points))+
+      line('Délai HTTP des index','Index HTTP timeout',number(timeout.indexes)+' s')+
+      line('Délai HTTP d’authentification','Authentication HTTP timeout',
+        number(timeout.authentication)+' s')+
+      line('Délai HTTP de découverte','Discovery HTTP timeout',number(timeout.housing)+' s')+
+      line('Délai HTTP des appareils','Device HTTP timeout',number(timeout.device)+' s')+
+      line('Tentatives transitoires','Transient attempts',number(effective.transient_max_attempts))+
+      line('Itérations index (réauthentification comprise)','Index iterations (including reauth)',
+        number(effective.max_index_iterations_with_reauth))+
+      line('Temporisations transitoires','Transient retry delays',
+        (effective.transient_delays_ms||[]).map(v=>number(v)+' ms').join(' / '))+
+      line('Pause entre sous-périodes historiques','Pause between history subwindows',
+        number(effective.history_pause_ms)+' ms')+
+      line('Lectures historiques simultanées par compte','Concurrent historical scans per account',
+        effective.history_serialized_per_account?'1':this._t('Non vérifié','Unverified'))+
+      line('Durée globale actuellement appliquée','Current overall duration limit',
+        effective.max_global_duration_seconds===null?this._t('Non définie','Not defined'):
+          number(effective.max_global_duration_seconds)+' s')+
+      line('Appels HTTP actuellement plafonnés par opération','Current HTTP requests per operation',
+        number(effective.max_global_http_requests))+
+      '<h4>'+this._t('Budgets proposés — non actifs',
+        'Proposed budgets — not yet active')+'</h4>'+
+      '<p class="muted">'+this._t(
+        'Valeurs candidates à confirmer après tests représentatifs.',
+        'Candidate thresholds pending representative load tests.')+'</p>'+
+      line('Analyse standard (durée / requêtes)','Standard (duration / requests)',
+        number(proposed.standard?.duration_seconds)+' s / '+
+        number(proposed.standard?.http_requests))+
+      line('Analyse exhaustive (durée / requêtes)','Exhaustive (duration / requests)',
+        number(proposed.exhaustive?.duration_seconds)+' s / '+
+        number(proposed.exhaustive?.http_requests))+
+      line('Temporisation historique proposée','Proposed history pause',
+        number(proposed.proposed_pause_ms)+' ms')+
+      line('Concurrence cible par compte','Target concurrency per account',
+        number(proposed.max_concurrent_historical_scans_per_account))+
+      '</details>';
+  }
+  _communicationDiagnostics() {
+    const diagnostics=this._current?.communication_diagnostics||{};
+    const recent=Array.isArray(diagnostics.recent)?diagnostics.recent:[];
+    const active=Array.isArray(diagnostics.active)?diagnostics.active:[];
+    const view=(operation)=>{
+      const info=[operation.kind,operation.status,operation.started_at,
+        operation.elapsed_seconds+' s',
+        operation.http_requests+' '+this._t('requêtes','requests'),
+        operation.retries+' '+this._t('tentatives supplémentaires','retries'),
+        operation.subdivisions+' '+this._t('subdivisions','splits')].join(' · ');
+      const details=this._t('Volume reçu','Received bytes')+': '+
+        safe(operation.bytes_received??'—')+' octets · '+
+        this._t('Plus grande réponse','Largest response')+': '+
+        safe(operation.largest_response_bytes??'—')+' octets';
+      return '<li><div>'+safe(info)+'</div><div class="muted">'+details+'</div>'+
+        (operation.error_type?'<div class="muted">'+this._t('Cause','Cause')+
+          ': '+safe(operation.error_type)+'</div>':"")+'</li>';
+    };
+    return '<section class="card" style="margin-top:16px">'+
+      '<h3>'+this._t('Diagnostic des communications Trybatec',
+        'Trybatec communications diagnostics')+'</h3>'+
+      '<p class="muted">'+this._t(
+        'Au plus 20 opérations conservées en mémoire pendant 24 heures ; aucun relevé ni identifiant de compte.',
+        'At most 20 in-memory operations for 24 hours; no readings or account identifiers.')+'</p>'+
+      (active.length?'<div class="notice">'+this._t('Opération(s) en cours',
+        'Running operations')+': '+safe(active.length)+'</div>':"")+
+      '<details><summary>'+this._t('Consulter les dernières opérations',
+        'Inspect recent operations')+'</summary>'+
+      (recent.length?'<ul>'+recent.slice(0,20).map(view).join('')+'</ul>':
+        '<p class="muted">'+this._t('Aucun diagnostic disponible.',
+        'No diagnostics available.')+'</p>')+'</details>'+
+      '<div class="actions"><button type="button" class="secondary" data-copy-diagnostic>'+
+      this._t('Copier le rapport expurgé','Copy redacted report')+'</button></div>'+
+      '<div class="muted">'+this._t(
+        'Copie locale uniquement ; aucun envoi automatique.',
+        'Local copy only; no automatic transmission.')+'</div></section>';
+  }
+  async _copyDiagnostics() {
+    if (!this._current || !this._data?.technical_limits || !navigator.clipboard?.writeText)
+      return;
+    const report={
+      version:this._data.version,
+      technical_limits:this._data.technical_limits,
+      operations:this._current.communication_diagnostics,
+    };
+    // The backend deliberately provides only safe metrics and opaque job IDs.
+    await navigator.clipboard.writeText(JSON.stringify(report,null,2));
+  }
   _settings() {
     const settings={...this._current.settings,...this._settingsInput};
     const field=(key,label,min,max,description)=>
@@ -2042,7 +2155,10 @@ class TrybatecPanel extends HTMLElement {
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Autres options Trybatec</h3>'+
       '<p>Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.</p>'+
-      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir Options Trybatec</button></div></section>';
+      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir Options Trybatec</button></div></section>'+
+      '<section class="card" style="margin-top:16px"><h3>Diagnostic et paramètres techniques</h3>'+
+      this._technicalLimits()+
+      '<div class="actions"><button class="secondary" type="button" data-tab="diagnostics">Consulter les diagnostics</button></div></section>';
   }
   _content() {
     if (this._loading) return '<div class="card empty">Chargement des données Trybatec…</div>';
