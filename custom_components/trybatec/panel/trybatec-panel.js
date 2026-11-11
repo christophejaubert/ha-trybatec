@@ -582,7 +582,7 @@ const style = [
   ".stat ha-icon,.link{color:var(--trybatec-green-fg)}.badge{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
   ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
   ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
-  ".duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
+  ".poll-duration{grid-column:span 2;min-width:0}.duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
   ".prerequisite-locked{opacity:.53;filter:grayscale(.5);border:0;padding:0;margin:0;width:100%;min-width:0}",
   ".prerequisite-ready{border:0;padding:0;margin:0;width:100%;min-width:0}",
   ".readiness-list{display:grid;gap:12px}.readiness-row{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--divider-color,#ddd);padding-top:12px}",
@@ -593,7 +593,7 @@ const style = [
   "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
   ".nav-wrap{padding-inline-end:34px}.nav{scrollbar-width:none;scroll-behavior:smooth}.nav::-webkit-scrollbar{display:none}",
   ".nav-forward{display:flex;align-items:center;justify-content:center;position:absolute;inset-inline-end:0;top:0;bottom:0;min-width:38px;border:0;color:var(--trybatec-green-fg);background:linear-gradient(to right,transparent,var(--card-background-color,#fff) 35%)}",
-  ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
+  ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.poll-duration{grid-column:1/-1}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
 ].join("");
 
 class TrybatecPanel extends HTMLElement {
@@ -2079,7 +2079,7 @@ class TrybatecPanel extends HTMLElement {
       '<section class="card"><h3>Synchronisation et contrôle des relevés</h3>'+
       '<p class="muted">Ces valeurs sont partagées avec Options Trybatec et conservées lors des mises à jour.</p>'+
       '<div class="form-grid" style="margin-top:18px">'+
-      '<div style="grid-column:span 2"><label>Fréquence de synchronisation</label>'+
+      '<div class="poll-duration"><label>Fréquence de synchronisation</label>'+
       '<div class="duration-inputs">'+durationField("days","Jours",7)+
       durationField("hours","Heures",23)+durationField("minutes","Minutes",59)+'</div>'+
       '<div class="muted">'+(Number.isFinite(durationMinutes)?
