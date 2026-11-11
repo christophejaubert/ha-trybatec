@@ -42,6 +42,30 @@ function trybatecTariffYears(account, currentYear) {
   return {years:[...years].sort((a,b)=>b-a), fallback};
 }
 
+/** Merge dated historical supplier observations by exact physical meter key only. */
+function trybatecMergeHistoricalObservationDates(account, coverage) {
+  if (!account || coverage?.status !== "complete" || !Array.isArray(coverage.meters))
+    throw new Error("Verified historical coverage is required");
+  const bounds=new Map();
+  for (const item of coverage.meters) {
+    if (typeof item?.physical_key==="string" && item.physical_key.length===24)
+      bounds.set(item.physical_key,item);
+  }
+  const pick=(existing,incoming,earliest) => {
+    if (typeof incoming!=="string" || !Number.isFinite(Date.parse(incoming))) return existing;
+    if (typeof existing!=="string" || !Number.isFinite(Date.parse(existing))) return incoming;
+    return (earliest ? Date.parse(incoming)<Date.parse(existing) :
+      Date.parse(incoming)>Date.parse(existing)) ? incoming : existing;
+  };
+  for (const meter of (account.meters||[])) {
+    const item=bounds.get(meter.physical_key);
+    if (!item) continue;
+    meter.first_observed_at=pick(meter.first_observed_at,item.first_observed_at,true);
+    meter.last_source_observed_at=pick(meter.last_source_observed_at,item.last_source_observed_at,false);
+  }
+  account.historical_years_scan_complete=true;
+}
+
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
   ["Vue d’ensemble","Overview"],
@@ -489,6 +513,7 @@ class TrybatecPanel extends HTMLElement {
     this._started = false;
     this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
+    this._tariffCoverage = new Map();
     this._costPreview=null;
     this._costBusy=false;
     this._costError="";
@@ -577,6 +602,29 @@ class TrybatecPanel extends HTMLElement {
     } finally {
       this._loading = false;
       this._render();
+      if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
+    }
+  }
+  async _loadTariffYearCoverage(force=false) {
+    if (!this._current || !this._hass) return;
+    const id=this._current.entry_id;
+    const prior=this._tariffCoverage.get(id);
+    if (!force && prior && (prior.status==="loading" || prior.status==="complete")) return;
+    this._tariffCoverage.set(id,{status:"loading"});
+    this._render();
+    try {
+      const coverage=await this._hass.callWS({
+        type:"trybatec/panel_tariff_years",entry_id:id,
+      });
+      if (coverage?.status!=="complete" || coverage?.recorder_writes!==false ||
+          coverage?.energy_writes!==false) throw new Error("Incomplete history");
+      const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
+      if (account) trybatecMergeHistoricalObservationDates(account,coverage);
+      this._tariffCoverage.set(id,{status:"complete"});
+    } catch (_) {
+      this._tariffCoverage.set(id,{status:"error"});
+    } finally {
+      this._render();
     }
   }
   _confirm(message) {
@@ -585,19 +633,20 @@ class TrybatecPanel extends HTMLElement {
   _click(event) {
     const btn = event.target.closest("button");
     if (!btn) return;
-    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
+    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
     if (btn.dataset.account !== undefined) {
       this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
       this._costPreview=null;this._costYear=null;this._costError="";
-      this._render();return;
+      this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
     }
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
+    if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
@@ -1469,6 +1518,15 @@ class TrybatecPanel extends HTMLElement {
           '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
+    const coverage=this._tariffCoverage.get(a.entry_id);
+    const coverageNotice=coverage?.status==="loading" ?
+      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques…</p>' :
+      coverage?.status==="error" ?
+      '<p class="notice warning" role="alert">Années historiques non vérifiées : la liste peut être incomplète. '+
+      '<button type="button" data-tariff-years-retry>Réessayer</button></p>' :
+      coverage?.status==="complete" ?
+      '<p class="notice" role="status">Exercices fondés sur les relevés historiques datés du compte.</p>' :
+      '<p class="notice" role="status">Vérification des années historiques non encore lancée.</p>';
     if (!range.years.includes(Number(f.year))) {
       f.year=range.years.includes(new Date().getFullYear())?
         new Date().getFullYear():range.years[0];
@@ -1483,6 +1541,7 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
+      coverageNotice+
       (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
       (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
       (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
