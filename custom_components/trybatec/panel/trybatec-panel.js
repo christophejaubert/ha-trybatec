@@ -421,6 +421,43 @@ const escapeText = (value) => String(value === null || value === undefined ? "" 
   .replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const safe = escapeText;
+/** Presentation only: grouping and decimal symbols follow the HA language; no numeric rounding. */
+function trybatecDisplayNumber(value, language) {
+  if (value===null || value===undefined) return "";
+  const raw=String(value).trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(raw)) return raw;
+  let group="\u202f", decimal=",";
+  try {
+    const parts=new Intl.NumberFormat(language||"fr-FR").formatToParts(1234.5);
+    group=parts.find(p=>p.type==="group")?.value||group;
+    decimal=parts.find(p=>p.type==="decimal")?.value||decimal;
+  } catch (_) { /* Safe fallback for an invalid locale. */ }
+  const negative=raw.startsWith("-");
+  const [integer,fraction]= (negative?raw.slice(1):raw).split(".");
+  return (negative?"-":"")+integer.replace(/\B(?=(\d{3})+(?!\d))/g,group)+
+    (fraction===undefined?"":decimal+fraction);
+}
+/** ISO dates are kept intact in storage; calendar-only values never shift day. */
+function trybatecDisplayDate(value, language, zone, includeTime=false) {
+  if (typeof value!=="string" || !value) return "";
+  const calendarOnly=/^\d{4}-\d{2}-\d{2}$/.test(value);
+  const parsed=new Date(calendarOnly?value+"T12:00:00Z":value);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  try {
+    const locale=language||"fr-FR";
+    const timeZone=calendarOnly?"UTC":(zone||"UTC");
+    const day=new Intl.DateTimeFormat(locale,{
+      weekday:"long",day:"numeric",month:"long",year:"numeric",timeZone
+    }).format(parsed);
+    if (!includeTime || calendarOnly) return day;
+    const clock=new Intl.DateTimeFormat(locale,{
+      hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone
+    }).format(parsed);
+    // Source midnight can represent a daily reading, not a measured clock time.
+    return clock==="00:00"?day:day+(locale.toLowerCase().startsWith("fr")?" à ":" ")+clock;
+  } catch (_) {return value;}
+}
+
 const style = [
   ":host{--trybatec-ef-brand:#0A84D8;--trybatec-ecs-brand:#C73A5C;--trybatec-cet-brand:#E0A126;--trybatec-brand-green:#4E9E4A;--trybatec-ef-fg:#075A9B;--trybatec-ef-bg:#E8F3FC;--trybatec-ecs-fg:#A9234A;--trybatec-ecs-bg:#FCE9F0;--trybatec-cet-fg:#805500;--trybatec-cet-bg:#FBF3DE;--trybatec-green-fg:#286C32;--trybatec-green-bg:#EBF7EC;--trybatec-card-border:#C7D3E0;--trybatec-section-border:#BBCAD8}",
   ":host([data-trybatec-theme=\"dark\"]){--trybatec-ef-fg:#65B8FA;--trybatec-ef-bg:#18334B;--trybatec-ecs-fg:#FF7897;--trybatec-ecs-bg:#43232F;--trybatec-cet-fg:#FFD166;--trybatec-cet-bg:#3F3218;--trybatec-green-fg:#8ADD8F;--trybatec-green-bg:#203A29;--trybatec-card-border:#526171;--trybatec-section-border:#617487}",
@@ -496,6 +533,25 @@ const style = [
   ".shell{grid-template-columns:1fr;gap:14px}.nav{position:static;display:flex;flex-direction:row;overflow-x:auto;border:0;padding:4px 0;white-space:nowrap}",
   ".nav button{padding:10px 12px}.nav button span{white-space:nowrap}.intro{display:block}.columns,.grid-two,.detail-grid,.form-grid{grid-template-columns:1fr}",
   ".card{padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.stat strong{font-size:23px}}"
+  ":host{--trybatec-action-bg:#286C32;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#286C32}",
+  ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#8ADD8F;--trybatec-action-text:#152D1A;--trybatec-action-border:#8ADD8F}",
+  ".nav-wrap{position:relative;min-width:0}.nav-forward{display:none}.menu-toggle{display:none}",
+  ".primary{background:var(--trybatec-action-bg);color:var(--trybatec-action-text);border-color:var(--trybatec-action-border)}",
+  ".secondary{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg);border-color:var(--trybatec-green-fg)}",
+  ".nav button.active{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}.nav button.active ha-icon{color:var(--trybatec-green-fg)}",
+  ".stat ha-icon,.link{color:var(--trybatec-green-fg)}.badge{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
+  ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
+  ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
+  ".duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
+  ".readiness-list{display:grid;gap:12px}.readiness-row{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--divider-color,#ddd);padding-top:12px}",
+  ".readiness-row:first-child{border-top:0;padding-top:0}.readiness-row ha-icon{--mdc-icon-size:23px;flex-shrink:0}",
+  ".readiness-row.ok ha-icon{color:var(--trybatec-green-fg)}.readiness-row.pending ha-icon{color:var(--warning-color,#A46A0C)}",
+  ".readiness-row p{font-size:13px;color:var(--secondary-text-color);margin-top:4px}.readiness-row .actions{margin-top:8px}",
+  "button[data-tariff-delete]{color:var(--error-color,#AF263A);background:transparent;border-color:currentColor}",
+  "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
+  ".nav-wrap{padding-inline-end:34px}.nav{scrollbar-width:none;scroll-behavior:smooth}.nav::-webkit-scrollbar{display:none}",
+  ".nav-forward{display:flex;align-items:center;justify-content:center;position:absolute;inset-inline-end:0;top:0;bottom:0;min-width:38px;border:0;color:var(--trybatec-green-fg);background:linear-gradient(to right,transparent,var(--card-background-color,#fff) 35%)}",
+  ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
 ].join("");
 
 class TrybatecPanel extends HTMLElement {
@@ -570,6 +626,7 @@ class TrybatecPanel extends HTMLElement {
     this._energyHandoffPreview=null;
     this._energyBackup=false;
     this._energyResult="";
+    this._navScrollLeft=0;
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -583,7 +640,7 @@ class TrybatecPanel extends HTMLElement {
     else if (this.isConnected &&
       (previousLanguage!==value?.language || previousDark!==value?.themes?.darkMode)) this._render();
   }
-  set narrow(value) { this._narrow = value; }
+  set narrow(value) { const changed=this._narrow!==value;this._narrow=value;if(changed&&this.isConnected)this._render(); }
   set panel(value) { this._panel = value; }
   connectedCallback() { this._render(); if (this._hass && !this._started) this._fetch(); }
   get _current() { return this._data && this._data.accounts ? this._data.accounts[this._account] : null; }
@@ -630,9 +687,42 @@ class TrybatecPanel extends HTMLElement {
   _confirm(message) {
     return window.confirm(localizeTrybatecText(message,this._hass?.language));
   }
+  _locale() {return this._hass?.locale?.language||this._hass?.language||"fr-FR";}
+  _timeZone() {return this._hass?.config?.time_zone||"UTC";}
+  _date(value,includeTime=false) {
+    return trybatecDisplayDate(value,this._locale(),this._timeZone(),includeTime);
+  }
+  _number(value) {return trybatecDisplayNumber(value,this._locale());}
+  _t(fr,en) {return /^en(?:$|[-_])/i.test(this._locale())?en:fr;}
+  _syncNav() {
+    const nav=this.shadowRoot.querySelector(".nav");
+    const next=this.shadowRoot.querySelector(".nav-forward");
+    if (!nav || !next) return;
+    nav.scrollLeft=this._navScrollLeft||0;
+    const active=nav.querySelector("button.active");
+    if (active && active.offsetLeft+active.offsetWidth > nav.scrollLeft+nav.clientWidth)
+      nav.scrollLeft=Math.max(0,active.offsetLeft+active.offsetWidth-nav.clientWidth+16);
+    const update=()=>{
+      this._navScrollLeft=nav.scrollLeft;
+      next.hidden=nav.scrollWidth<=nav.clientWidth+3||
+        nav.scrollLeft+nav.clientWidth>=nav.scrollWidth-3;
+    };
+    nav.addEventListener("scroll",update,{passive:true});
+    update();
+    if (typeof requestAnimationFrame==="function") requestAnimationFrame(update);
+  }
   _click(event) {
     const btn = event.target.closest("button");
     if (!btn) return;
+    if (btn.dataset.toggleMenu!==undefined) {
+      this.dispatchEvent(new Event("hass-toggle-menu",{bubbles:true,composed:true}));return;
+    }
+    if (btn.dataset.navNext!==undefined) {
+      const nav=this.shadowRoot.querySelector(".nav");
+      if (nav) nav.scrollBy({left:Math.max(140,nav.clientWidth*0.75),behavior:"smooth"});
+      return;
+    }
+    if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
     if (btn.dataset.account !== undefined) {
@@ -831,15 +921,15 @@ class TrybatecPanel extends HTMLElement {
       '<span class="badge" title="Version installée">v'+safe(version)+'</span>':
       '<span class="badge">Bêta</span>';
     const cache=typeof version==="string"?("?v="+encodeURIComponent(version)):"";
-    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
+    return '<header class="heading"><button type="button" class="menu-toggle" data-toggle-menu aria-label="Ouvrir le menu Home Assistant"><ha-icon icon="mdi:menu"></ha-icon></button><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
       '<div><h1>Trybatec '+label+'</h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
   _nav() {
-    return '<nav class="nav" aria-label="Navigation Trybatec">' +
+    return '<div class="nav-wrap"><nav class="nav" aria-label="Navigation Trybatec">' +
       TABS.map(tab=>'<button type="button" data-tab="'+tab[0]+'" aria-current="'+(this._tab===tab[0]?'page':'false')+
         '" class="'+(this._tab===tab[0]?'active':'')+'"><ha-icon icon="'+tab[2]+'"></ha-icon><span>'+tab[1]+'</span></button>').join("")+
-      '</nav>';
+      '</nav><button type="button" class="nav-forward" data-nav-next aria-label="Afficher les autres onglets"><ha-icon icon="mdi:chevron-right"></ha-icon></button></div>';
   }
   _heading(title,sub,button) {
     return '<div class="intro"><div><h2>'+safe(title)+'</h2><p class="muted">'+safe(sub)+'</p></div>'+(button||"")+'</div>';
@@ -1860,6 +1950,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="shell">'+this._nav()+'<main class="main" id="main">'+this._content()+'</main></div>'+
       '<footer class="footer">Trybatec — Interface expérimentale · Aucune suppression ni écriture Recorder ou Énergie automatique.</footer></div>';
     localizeTrybatecPanel(this.shadowRoot,this._hass?.language);
+    this._syncNav();
   }
 }
 if (!customElements.get("trybatec-panel")) customElements.define("trybatec-panel", TrybatecPanel);
