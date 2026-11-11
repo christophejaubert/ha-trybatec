@@ -241,6 +241,26 @@ async function runCase(browser, locale, device) {
     });
     assert.equal(survives,true,"Typing a year digit must preserve the native date input");
   }
+  // Simulate a new installed version while a user is editing. The panel
+  // must offer a reload without silently discarding the unsaved form.
+  const upgrade=await page.evaluate(async()=>{
+    const host=document.querySelector("trybatec-panel");
+    host._unsavedInput=true;
+    host._data.version="0.3.1b1";
+    const previous=host._hass.callWS;
+    host._hass.callWS=async command=>command.type==="trybatec/panel_snapshot"
+      ? {version:"0.3.1b2",accounts:[]} : previous(command);
+    try {
+      await host._checkServerVersion();
+      const slot=host.shadowRoot.querySelector("[data-version-notice]");
+      return {pending:host._serverVersionPending,notice:slot?.textContent||"",
+        reloadButton:Boolean(slot?.querySelector("[data-reload-panel]"))};
+    } finally {host._hass.callWS=previous;}
+  });
+  assert.equal(upgrade.pending,"0.3.1b2");
+  assert.match(upgrade.notice,/0\\.3\\.1b2/);
+  assert.equal(upgrade.reloadButton,true,
+    "Uncommitted user input must prevent automatic page reload");
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
   assert.ok(observed.every(x=>["trybatec/panel_snapshot","trybatec/panel_tariff_years"].includes(x)),
