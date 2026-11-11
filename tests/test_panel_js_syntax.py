@@ -34,7 +34,12 @@ def test_trybatec_panel_keeps_additive_navigation_sections():
     assert '["tariffs", "Tarifs"' in source
     assert '["energy", "Énergie & versions"' in source
     assert '["diagnostics", "Diagnostics"' in source
-    assert 'data-openOptions' in source
+    assert 'data-open-options' in source
+    assert 'data-open-energy' in source
+    assert 'btn.dataset.openOptions' in source
+    assert 'btn.dataset.openEnergy' in source
+    assert 'data-openOptions' not in source
+    assert 'data-openEnergy' not in source
 
 
 def test_trybatec_recorder_workflow_requires_explicit_bounded_actions():
