@@ -248,6 +248,7 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     register_ws = Mock()
     fake_hass = SimpleNamespace(
         http=SimpleNamespace(async_register_static_paths=register_static),
+        async_add_executor_job=AsyncMock(return_value="0.3.1b2"),
     )
     monkeypatch.setattr(frontend, "async_panel_exists", lambda h, p: False)
     monkeypatch.setattr(panel_custom, "async_register_panel", register_gui)
@@ -262,7 +263,7 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert opts["frontend_url_path"] == "trybatec"
     assert opts["sidebar_title"] == "Trybatec"
     assert opts["require_admin"] is True
-    assert opts["module_url"].endswith("/trybatec-panel.js")
+    assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.1b2")
     assert register_ws.call_count == 12
     assert any(call.args[1] is panel_api.ws_panel_tariff_years for call in register_ws.call_args_list)
     handlers = [call.args[1].__name__ for call in register_ws.call_args_list]
