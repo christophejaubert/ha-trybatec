@@ -57,7 +57,6 @@ def _job(coordinator: Any) -> dict | None:
 
 def _job_view(coordinator: Any, job: dict, *, include_result: bool) -> dict:
     """Only an authenticated administrator receives a selected account result."""
-    operations = diagnostics_for(coordinator).snapshot()
     # Never attribute a concurrent account operation to the wrong job.
     # The tracked operation runs within this job's background task.
     task = job.get("task")
