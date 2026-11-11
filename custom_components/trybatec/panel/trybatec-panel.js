@@ -10,6 +10,37 @@ const TABS = [
 ];
 const FLUID = {EF:"Eau froide", ECS:"Eau chaude", CET:"Chauffage", unknown:"Fluide non identifié"};
 const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
+const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
+const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
+
+/* Scoped annual tariffs: observed years per account/housing + individually
+ * stored common and physical-meter tariff years. No synthetic readings.
+ */
+function trybatecTariffYears(account, currentYear) {
+  const allowable = year => Number.isInteger(year) && year >= 2000 && year <= 2100;
+  const years = new Set();
+  const observed = [];
+  for (const meter of (account?.meters || [])) {
+    for (const date of [meter.first_observed_at, meter.last_source_observed_at]) {
+      if (typeof date !== "string") continue;
+      const m = /^([0-9]{4})-[0-9]{2}-[0-9]{2}/.exec(date);
+      if (m && allowable(Number(m[1]))) observed.push(Number(m[1]));
+    }
+  }
+  const fallback = observed.length === 0;
+  const today = allowable(currentYear) ? currentYear : new Date().getFullYear();
+  const start = fallback ? today - 1 : Math.min(...observed) - 1;
+  const end = fallback ? today + 1 : Math.max(...observed) + 1;
+  for (let year = Math.max(2000,start); year <= Math.min(2100,end); year++) years.add(year);
+  for (const source of [account?.tariffs, account?.meter_tariffs]) {
+    for (const key of Object.keys(source || {})) {
+      if (!/^[0-9]{4}$/.test(key)) continue;
+      const year=Number(key);
+      if (allowable(year)) years.add(year);
+    }
+  }
+  return {years:[...years].sort((a,b)=>b-a), fallback};
+}
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
@@ -367,6 +398,17 @@ const escapeText = (value) => String(value === null || value === undefined ? "" 
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const safe = escapeText;
 const style = [
+  ":host{--trybatec-ef-brand:#0A84D8;--trybatec-ecs-brand:#C73A5C;--trybatec-cet-brand:#E0A126;--trybatec-brand-green:#4E9E4A;--trybatec-ef-fg:#075A9B;--trybatec-ef-bg:#E8F3FC;--trybatec-ecs-fg:#A9234A;--trybatec-ecs-bg:#FCE9F0;--trybatec-cet-fg:#805500;--trybatec-cet-bg:#FBF3DE;--trybatec-green-fg:#286C32;--trybatec-green-bg:#EBF7EC;--trybatec-card-border:#C7D3E0;--trybatec-section-border:#BBCAD8}",
+  ":host([data-trybatec-theme=\"dark\"]){--trybatec-ef-fg:#65B8FA;--trybatec-ef-bg:#18334B;--trybatec-ecs-fg:#FF7897;--trybatec-ecs-bg:#43232F;--trybatec-cet-fg:#FFD166;--trybatec-cet-bg:#3F3218;--trybatec-green-fg:#8ADD8F;--trybatec-green-bg:#203A29;--trybatec-card-border:#526171;--trybatec-section-border:#617487}",
+  ".fluid-ef{--fluid-fg:var(--trybatec-ef-fg);--fluid-bg:var(--trybatec-ef-bg)}",
+  ".fluid-ecs{--fluid-fg:var(--trybatec-ecs-fg);--fluid-bg:var(--trybatec-ecs-bg)}",
+  ".fluid-cet{--fluid-fg:var(--trybatec-cet-fg);--fluid-bg:var(--trybatec-cet-bg)}",
+  ".fluid-surface{border-top:4px solid var(--fluid-fg,var(--trybatec-section-border))}",
+  ".meter-row button.selected{background:var(--fluid-bg,#e9f1ff);border-inline-start-color:var(--fluid-fg,#075A9B)}",
+  ".meter-row button.selected .meter-name{color:var(--fluid-fg,#075A9B)}",
+  ".meter-row button:focus-visible{outline:3px solid var(--fluid-fg,#4385f5);outline-offset:2px}",
+  ".fluid-icon{color:var(--fluid-fg);--mdc-icon-size:18px;vertical-align:middle;margin-inline-end:5px}",
+  ".selected-indicator{float:inline-end;color:var(--fluid-fg);--mdc-icon-size:18px}",
   ":host {display:block;min-height:100%;color:var(--primary-text-color,#18213f);",
   "background:var(--primary-background-color,#fbfbfd);font-family:var(--paper-font-body1_-_font-family,Arial,sans-serif);}",
   "*{box-sizing:border-box}button,input,select{font:inherit}",
@@ -379,7 +421,7 @@ const style = [
   "h2{font-size:22px;line-height:1.25;margin:0 0 7px}h3{font-size:16px;margin:0 0 7px}",
   "p{margin:0;line-height:1.45}.muted{color:var(--secondary-text-color,#67728a);font-size:13px}",
   ".headline-sub{color:var(--secondary-text-color,#67728a);margin-top:5px;font-size:14px}",
-  ".badge{display:inline-block;padding:5px 9px;background:#e9f1ff;border-radius:14px;color:#254a94;font-weight:650;font-size:12px}",
+  ".badge{display:inline-block;padding:5px 9px;background:var(--trybatec-ef-bg,#e9f1ff);border-radius:14px;color:var(--trybatec-ef-fg,#254a94);font-weight:650;font-size:12px}",
   ".pill{font-size:12px;font-weight:650;border-radius:16px;padding:5px 9px;white-space:nowrap}",
   ".pill.on{background:#e4f5e8;color:#1b7539}.pill.off{background:#eef1f5;color:#556379}",
   ".pill.audit{background:#fff0d5;color:#9d6207}.pill.unknown{background:#eef1f5;color:#4c5566}",
@@ -391,13 +433,13 @@ const style = [
   ".nav button.active{background:#e9f1ff;color:#174d99}.nav button.active ha-icon{color:#1766b7}",
   ".main{min-width:0}.intro{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:19px}",
   ".cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:21px}",
-  ".card{min-width:0;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#e2e5ed);border-radius:16px;padding:19px}",
+  ".card{min-width:0;background:var(--card-background-color,#fff);border:1px solid var(--trybatec-card-border,#c7d3e0);border-radius:16px;padding:19px}",
   ".stat{display:flex;gap:12px;align-items:center}.stat ha-icon{color:var(--primary-color,#1176c7);--mdc-icon-size:26px}",
   ".stat strong{font-size:25px;display:block;line-height:1.15}.stat span{color:var(--secondary-text-color,#637188);font-size:12px}",
   ".columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}",
   ".panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}",
   ".panel-title h3{margin:0}.meter-row{border-top:1px solid var(--divider-color,#e9ebf0);padding:12px 0}",
-  ".meter-row:first-of-type{border-top:none}.meter-row button{display:block;background:transparent;border:0;color:inherit;text-align:left;width:100%;padding:0}",
+  ".meter-row:first-of-type{border-top:none}.meter-row button{display:block;background:transparent;border:0;border-inline-start:4px solid transparent;border-radius:11px;color:inherit;text-align:left;width:100%;padding:10px!important}",
   ".meter-row button:hover,.link:hover{color:var(--primary-color,#1476b8)}",
   ".meter-name{font-weight:650;font-size:14px;display:block;margin-bottom:3px;overflow-wrap:anywhere}",
   ".meter-sub{font-size:12px;color:var(--secondary-text-color,#738091);display:block;overflow-wrap:anywhere}",
@@ -408,9 +450,9 @@ const style = [
   ".notice{padding:15px 18px;border-radius:12px;background:rgba(42,127,211,.07);border:1px solid #abcdf6;line-height:1.5;font-size:13px;margin-top:15px}",
   ".warning{background:rgba(228,159,39,.07);border-color:#e1c184}",
   ".split{display:grid;grid-template-columns:minmax(250px,340px) minmax(0,1fr);gap:14px}",
-  ".scroll{max-height:650px;overflow:auto}.selected{background:rgba(66,138,223,.1);border-radius:11px;padding:10px!important}",
+  ".scroll{max-height:650px;overflow:auto}.selected{border-radius:11px}",
   ".detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}",
-  ".detail-grid>div{background:rgba(120,140,165,.06);padding:12px;border-radius:10px;overflow-wrap:anywhere}",
+  ".detail-grid>div{background:var(--secondary-background-color,rgba(120,140,165,.13));border:1px solid var(--trybatec-section-border);padding:12px;border-radius:10px;overflow-wrap:anywhere}",
   ".detail-grid strong{font-size:14px;display:block;margin-top:5px}",
   ".smallhead{font-size:11px;color:var(--secondary-text-color,#70798a)}",
   ".entity{padding:10px 0;border-top:1px solid var(--divider-color,#e8eaf1);font-size:13px;overflow-wrap:anywhere}",
@@ -445,7 +487,7 @@ class TrybatecPanel extends HTMLElement {
     this._error = "";
     this._message = "";
     this._started = false;
-    this._tariffInput = {year:2026,fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+    this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
     this._costPreview=null;
     this._costBusy=false;
@@ -509,9 +551,12 @@ class TrybatecPanel extends HTMLElement {
   }
   set hass(value) {
     const previousLanguage=this._hass?.language;
+    const previousDark=this._hass?.themes?.darkMode;
     this._hass = value;
+    this.dataset.trybatecTheme=value?.themes?.darkMode===true?"dark":"light";
     if (this.isConnected && !this._started) this._fetch();
-    else if (this.isConnected && previousLanguage!==value?.language) this._render();
+    else if (this.isConnected &&
+      (previousLanguage!==value?.language || previousDark!==value?.themes?.darkMode)) this._render();
   }
   set narrow(value) { this._narrow = value; }
   set panel(value) { this._panel = value; }
@@ -542,7 +587,12 @@ class TrybatecPanel extends HTMLElement {
     if (!btn) return;
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
-    if (btn.dataset.account !== undefined) {this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._render();return;}
+    if (btn.dataset.account !== undefined) {
+      this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;
+      this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+      this._costPreview=null;this._costYear=null;this._costError="";
+      this._render();return;
+    }
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
@@ -727,8 +777,13 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   _header() {
-    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png" alt="Trybatec" loading="eager"></div>' +
-      '<div><h1>Trybatec <span class="badge">Bêta</span></h1>' +
+    const version=this._data?.version;
+    const label=typeof version==="string" && /^[0-9][0-9A-Za-z.+-]{0,31}$/.test(version)?
+      '<span class="badge" title="Version installée">v'+safe(version)+'</span>':
+      '<span class="badge">Bêta</span>';
+    const cache=typeof version==="string"?("?v="+encodeURIComponent(version)):"";
+    return '<header class="heading"><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
+      '<div><h1>Trybatec '+label+'</h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
   _nav() {
@@ -755,12 +810,21 @@ class TrybatecPanel extends HTMLElement {
     return values;
   }
   _meterRow(m,i,action) {
-    const line='<span class="meter-name">'+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
+    const fluidClass=FLUID_CLASS[m.fluid]||"";
+    const fluidIcon=FLUID_ICON[m.fluid]?
+      '<ha-icon class="fluid-icon" icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':"";
+    const line='<span class="meter-name">'+fluidIcon+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
       '<span class="meter-sub">'+safe(m.lot||"Lot non renseigné")+' · '+safe(m.unit||"Unité à vérifier")+
       ' · '+(m.status==="depose"?"Déposé":m.status==="en_service"?"En service":"Statut inconnu")+'</span>';
-    if (action==="detail") return '<div class="meter-row"><button type="button" class="'+(i===this._meter?"selected":"")+
-      '" data-meter="'+i+'">'+line+'</button></div>';
-    return '<div class="meter-row"><button type="button" data-open-meter="'+i+'">'+line+'</button></div>';
+    if (action==="detail") {
+      const selected=i===this._meter;
+      return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
+        '" aria-pressed="'+(selected?"true":"false")+'" data-meter="'+i+'">'+line+
+        (selected?'<ha-icon class="selected-indicator" icon="mdi:check-circle" aria-hidden="true"></ha-icon>':"")+
+        '</button></div>';
+    }
+    return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+
+      '" data-open-meter="'+i+'">'+line+'</button></div>';
   }
   _overview() {
     const a=this._current, meters=this._meters(), counts=this._counts();
@@ -893,7 +957,7 @@ class TrybatecPanel extends HTMLElement {
     const account=this._current;
     const related=account.entities.filter(e=>
       e.unique_id && (e.unique_id.includes("_"+m.serial+"_")||e.unique_id.endsWith("_"+m.serial+"_index")));
-    return '<div class="card"><div class="panel-title"><h2>'+safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
+    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2>'+safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
       this._badge(m)+'</div><p class="muted">Compteur physique · '+safe(m.source==="live_api"?"Relevé par l’API":"Archivé localement")+'</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
@@ -920,7 +984,7 @@ class TrybatecPanel extends HTMLElement {
     if (!groups.length) return '';
     return '<section class="card" style="margin-top:16px"><h3>Chronologie des compteurs physiques</h3>'+
       '<p class="muted">Par logement et fluide, fondée uniquement sur les observations. Les dates exactes de remplacement ne sont pas déduites.</p>'+
-      groups.map(g=>'<div class="line" style="margin-top:12px"><strong>'+
+      groups.map(g=>'<div class="line '+safe(FLUID_CLASS[g.fluid]||"")+'" style="margin-top:12px;border-inline-start:4px solid var(--fluid-fg,var(--trybatec-section-border))"><strong>'+
         safe(FLUID[g.fluid]||g.fluid)+' · '+safe(g.lot||'Lot inconnu')+'</strong> '+
         '<span class="badge">'+safe(g.count)+' compteur(s)</span>'+
         '<div class="list" style="margin-top:10px">'+g.meters.map(m=>
@@ -1404,7 +1468,13 @@ class TrybatecPanel extends HTMLElement {
           '</td><td>'+safe(t.rate)+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
           '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
       }));
-    const yearOptions=Array.from({length:111},(_,i)=>2000+i).filter(y=>y<=2100).reverse().map(year=>
+    const range=trybatecTariffYears(a,new Date().getFullYear());
+    if (!range.years.includes(Number(f.year))) {
+      f.year=range.years.includes(new Date().getFullYear())?
+        new Date().getFullYear():range.years[0];
+      f.rate="";f.status="provisional";f.physical_key="";
+    }
+    const yearOptions=range.years.map(year=>
       '<option value="'+year+'" '+(Number(f.year)===year?"selected":"")+'>'+year+'</option>').join("");
     const current=a.meters.filter(m=>m.fluid===f.fluid);
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
@@ -1413,6 +1483,7 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
+      (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
       (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
       (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
