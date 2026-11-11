@@ -882,12 +882,12 @@ def test_cancelled_history_restores_full_original_request_on_retry(
 
     async def indexes(_deal, begin, finish):
         calls.append((begin, finish))
+        if interrupt["enabled"] and len(calls) == 4:
+            raise asyncio.CancelledError()
         if (finish - begin).days > 4:
             raise services.TrybatecDataError(
                 "Trybatec response exceeds permitted size"
             )
-        if interrupt["enabled"] and len(calls) == 4:
-            raise asyncio.CancelledError()
         return {"lines": []}
 
     async def verify():
