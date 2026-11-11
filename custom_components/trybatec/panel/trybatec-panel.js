@@ -699,7 +699,12 @@ class TrybatecPanel extends HTMLElement {
     if (!this._current || !this._hass) return;
     const id=this._current.entry_id;
     const prior=this._tariffCoverage.get(id);
-    if (!force && prior && (prior.status==="loading" || prior.status==="complete")) return;
+    if (!force && prior?.status==="loading") return;
+    if (!force && prior?.status==="complete" && Array.isArray(prior.meters)) {
+      const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
+      if (account) trybatecMergeHistoricalObservationDates(account,prior);
+      this._render();return;
+    }
     this._tariffCoverage.set(id,{status:"loading"});
     this._render();
     try {
@@ -710,7 +715,7 @@ class TrybatecPanel extends HTMLElement {
           coverage?.energy_writes!==false) throw new Error("Incomplete history");
       const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
       if (account) trybatecMergeHistoricalObservationDates(account,coverage);
-      this._tariffCoverage.set(id,{status:"complete"});
+      this._tariffCoverage.set(id,{...coverage,status:"complete"});
     } catch (_) {
       this._tariffCoverage.set(id,{status:"error"});
     } finally {
