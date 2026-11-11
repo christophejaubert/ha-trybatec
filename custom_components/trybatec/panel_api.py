@@ -34,6 +34,7 @@ from .panel_energy import (
     ws_panel_energy_handoff_apply,
 )
 from .panel_review import ws_panel_reading_decision
+from .panel_tariff_years import ws_panel_tariff_years, merge_cached_historical_bounds
 from .panel_technical_audit import audited_entity_inventory
 
 _LOGGER = logging.getLogger(__name__)
@@ -334,6 +335,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             ledger = {"status": "invalid_requires_review", "series": [], "pending": 0}
             warnings.append("history_version_ledger_requires_recovery")
         physical_meters = _meter_inventory(coordinator.data, archive)
+        physical_meters = merge_cached_historical_bounds(coordinator, physical_meters)
         technical_audit = audited_entity_inventory(
             _entity_inventory(hass, entry_id), energy,
         )
@@ -363,7 +365,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
     return {
         "domain": DOMAIN,
         "panel": "Trybatec",
-        "version": _installed_version(),
+        "version": await hass.async_add_executor_job(_installed_version),
         "mode": "administrator_read_only",
         "accounts": accounts,
         "energy": energy,
@@ -434,3 +436,4 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_preview)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_apply)
     websocket_api.async_register_command(hass, ws_panel_reading_decision)
+    websocket_api.async_register_command(hass, ws_panel_tariff_years)
