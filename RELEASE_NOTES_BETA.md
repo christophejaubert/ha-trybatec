@@ -1,3 +1,33 @@
+# 0.3.1b3 — Correctifs HTTP, historique et Recorder (candidate non publiée)
+
+Cette préversion corrective fait suite aux vérifications après installation de 0.3.1b2.
+**État : en développement et en recette, aucune publication autorisée.**
+
+- Lecture HTTP : attendre l'intégralité du corps, même avec fragmentation réseau,
+  avant de décoder un JSON. Préserver le plafond des réponses d'index (16 Mio)
+  et l'absence de contenu fournisseur dans les journaux.
+- Historique : ne plus subdiviser une période à la suite d'un simple JSON
+  malformé ou d'une structure de réponse invalide ; conserver une subdivision
+  contrôlée uniquement pour les erreurs qui peuvent effectivement être résolues
+  en réduisant la période. Aucune portion manquante n'est tenue pour validée.
+- Recorder : corriger l'appel à la métadonnée statistique qui combinait deux
+  paramètres incompatibles ; maintenir les contrôles des unités et des sommes
+  sans autoriser de nettoyage ni de bascule Énergie.
+- Diagnostics : préparer l'inventaire en lecture seule des limites techniques
+  effectives, la traçabilité expurgée et les budgets candidats validés sous
+  réserve de tests représentatifs ; ne pas les afficher comme actifs prématurément.
+- Tests : flux HTTP fragmenté, caractères UTF-8 répartis, taille bornée, JSON
+  invalide, annulation, échecs d'historique, audit Recorder et CI complète.
+
+Les autres évolutions fonctionnelles et visuelles de 0.3.2b1 restent sur la PR #75.
+Les opérations d'import Recorder, de nettoyage, de tarifs et de configuration
+Énergie conservent leurs procédures de sauvegarde et confirmation distinctes.
+
+**Exclusions :** aucune modification automatique de Home Assistant installé,
+du fournisseur Trybatec, des relevés sources, du tableau Énergie ou des
+statistiques Recorder. Aucune publication ni fusion sans autorisation explicite.
+
+---
 # 0.3.1b2 — Correctifs de recette du panneau Trybatec (candidate)
 
 Correctif ciblé après la recette réelle de `0.3.1b1`. Aucune migration automatique,
