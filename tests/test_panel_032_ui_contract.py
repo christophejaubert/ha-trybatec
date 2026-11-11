@@ -85,6 +85,50 @@ const ready=versionPanel(true,true);
 assert.doesNotMatch(ready,/disabled aria-disabled="true"/);
 assert.match(ready,/trybatec:synthetic_new/);
 assert.match(ready,/trybatec:synthetic_old/);
+const syntheticSummary={
+  start_date:"2025-01-01",end_date:"2025-12-31",
+  history_summary:{meters:1,readings_to_review:2,
+    by_fluid:{EF:{meters:1,gaps:3,conflicts:1}},
+    by_meter:[{physical_key:"a".repeat(24),serial:"SYNTH",
+      fluid:"EF",first_observed_at:"2025-01-01",last_observed_at:"2025-12-31",
+      gaps:3,decreases:1,conflicts:1,source_unit:"m³"}]}
+};
+const summary=ctx.__check.Panel.prototype._historySummary.call({
+  _historyPreview:syntheticSummary,_date:x=>x,_number:x=>String(x)
+});
+assert.match(summary,/Synthèse historique par fluide et compteur/);
+assert.match(summary,/3 intervalle\\(s\\) lacunaire\\(s\\)/);
+assert.match(summary,/SYNTH/);
+const unitKey="a".repeat(24);
+const unitRecord={physical_key:unitKey,fluid:"EF",lot:"SYNTH",serial:"SYNTH",
+  selected_unit:"m³",allowed_units:["m³","L"],source_unit:"m³",
+  chart_unit:"m³",device_uuid:"",selection_origin:"api"};
+const unitPanel={
+  _current:{meter_options:[unitRecord]},_meterOptionDraft:null,
+  _meterOptionBusy:false,_meterOptionError:"",_meterOptionMessage:""
+};
+const editor=ctx.__check.Panel.prototype._meterOptionsEditor.call(unitPanel,{
+  physical_key:unitKey
+});
+assert.match(editor,/data-meter-option-field="unit"/);
+assert.match(editor,/data-meter-option-field="device_uuid"/);
+assert.match(editor,/data-meter-options-save/);
+const settingsFixture={
+  _current:{settings:{poll_minutes:720,sparse_hours:27,zero_review_days:1,log_level:"WARNING"}},
+  _settingsInput:null,_durationInput:null,_loggingInput:null,
+  _settingsError:"",_settingsMessage:"",_loggingError:"",_loggingMessage:"",
+  _settingsBusy:false,_loggingBusy:false,_heading:()=>"",
+  _number:v=>String(v)
+};
+const settingsView=ctx.__check.Panel.prototype._settings.call(settingsFixture);
+const firstSection=settingsView.slice(
+  settingsView.indexOf('<section class="card">'),
+  settingsView.indexOf('</section>'));
+assert.doesNotMatch(firstSection,/data-log-level/);
+assert.match(settingsView,/Journalisation et diagnostics/);
+assert.match(settingsView,/data-log-save/);
+assert.match(settingsView,/data-settings-save/);
+assert.match(settingsView,/data-open-options/);
 '''
     outcome = subprocess.run(
         [node, "-e", script, str(PANEL)],
