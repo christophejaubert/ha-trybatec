@@ -85,6 +85,7 @@ function trybatecMergeHistoricalObservationDates(account, coverage) {
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
+  ["Date du dernier index exploitable","Date of latest usable meter index"],
   ["Fréquence de synchronisation","Synchronization interval"],
   ["Jours","Days"],
   ["Heures","Hours"],
@@ -1222,7 +1223,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Dernier index disponible</span><strong>'+safe(m.last_index===null?"Indisponible":this._number(m.last_index))+'</strong></div>'+
       '<div><span class="smallhead">Première observation connue</span><strong>'+safe(this._date(m.first_observed_at)||"Non disponible")+'</strong></div>'+
       '<div><span class="smallhead">Dernière observation source</span><strong>'+safe(this._date(m.last_source_observed_at)||"Non disponible")+'</strong></div>'+
-      '<div><span class="smallhead">Dernier index exploitable</span><strong>'+safe(this._date(m.last_observed_at)||"Non vérifié")+'</strong></div>'+
+      '<div><span class="smallhead">Date du dernier index exploitable</span><strong>'+safe(this._date(m.last_observed_at)||"Non vérifié")+'</strong></div>'+
       (m.status==="depose" && m.historical_last_index_raw!==undefined?
         '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
         safe(this._number(m.historical_last_index_raw))+
@@ -1508,8 +1509,8 @@ class TrybatecPanel extends HTMLElement {
       this._readingAction==="reject"?"Écarter ce relevé du calcul":
       "Reporter l’examen (le relevé sera temporairement écarté du calcul)";
     if (!this._confirm(description+" ?\n\n"+
-        item.fluid+" · "+item.meter_serial+" · "+item.source_date+
-        "\nIndex source : "+item.index+
+        item.fluid+" · "+item.meter_serial+" · "+this._date(item.source_date,true)+
+        "\nIndex source : "+this._number(item.index)+
         "\n\nLes données brutes ne seront jamais modifiées.")) return;
     this._readingBusy=true;this._historyError="";this._render();
     try {
