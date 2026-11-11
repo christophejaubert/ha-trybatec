@@ -4,6 +4,7 @@
 
 - Corrige l'escalade des notifications d'accès : après une indisponibilité réseau déjà signalée, un refus d'authentification avéré remplace le message de notification sur le même identifiant, sans notification doublonnée. Une panne transitoire ultérieure ne rétrograde pas l'alerte d'authentification tant qu'une actualisation réussie n'a pas effacé l'incident.
 - Ajoute des tests synthétiques de déduplication, d'escalade, de non-rétrogradation et de résolution de notification.
+- Accessibilité (#70) : les pictogrammes décoratifs du menu Home Assistant, des onglets et du chevron de navigation ne sont plus annoncés séparément par les lecteurs d’écran ; les boutons, textes et états restent explicites. Recette navigateur synthétique requise, sans revendication WCAG générale.
 - Actualise la préparation HACS/Marketplace avec [un audit de travail](docs/MARKETPLACE_READINESS.md), sans candidater au catalogue officiel.
 - Préserve les corrections et parcours existants de `0.3.2b1` ; les anciennes PR #46, #71 et #72 ont déjà été reprises en tout ou partie sous une forme plus récente et ne doivent pas être fusionnées sans réconciliation. La PR #40 est réinterprétée à partir du code actuel.
 
