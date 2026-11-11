@@ -1,15 +1,42 @@
-"""Regressions for safe read-only technical meter audits in b2."""
+"""Pure regression tests for the exact production read-only audit functions.
+
+The pure CI has no Home Assistant or probatio; functions are selected from
+the real source AST and supplied with benign mocks, never copied or rewritten.
+"""
 from __future__ import annotations
 
+import ast
 import asyncio
+from hashlib import sha256
+import json
+import logging
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from custom_components.trybatec import panel_energy as audit
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "custom_components" / "trybatec" / "panel_energy.py"
+
+
+def _load(names: list[str], namespace: dict) -> dict:
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+    blocks = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in names
+    ]
+    assert len(blocks) == len(names), "Could not locate original audit code"
+    scope = dict(namespace)
+    future = ast.ImportFrom(
+        module="__future__", names=[ast.alias(name="annotations")], level=0,
+    )
+    exec(compile(ast.Module(body=[future, *blocks], type_ignores=[]), str(SOURCE), "exec"), scope)
+    return scope
 
 
 def test_statistic_details_normalize_recorder_metadata_without_guessing() -> None:
-    result = audit._statistic_details({
+    details = _load(["_statistic_details"], {})["_statistic_details"]
+    result = details({
         "sensor.old": (12, {"unit_of_measurement": "m³", "has_sum": True}),
         "sensor.new": {"unit_of_measurement": "m³", "has_sum": True},
     }, ["sensor.old", "sensor.new", "sensor.missing"])
@@ -17,21 +44,27 @@ def test_statistic_details_normalize_recorder_metadata_without_guessing() -> Non
     assert result["existing"]["sensor.old"]["found"] is True
     assert result["existing"]["sensor.new"]["has_sum"] is True
     assert result["existing"]["sensor.missing"]["found"] is False
-    malformed = audit._statistic_details({"sensor.old": ["invalid"]}, ["sensor.old"])
+    malformed = details({"sensor.old": ["invalid"]}, ["sensor.old"])
     assert malformed["status"] == "incomplete_requires_review"
     assert malformed["existing"]["sensor.old"]["found"] is None
 
 
-def test_recorder_error_does_not_turn_verified_identity_into_failed_audit(monkeypatch) -> None:
-    monkeypatch.setattr(audit, "preview_identity_migration", lambda *args, **kwargs: {
+def test_recorder_error_does_not_turn_verified_identity_into_failed_audit() -> None:
+    log = logging.getLogger("synthetic_trybatec_audit")
+    plan = lambda *args, **kwargs: {
         "status": "identity_migration_preview", "active_entity_id": None,
+    }
+    metadata = AsyncMock(side_effect=ValueError("unavailable"))
+    manager = AsyncMock(return_value=SimpleNamespace(data={"energy_sources": []}))
+    scope = _load(["_statistic_details", "audit_physical_meter_entity"], {
+        "preview_identity_migration": plan,
+        "_verified_retired_meter_plan": lambda *a, **k: None,
+        "_metadata": metadata,
+        "async_get_manager": manager,
+        "DOMAIN": "trybatec", "_LOGGER": log,
     })
-    monkeypatch.setattr(audit, "_metadata", AsyncMock(side_effect=ValueError("unavailable")))
-    monkeypatch.setattr(audit, "async_get_manager", AsyncMock(return_value=SimpleNamespace(
-        data={"energy_sources": []},
-    )))
     hass = SimpleNamespace(config=SimpleNamespace(components={"recorder", "energy"}))
-    result = asyncio.run(audit.audit_physical_meter_entity(
+    result = asyncio.run(scope["audit_physical_meter_entity"](
         hass, SimpleNamespace(), entity_id="sensor.synth_active",
         lot="TEST-LOT", fluid="EF", serial="TEST-1",
     ))
@@ -43,10 +76,9 @@ def test_recorder_error_does_not_turn_verified_identity_into_failed_audit(monkey
     assert result["would_delete_recorder"] is False
 
 
-def test_retired_meter_identity_requires_exact_account_and_unique_id(monkeypatch) -> None:
+def test_retired_meter_identity_requires_exact_account_and_unique_id() -> None:
     def migration_rejected(*args, **kwargs):
         raise ValueError("No live reading")
-    monkeypatch.setattr(audit, "preview_identity_migration", migration_rejected)
     account = "SYNTHETIC_ACCOUNT"
     serial = "RETIRED-1"
     entity_id = "sensor.synthetic_retired"
@@ -60,16 +92,25 @@ def test_retired_meter_identity_requires_exact_account_and_unique_id(monkeypatch
         platform="trybatec", config_entry_id=entry_id,
         unique_id=f"{account}_{serial}_index",
     )
-    registry = SimpleNamespace(async_get=lambda key: record if key==entity_id else None)
-    monkeypatch.setattr(audit.er, "async_get", lambda hass: registry)
-    monkeypatch.setattr(audit, "TrybatecMeterSensor", lambda *args: SimpleNamespace(
-        unique_id=f"{account}_{serial}_b6_m³_index"
-    ))
+    registry = SimpleNamespace(async_get=lambda key: record if key == entity_id else None)
+    registry_module = SimpleNamespace(async_get=lambda hass: registry)
+    sensor_class = lambda *args: SimpleNamespace(unique_id=f"{account}_{serial}_b6_m³_index")
+    scope = _load([
+        "_statistic_details", "_verified_retired_meter_plan",
+        "audit_physical_meter_entity",
+    ], {
+        "preview_identity_migration": migration_rejected,
+        "er": registry_module, "DOMAIN": "trybatec",
+        "TrybatecMeterSensor": sensor_class,
+        "sha256": sha256, "json": json,
+        "_metadata": AsyncMock(),
+        "_LOGGER": logging.getLogger("synthetic_trybatec_audit"),
+    })
     hass = SimpleNamespace(
         config=SimpleNamespace(components=set()),
         states=SimpleNamespace(get=lambda key: None),
     )
-    result = asyncio.run(audit.audit_physical_meter_entity(
+    result = asyncio.run(scope["audit_physical_meter_entity"](
         hass, coordinator, entity_id=entity_id, lot="TEST-LOT",
         fluid="EF", serial=serial,
     ))
@@ -80,7 +121,7 @@ def test_retired_meter_identity_requires_exact_account_and_unique_id(monkeypatch
     # Similar names must never be used as evidence of technical ownership.
     record.unique_id = f"{account}_DIFFERENT_index"
     try:
-        asyncio.run(audit.audit_physical_meter_entity(
+        asyncio.run(scope["audit_physical_meter_entity"](
             hass, coordinator, entity_id=entity_id, lot="TEST-LOT",
             fluid="EF", serial=serial,
         ))
