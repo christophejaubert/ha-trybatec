@@ -80,6 +80,43 @@ def test_job_status_is_scoped_and_no_partial_result_escapes():
     assert complete["result"] == job["result"]
 
 
+
+def test_job_progress_never_uses_an_unrelated_operation():
+    """A queued/competing account task must not inherit another job's progress."""
+    from custom_components.trybatec.history_guardrails import HistoryOperation
+
+    scope = _load(["_job_view"], {
+        "monotonic": monotonic, "diagnostics_for": diagnostics_for,
+    })
+    coordinator = SimpleNamespace()
+    diagnostics = diagnostics_for(coordinator)
+    own_task, other_task = object(), object()
+
+    unrelated = HistoryOperation(
+        "historical_read", "2025-01-01", "2025-12-31", long=False,
+    )
+    unrelated.task = other_task
+    diagnostics.add(unrelated)
+
+    own = HistoryOperation(
+        "historical_read", "2024-01-01", "2024-12-31", long=False,
+    )
+    own.task = own_task
+    diagnostics.add(own)
+
+    job = {
+        "id": "SYNTH_JOB", "state": "running", "kind": "historical_preview",
+        "started_mono": monotonic(), "started_at": "2026-01-01T00:00:00+00:00",
+        "task": own_task, "failure_type": None,
+    }
+    view = scope["_job_view"](coordinator, job, include_result=False)
+    assert view["progress"]["id"] == own.id
+    assert view["progress"]["id"] != unrelated.id
+
+    # Queued job with no corresponding tracked operation: report no progress.
+    job["task"] = object()
+    assert scope["_job_view"](coordinator, job, include_result=False)["progress"] is None
+
 def test_cancel_calls_only_matching_background_task():
     scope = _load(["_job", "cancel_panel_history_job"], {
         "_JOB_RETENTION_SECONDS": 3600, "monotonic": monotonic,
