@@ -47,6 +47,7 @@ class _Clock:
 def test_dated_observations_from_retired_meters_use_exact_physical_ids() -> None:
     scope = _load(["_meter_date_bounds"], {
         "datetime": datetime, "timezone": timezone, "meter_key": _key,
+        "ZoneInfo": ZoneInfo, "TIMEZONE": "Europe/Paris",
     })
     first = datetime(2021, 12, 21, tzinfo=timezone.utc)
     last = datetime(2024, 12, 30, tzinfo=timezone.utc)
@@ -65,6 +66,21 @@ def test_dated_observations_from_retired_meters_use_exact_physical_ids() -> None
     assert old["last_source_observed_at"].startswith("2024-12-30")
     assert _key("LOT-A", "ECS", "NO-DATES") not in known
     assert _key("LOT-B", "EF", "OLD-SERIAL") in known
+
+
+
+def test_new_year_midnight_retains_the_local_calendar_year() -> None:
+    scope = _load(["_meter_date_bounds"], {
+        "datetime": datetime, "timezone": timezone, "meter_key": _key,
+        "ZoneInfo": ZoneInfo, "TIMEZONE": "Europe/Paris",
+    })
+    local_midnight = datetime(2020, 12, 31, 23, tzinfo=timezone.utc)
+    source = {("LOT-X", "EF", "OLD"): {
+        "indexes": {local_midnight: 12.0},
+    }}
+    result = scope["_meter_date_bounds"](source)
+    assert result[0]["first_observed_at"].startswith("2021-01-01T00:00:00+01:00")
+    assert result[0]["last_source_observed_at"].startswith("2021-01-01T00:00:00+01:00")
 
 
 def test_cached_bounds_merge_without_inventing_replacement_dates() -> None:
