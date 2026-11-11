@@ -527,6 +527,10 @@ class TrybatecPanel extends HTMLElement {
     this._historyReason="manual_periodic";
     this._historyError="";
     this._historyMessage="";
+    this._historyJobId=null;
+    this._historyJobStatus=null;
+    this._tariffJobId=null;
+    this._tariffJobStatus=null;
     this._originMeter="";
     this._originDate="2021-01-01";
     this._originIndex="0";
@@ -721,6 +725,8 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
     if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
+    if (btn.dataset.historyCancel !== undefined) {this._cancelHistoryJob("historical_preview");return;}
+    if (btn.dataset.tariffYearsCancel !== undefined) {this._cancelHistoryJob("tariff_year_coverage");return;}
     if (btn.dataset.historySelect !== undefined) {
       this._historySelected=btn.dataset.historySelect;this._render();return;
     }
@@ -1165,23 +1171,73 @@ class TrybatecPanel extends HTMLElement {
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
   }
+  async _waitForHistoryJob(entryId, job, kind) {
+    if (!job?.id || job.status!=="running") throw new Error("Unverified history job");
+    while (true) {
+      const state=await this._hass.callWS({
+        type:"trybatec/panel_history_job_status",entry_id:entryId,job_id:job.id,
+      });
+      if (!state || state.id!==job.id) throw new Error("Unknown history job");
+      if (state.status==="complete") {
+        if (state.complete!==true || state.recorder_writes!==false ||
+            state.energy_writes!==false || !state.result)
+          throw new Error("Incomplete history job");
+        return state.result;
+      }
+      if (state.status!=="running") throw new Error("History job interrupted");
+      if (kind==="historical_preview") this._historyJobStatus=state;
+      else this._tariffJobStatus=state;
+      if (!this._isEditingForm()) this._render();
+      await new Promise(resolve=>window.setTimeout(resolve,1500));
+    }
+  }
+  async _cancelHistoryJob(kind) {
+    const jobId=kind==="historical_preview"?this._historyJobId:this._tariffJobId;
+    if (!jobId || !this._current || !this._confirm(
+      this._t("Interrompre la lecture historique en cours ?",
+        "Cancel the current historical read?")
+    )) return;
+    try {
+      await this._hass.callWS({
+        type:"trybatec/panel_history_job_cancel",
+        entry_id:this._current.entry_id,job_id:jobId,confirm:true,
+      });
+    } catch (_) {
+      if (kind==="historical_preview")
+        this._historyError=this._t("Annulation non confirmée par Home Assistant.",
+          "Cancellation not confirmed by Home Assistant.");
+    }
+    if (!this._isEditingForm()) this._render();
+  }
   async _fetchHistory() {
     if (this._historyBusy || !this._current) return;
+    const entryId=this._current.entry_id;
     this._historyBusy=true;
     this._historyError="";this._historyMessage="";this._historyPreview=null;
-    this._historySelected="";this._render();
+    this._historySelected="";this._historyJobStatus=null;this._render();
     try {
-      const result=await this._hass.callWS({
-        type:"trybatec/panel_history_preview",
-        entry_id:this._current.entry_id,
-        start_date:this._historyStart,end_date:this._historyEnd
+      const job=await this._hass.callWS({
+        type:"trybatec/panel_history_job_start",
+        entry_id:entryId,kind:"historical_preview",
+        start_date:this._historyStart,end_date:this._historyEnd,
       });
+      this._historyJobId=job.id;
+      const result=await this._waitForHistoryJob(entryId,job,"historical_preview");
+      if (result.recorder_writes!==false || result.energy_writes!==false ||
+          !result.proposals || !Array.isArray(result.review_candidates))
+        throw new Error("Unverified historical preview");
       this._historyPreview=result;
-      this._historyMessage="Aperçu de l’historique actualisé. Aucune série Recorder n’a été modifiée.";
+      this._historyMessage=this._t(
+        "Aperçu complet validé. Aucune donnée Recorder modifiée.",
+        "Complete preview verified. Recorder data unchanged.");
+      this._unsavedInput=false;
     } catch (_) {
-      this._historyError="Prévisualisation impossible : vérifiez la période, la connexion et les journaux Trybatec.";
+      this._historyError=this._t(
+        "Analyse interrompue ou indisponible : aucun historique partiel n’est validé. Consultez Diagnostics.",
+        "History interrupted or unavailable: no partial history accepted. See Diagnostics.");
     } finally {
-      this._historyBusy=false;this._render();
+      this._historyBusy=false;this._historyJobId=null;this._historyJobStatus=null;
+      if (!this._isEditingForm()) this._render();
     }
   }
   async _approveHistory() {
@@ -1489,7 +1545,17 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
       '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
-      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button></div>'+
+      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button>'+ 
+      (this._historyBusy&&this._historyJobId?
+        '<button type="button" class="secondary" data-history-cancel>'+
+        this._t("Annuler l’analyse","Cancel analysis")+'</button>':"")+'</div>'+
+      (this._historyJobStatus?.status==="running"?
+        '<p class="notice" role="status">'+this._t("Lecture en cours : ","Reading history: ")+
+        safe(this._historyJobStatus.progress?.http_requests??"—")+
+        this._t(" requête(s), "," requests, ")+
+        safe(this._historyJobStatus.progress?.periods_verified??"—")+
+        this._t(" période(s) vérifiée(s)."," verified periods.")+
+        '</p>':"")+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
       '</section><div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
