@@ -65,3 +65,23 @@ Document de portée générale, sans donnée d'installation individuelle. Cette 
 
 ## Recette minimale
 Tests unitaires et navigateur synthétique FR/EN mobile/bureau, modes clair/sombre, bornes de dates et DST, unités, nombres, hauteurs de composants, parcours absent/présent, non-régression Recorder/Énergie/Options, et contrôles CI sur le SHA final. Aucune validation automatique ne remplace l'examen et l'autorisation explicite de fusion.
+
+## UI-004 — Limites techniques et budgets historiques (validé)
+
+- Sous « Réglages → Journalisation et diagnostics », afficher **en lecture seule**
+  les limites réellement appliquées (tailles 16 Mio/64 Kio, 60/30/25/20 s
+  selon endpoint, lignes/points, temporisations et tentatives).
+- Les valeurs proviennent des constantes Python effectives, pas d'une
+  duplication en JavaScript. Signaler honnêtement les plafonds globaux non définis.
+- **Budgets candidats validés pour essais, non actifs tant que la recette
+  de charge n'est pas terminée :** standard 120 s et 24 requêtes ; exhaustive
+  600 s et 80 requêtes ; pause cible 500 ms ; 1 analyse par compte.
+- Présenter séparément les limites effectives et les budgets proposés.
+  Ne jamais qualifier « actif » un plafond non appliqué côté serveur.
+- Prévoir progression non bloquante, annulation et reprise sûre, aucune
+  historisation partielle présentée comme complète. Les contrôles UI
+  correspondant à une fonction non développée ne doivent pas être affichés
+  comme opérationnels.
+- La correction du lecteur HTTP fragmenté et des tests de charge
+  représentatifs conditionne toute activation des budgets proposés.
+- Spécification complète : [Budgets et diagnostics historiques](trybatec-history-resource-guardrails-0.3.2b1.md).
