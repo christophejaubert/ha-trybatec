@@ -847,6 +847,67 @@ def test_malformed_json_fails_fast_without_exponential_date_split(
     asyncio.run(verify())
 
 
+def test_emergency_ceiling_fails_closed_without_partial_history(
+    services, monkeypatch,
+):
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    monkeypatch.setattr(services, "EMERGENCY_MAX_REQUESTS", 6)
+    calls = []
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 1:
+            raise services.TrybatecDataError(
+                "Trybatec response exceeds permitted size"
+            )
+        return {"lines": []}
+
+    async def verify():
+        with pytest.raises(services.ServiceValidationError, match="no partial"):
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=indexes), "SYNTHETIC-DEAL",
+                [(date(2025, 1, 1), date(2025, 3, 1))],
+            )
+
+    asyncio.run(verify())
+    assert len(calls) == 6
+
+
+def test_cancelled_history_restores_full_original_request_on_retry(
+    services, monkeypatch,
+):
+    monkeypatch.setattr(services, "HISTORY_WINDOW_PAUSE_SECONDS", 0)
+    calls = []
+    interrupt = {"enabled": True}
+
+    async def indexes(_deal, begin, finish):
+        calls.append((begin, finish))
+        if (finish - begin).days > 4:
+            raise services.TrybatecDataError(
+                "Trybatec response exceeds permitted size"
+            )
+        if interrupt["enabled"] and len(calls) == 4:
+            raise asyncio.CancelledError()
+        return {"lines": []}
+
+    async def verify():
+        windows = [(date(2025, 1, 1), date(2025, 1, 20))]
+        with pytest.raises(asyncio.CancelledError):
+            await services._fetch_history_payloads(
+                SimpleNamespace(indexes=indexes), "SYNTHETIC-DEAL", windows,
+            )
+        first_attempt = len(calls)
+        interrupt["enabled"] = False
+        payloads, requests = await services._fetch_history_payloads(
+            SimpleNamespace(indexes=indexes), "SYNTHETIC-DEAL", windows,
+        )
+        assert calls[first_attempt] == windows[0]
+        assert requests == len(calls) - first_attempt
+        assert len(payloads) > 1
+
+    asyncio.run(verify())
+
+
 def test_long_history_recovers_seven_meters_with_more_than_80_api_requests(
     services, monkeypatch,
 ):

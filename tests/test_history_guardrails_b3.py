@@ -18,6 +18,34 @@ def test_candidate_budgets_are_not_claimed_as_active():
     assert state["proposed_pause_ms"] == 500
 
 
+def test_emergency_request_ceiling_stays_active_with_candidate_budgets_disabled(
+    monkeypatch,
+):
+    monkeypatch.setattr(guard, "BUDGETS_ENFORCED", False)
+    monkeypatch.setattr(guard, "EMERGENCY_MAX_REQUESTS", 4)
+    operation = guard.HistoryOperation(
+        "historical_read", "2021-01-01", "2026-01-01", long=True,
+    )
+    for _ in range(4):
+        operation.before_request()
+    with pytest.raises(guard.HistoryBudgetExceeded):
+        operation.before_request()
+    assert operation.calls == 4
+
+
+def test_emergency_elapsed_time_rejects_new_requests(monkeypatch):
+    monkeypatch.setattr(guard, "BUDGETS_ENFORCED", False)
+    monkeypatch.setattr(guard, "EMERGENCY_MAX_SECONDS", 10)
+    monkeypatch.setattr(guard, "monotonic", lambda: 100.0)
+    operation = guard.HistoryOperation(
+        "historical_read", "2021-01-01", "2026-01-01", long=True,
+    )
+    monkeypatch.setattr(guard, "monotonic", lambda: 111.0)
+    with pytest.raises(guard.HistoryBudgetExceeded):
+        operation.before_request()
+    assert operation.calls == 0
+
+
 def test_actual_per_request_counter_can_enforce_both_approved_profiles(monkeypatch):
     monkeypatch.setattr(guard, "BUDGETS_ENFORCED", True)
     start, end = "2025-01-01", "2025-12-31"

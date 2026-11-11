@@ -117,6 +117,44 @@ def test_job_progress_never_uses_an_unrelated_operation():
     job["task"] = object()
     assert scope["_job_view"](coordinator, job, include_result=False)["progress"] is None
 
+def test_restart_after_cancel_only_publishes_second_complete_result():
+    calls = []
+
+    async def preview(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise asyncio.CancelledError()
+        return {
+            "recorder_writes": False, "energy_writes": False,
+            "proposals": {"intervals": []}, "review_candidates": [],
+        }
+
+    scope = _load(["_run_job"], {
+        "asyncio": asyncio, "preview_history_for_panel": preview,
+    })
+
+    def make_job():
+        return {
+            "kind": "historical_preview", "start_date": "2025-01-01",
+            "end_date": "2025-12-31", "state": "running",
+            "result": None, "failure_type": None,
+        }
+
+    async def verify():
+        first = make_job()
+        with pytest.raises(asyncio.CancelledError):
+            await scope["_run_job"](object(), object(), first)
+        assert first["state"] == "cancelled"
+        assert first["result"] is None
+        second = make_job()
+        await scope["_run_job"](object(), object(), second)
+        assert second["state"] == "complete"
+        assert second["result"]["recorder_writes"] is False
+        assert len(calls) == 2
+
+    asyncio.run(verify())
+
+
 def test_cancel_calls_only_matching_background_task():
     scope = _load(["_job", "cancel_panel_history_job"], {
         "_JOB_RETENTION_SECONDS": 3600, "monotonic": monotonic,
