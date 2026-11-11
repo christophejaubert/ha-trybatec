@@ -62,6 +62,23 @@ function trybatecMergeHistoricalObservationDates(account, coverage) {
     if (!item) continue;
     meter.first_observed_at=pick(meter.first_observed_at,item.first_observed_at,true);
     meter.last_source_observed_at=pick(meter.last_source_observed_at,item.last_source_observed_at,false);
+    if (meter.status==="depose" && typeof item.last_source_index_raw==="number" &&
+        Number.isFinite(item.last_source_index_raw)) {
+      meter.historical_last_index_raw=item.last_source_index_raw;
+      meter.historical_last_index_at=item.last_source_observed_at;
+      meter.historical_index_conflict=Boolean(item.has_conflicts);
+    }
+  }
+  // The timeline is a separate presentation projection: update only exact identities.
+  for (const group of (account.physical_meter_timeline||[])) {
+    for (const row of (group.meters||[])) {
+      const meter=(account.meters||[]).find(m=>m.lot===group.lot &&
+        m.fluid===group.fluid && m.serial===row.serial);
+      if (meter) {
+        row.first_observed_at=meter.first_observed_at;
+        row.last_source_observed_at=meter.last_source_observed_at;
+      }
+    }
   }
   account.historical_years_scan_complete=true;
 }
@@ -604,7 +621,6 @@ class TrybatecPanel extends HTMLElement {
     this._versionImportBackup=false;
     this._versionRevision=false;
     this._versionRetry=false;
-    this._versionHeating=false;
     this._versionOld="";
     this._versionNew="";
     this._versionEnergyPlan=null;
@@ -816,7 +832,7 @@ class TrybatecPanel extends HTMLElement {
     if (versionField) {
       const fields={
         importBackup:"_versionImportBackup",revision:"_versionRevision",
-        retry:"_versionRetry",heating:"_versionHeating",
+        retry:"_versionRetry",
         old:"_versionOld",new:"_versionNew",
         energyBackup:"_versionEnergyBackup",rollback:"_versionRollback",
         start:"_historyStart",end:"_historyEnd"
@@ -824,7 +840,7 @@ class TrybatecPanel extends HTMLElement {
       if (fields[versionField]) this[fields[versionField]]=
         event.target.type==="checkbox"?Boolean(event.target.checked):event.target.value;
       if (["old","new"].includes(versionField)) this._versionEnergyPlan=null;
-      if (["start","end","heating"].includes(versionField)) this._versionPlan=null;
+      if (["start","end"].includes(versionField)) this._versionPlan=null;
       this._render();return;
     }
     const settingsField=event.target.dataset.settingsField;
@@ -1096,16 +1112,24 @@ class TrybatecPanel extends HTMLElement {
     const account=this._current;
     const related=account.entities.filter(e=>
       e.unique_id && (e.unique_id.includes("_"+m.serial+"_")||e.unique_id.endsWith("_"+m.serial+"_index")));
-    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2>'+safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
+    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2 class="meter-title">'+
+      (FLUID_ICON[m.fluid]?'<ha-icon icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':'')+
+      safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
       this._badge(m)+'</div><p class="muted">Compteur physique · '+safe(m.source==="live_api"?"Relevé par l’API":"Archivé localement")+'</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
       '<div><span class="smallhead">Unité</span><strong>'+safe(m.unit||"À vérifier")+'</strong></div>'+
-      '<div><span class="smallhead">Dernier index disponible</span><strong>'+safe(m.last_index===null?"Indisponible":m.last_index)+'</strong></div>'+
-      '<div><span class="smallhead">Première observation connue</span><strong>'+safe(m.first_observed_at||"Non disponible")+'</strong></div>'+
-      '<div><span class="smallhead">Dernière observation source</span><strong>'+safe(m.last_source_observed_at||"Non disponible")+'</strong></div>'+
-      '<div><span class="smallhead">Dernier index exploitable</span><strong>'+safe(m.last_observed_at||"Non vérifié")+'</strong></div>'+
+      '<div><span class="smallhead">Dernier index disponible</span><strong>'+safe(m.last_index===null?"Indisponible":this._number(m.last_index))+'</strong></div>'+
+      '<div><span class="smallhead">Première observation connue</span><strong>'+safe(this._date(m.first_observed_at)||"Non disponible")+'</strong></div>'+
+      '<div><span class="smallhead">Dernière observation source</span><strong>'+safe(this._date(m.last_source_observed_at)||"Non disponible")+'</strong></div>'+
+      '<div><span class="smallhead">Dernier index exploitable</span><strong>'+safe(this._date(m.last_observed_at)||"Non vérifié")+'</strong></div>'+
+      (m.status==="depose" && m.historical_last_index_raw!==undefined?
+        '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
+        safe(this._number(m.historical_last_index_raw))+' '+safe(m.unit||"")+
+        '</strong><span class="muted">'+safe(this._date(m.historical_last_index_at))+
+        (m.historical_index_conflict?" · conflit de relevés à vérifier":" · relevé historique à qualifier")+
+        '</span></div>':"")+
       '<div><span class="smallhead">Statut de l’unité</span><strong>'+safe(m.unit_verified?"Vérifiée":"À vérifier")+'</strong></div>'+
       '</div><h3>Relations techniques Home Assistant</h3>'+
       '<p class="muted">Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.</p>'+
@@ -1130,8 +1154,8 @@ class TrybatecPanel extends HTMLElement {
           '<div class="meter-row"><span class="meter-name">'+safe(m.serial)+'</span> '+
           '<span class="pill '+(m.status==='en_service'?'on':m.status==='depose'?'off':'unknown')+'">'+
           safe(m.status==='en_service'?'En service':m.status==='depose'?'Déposé':'Statut inconnu')+'</span>'+
-          '<div class="muted">Première observation : '+safe(m.first_observed_at||'Non connue')+
-          ' · Dernière observation source : '+safe(m.last_source_observed_at||'Non connue')+'</div></div>'
+          '<div class="muted">Première observation : '+safe(this._date(m.first_observed_at)||'Non connue')+
+          ' · Dernière observation source : '+safe(this._date(m.last_source_observed_at)||'Non connue')+'</div></div>'
         ).join('')+'</div></div>').join('')+
       '<div class="notice">Un compteur déposé est un appareil historique. Une entité technique indisponible ne constitue pas un compteur supplémentaire. Aucune date de remplacement n’est inventée.</div></section>';
   }
@@ -1140,8 +1164,19 @@ class TrybatecPanel extends HTMLElement {
     const meters=this._meters();
     const indexed=meters.map((m,i)=>({m,i})).filter(x=>!this._query||[
       x.m.serial,x.m.lot,FLUID[x.m.fluid],x.m.status].some(v=>String(v||"").toLowerCase().includes(this._query)));
+    const missing=meters.filter(m=>m.status==="depose" &&
+      (!m.first_observed_at || !m.last_source_observed_at));
+    const coverage=this._tariffCoverage.get(this._current.entry_id);
+    const historyHelp='<div class="notice'+(missing.length?' warning':'')+'" role="status">'+
+      (coverage?.status==="loading"?"Lecture en cours des relevés historiques du fournisseur…":
+       coverage?.status==="error"?"Vérification historique incomplète : aucun relevé inventé.":
+       coverage?.status==="complete"?(missing.length?String(missing.length)+
+         " compteur(s) déposé(s) restent sans observations vérifiées.":"Bornes historiques issues des relevés du fournisseur."):
+       String(missing.length)+" compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.")+
+      (coverage?.status!=="loading"?'<div class="actions"><button type="button" class="secondary" data-historical-scan>'+
+       'Rechercher les relevés historiques</button></div>':"")+'</div>';
     return this._heading("Compteurs","Inventaire physique : en service, déposés, ou statut non confirmé.")+
-      '<div class="split"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
+      historyHelp+'<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
       '<div class="scroll">'+indexed.map(x=>this._meterRow(x.m,x.i,"detail")).join("")+'</div>'+
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
@@ -1671,7 +1706,7 @@ class TrybatecPanel extends HTMLElement {
   _versionDates() {
     return {start_date:this._historyStart,end_date:this._historyEnd,
       include_cold_water:true,include_hot_water:true,
-      include_heating:this._versionHeating};
+      include_heating:true};
   }
   async _previewRecorderVersion() {
     if (!this._current||this._versionBusy) return;
@@ -1780,8 +1815,8 @@ class TrybatecPanel extends HTMLElement {
       '<div class="form-grid" style="margin-top:14px">'+
       '<div><label for="version-start">Début</label><input id="version-start" data-version-field="start" type="date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="version-end">Fin</label><input id="version-end" data-version-field="end" type="date" value="'+safe(this._historyEnd)+'"></div>'+
-      '<div><label><input data-version-field="heating" type="checkbox" '+(this._versionHeating?"checked":"")+'> Inclure le chauffage</label></div>'+
-      '</div><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
+
+      '</div><p class="muted">Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
       (plan?'<div class="notice"><strong>Plan non importé</strong> · '+safe(rows.length)+
         ' séries, '+safe(plan.physical_meters?.length||"?")+' compteurs, période '+
         safe(plan.start_date)+" → "+safe(plan.end_date)+
