@@ -37,6 +37,7 @@ from .panel_energy import (
 from .panel_review import ws_panel_reading_decision
 from .panel_tariff_years import ws_panel_tariff_years, merge_cached_historical_bounds
 from .panel_technical_audit import audited_entity_inventory
+from .panel_technical_limits import technical_limits_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -376,6 +377,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "mode": "administrator_read_only",
         "accounts": accounts,
         "energy": energy,
+        "technical_limits": technical_limits_snapshot(),
         "no_automatic_cleanup": True,
         "no_automatic_recorder_or_energy_changes": True,
     }
