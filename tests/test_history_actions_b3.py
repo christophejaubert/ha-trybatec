@@ -838,7 +838,7 @@ def test_malformed_json_fails_fast_without_exponential_date_split(
                 [(date(2026, 10, 1), date(2026, 11, 9))],
             )
         result = str(caught.value)
-        assert "2026-10-01" in result && "2026-11-09" in result
+        assert "2026-10-01" in result and "2026-11-09" in result
         assert "malformed_json" in result
         assert "No partial history" in result
         assert calls == [(date(2026, 10, 1), date(2026, 11, 9))]
