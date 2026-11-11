@@ -143,6 +143,66 @@ async function runCase(browser, locale, device) {
     });
     assert.ok(overflow.documentWidth<=overflow.windowWidth+2,
       "Horizontal page overflow at "+locale+" "+device+" "+tab+": "+JSON.stringify(overflow));
+    // Check the real DOM event path on all editable fields visible in this tab.
+    // Replacing the focused native input on any intermediate date digit is
+    // precisely the regression that made entering four-digit years impossible.
+    const focusChecks=await page.evaluate(()=>{
+      const root=document.querySelector("trybatec-panel").shadowRoot;
+      const fields=[...root.querySelectorAll(
+        'input[type="date"],input[type="time"],input[type="number"],'+
+        'input[type="text"]:not([data-query]),textarea'
+      )].filter(el=>!el.disabled && !el.readOnly && el.getClientRects().length);
+      const errors=[];
+      for(const element of fields) {
+        const original=element.value;
+        const desired=element.type==="date"?"2021-12-31":
+          element.type==="time"?"14:25:30":
+          element.type==="number"?"1234":"test";
+        element.focus();
+        // Native date controls may emit incomplete values while the
+        // day/month/year segments are being typed by a human.
+        for (const candidate of (element.type==="date"
+          ? ["", "2021-01-01", desired] : [desired])) {
+          element.value=candidate;
+          element.dispatchEvent(new Event("input",{bubbles:true}));
+          element.dispatchEvent(new Event("change",{bubbles:true}));
+          if (!element.isConnected || root.activeElement!==element) {
+            errors.push("Input reconstructed / lost focus: "+
+              (element.id||JSON.stringify(element.dataset)));
+            break;
+          }
+        }
+        if (!element.isConnected) break;
+        element.value=original;
+        element.dispatchEvent(new Event("input",{bubbles:true}));
+        element.dispatchEvent(new Event("change",{bubbles:true}));
+      }
+      return {checked:fields.length,errors};
+    });
+    assert.deepEqual(focusChecks.errors,[],
+      "Changing an editable field must not replace or blur it: "+tab);
+    if(tab==="energy") {
+      // Reproduce a stale Recorder plan: date edit must make import
+      // impossible immediately, without destroying the date element.
+      const safe=await page.evaluate(()=>{
+        const host=document.querySelector("trybatec-panel");
+        const root=host.shadowRoot;
+        host._versionPlan={series:[],physical_meters:[]};
+        host._versionImportBackup=true;
+        host._render();
+        const field=root.querySelector("#version-start");
+        const button=root.querySelector("[data-version-import]");
+        if(!field||!button) return {error:"missing Recorder controls"};
+        field.focus();
+        field.value="2021-01-01";
+        field.dispatchEvent(new Event("input",{bubbles:true}));
+        return {connected:field.isConnected,focused:root.activeElement===field,
+          planInvalidated:host._versionPlan===null,buttonDisabled:button.disabled};
+      });
+      assert.deepEqual(safe,{
+        connected:true,focused:true,planInvalidated:true,buttonDisabled:true,
+      },"Recorder preview must be invalidated without losing the focused date");
+    }
     if(tab==="diagnostics"){
       const content=await page.locator("trybatec-panel main").innerText();
       assert.match(content,locale==="EN"?/Partial audit|Legacy technical generation/i:/Audit partiel|Ancienne génération technique/i);
@@ -163,6 +223,23 @@ async function runCase(browser, locale, device) {
       fullPage:true,
       animations:"disabled",
     });
+  }
+  // Native browser keyboard test: type a full four-digit year as separate
+  // key presses and verify the same date element retains focus each time.
+  await page.locator('trybatec-panel nav button[data-tab="energy"]').click();
+  const dateInput=page.locator('trybatec-panel #version-start');
+  await dateInput.focus();
+  await page.evaluate(()=>{
+    globalThis.__yearInput=document.querySelector("trybatec-panel").shadowRoot
+      .querySelector("#version-start");
+  });
+  for (const digit of ["2","0","2","1"]) {
+    await page.keyboard.press(digit);
+    const survives=await page.evaluate(()=>{
+      const root=document.querySelector("trybatec-panel").shadowRoot;
+      return globalThis.__yearInput?.isConnected&&root.activeElement===globalThis.__yearInput;
+    });
+    assert.equal(survives,true,"Typing a year digit must preserve the native date input");
   }
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
