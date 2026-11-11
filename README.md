@@ -473,6 +473,10 @@ direction du propriétaire du dépôt. Ce projet indépendant n'est ni affilié,
 ni approuvé, ni officiellement développé, ni maintenu par OpenAI. **Ni OpenAI
 ni le propriétaire du dépôt ne garantissent la maintenance ou l'assistance.**
 
+**AI contribution title convention / Convention de nommage IA:** see [CONTRIBUTING.md](CONTRIBUTING.md) for the prospective `🤖 ` prefix policy and [AGENTS.md](AGENTS.md) for AI assistant instructions. Existing contributions are not renamed retroactively; third-party and automated contributions remain unchanged.
+
+**Convention de traçabilité des contributions IA :** consulter [CONTRIBUTING.md](CONTRIBUTING.md) (règle prospective du préfixe `🤖 `) et [AGENTS.md](AGENTS.md) (consignes aux agents IA). Aucun renommage rétroactif ; les contributions tierces et automatisées sont exclues.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
