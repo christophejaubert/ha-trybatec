@@ -1328,11 +1328,11 @@ class TrybatecPanel extends HTMLElement {
       (this._originBusy||!this._historyPreview?"disabled":"")+'>Calculer l’aperçu hypothétique</button></div>'+
       (this._originError?'<div class="notice warning">'+safe(this._originError)+'</div>':"")+
       (preview?'<div class="notice"><strong>Simulation calculée.</strong> Du '+
-      safe(preview.start_date)+' au '+safe(preview.end_date)+', quantité estimée : '+
-      safe(preview.estimated_total)+' '+safe(preview.unit)+
-      '. Premier index réellement observé : '+safe(preview.first_observed_index)+
-      ' '+safe(preview.source_index_unit||"unité à vérifier")+' à '+safe(preview.first_observed_at)+
-      '. L’index initial '+safe(preview.estimated_initial_index)+' '+safe(preview.source_index_unit||"")+
+      safe(this._date(preview.start_date))+' au '+safe(this._date(preview.end_date))+', quantité estimée : '+
+      safe(this._number(preview.estimated_total))+' '+safe(preview.unit)+
+      '. Premier index réellement observé : '+safe(this._number(preview.first_observed_index))+
+      ' '+safe(preview.source_index_unit||"unité à vérifier")+' à '+safe(this._date(preview.first_observed_at,true))+
+      '. L’index initial '+safe(this._number(preview.estimated_initial_index))+' '+safe(preview.source_index_unit||"")+
       ' est une hypothèse, pas une mesure. Cet aperçu ne crée aucune mesure source.</div>'+
       (preview.daily_preview?this._historyDayBars({
         daily_preview:preview.daily_preview,unit:preview.unit
@@ -1359,7 +1359,7 @@ class TrybatecPanel extends HTMLElement {
       return '<div class="notice warning">Comparaison journalière non disponible : les bornes ou le détail doivent être revérifiés.</div>';
     }
     const rows=comparison.rows||[];
-    const format=(value)=>Number(value).toLocaleString('fr-FR',{maximumFractionDigits:6});
+    const format=(value)=>this._number(value);
     return '<section aria-label="Comparaison journalière avant et après lissage">'+
       '<h3>Comparaison avant / après · consommation et cumul</h3>'+
       '<p class="muted">Avant : seules les consommations journalières effectivement connues sont affichées. Le tiret signifie « non déterminé », jamais zéro. Après : répartition estimée du résiduel, sans modifier les index réels.</p>'+
@@ -1368,7 +1368,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Consommation réellement mesurée</span><strong>'+safe(format(comparison.measured_total))+' '+safe(proposal.unit)+'</strong></div>'+
       '<div><span class="smallhead">Consommation estimée</span><strong>'+safe(format(comparison.estimated_total))+' '+safe(proposal.unit)+'</strong></div></div>'+
       '<div class="scroll" style="max-height:360px"><table><thead><tr><th>Jour</th><th>Avant · mesuré</th><th>Après · consommation</th><th>Cumul après</th><th>Nature</th></tr></thead><tbody>'+
-      rows.slice(0,90).map(r=>'<tr><td>'+safe(r.date)+'</td>'+
+      rows.slice(0,90).map(r=>'<tr><td>'+safe(this._date(r.date))+'</td>'+
         '<td>'+safe(r.before_observed_consumption===null?'—':format(r.before_observed_consumption))+'</td>'+
         '<td>'+safe(format(r.after_consumption))+'</td>'+
         '<td>'+safe(format(r.cumulative_after))+'</td>'+
@@ -1385,7 +1385,7 @@ class TrybatecPanel extends HTMLElement {
     return '<div style="display:flex;align-items:end;gap:2px;height:130px;overflow-x:auto;padding:10px 4px 5px;border-bottom:1px solid #b0bcd0" role="img" aria-label="Aperçu de consommation quotidienne estimée">'+
       rows.slice(0,400).map(x=>{
         const fraction=Math.max(2,Math.round(100*(Number(x.quantity)||0)/max));
-        const label=safe(x.date+" : "+x.quantity+" "+proposal.unit+" ("+x.provenance+")");
+        const label=safe(this._date(x.date)+" : "+this._number(x.quantity)+" "+proposal.unit+" ("+x.provenance+")");
         return '<div title="'+label+'" style="flex:1 0 4px;min-width:4px;height:'+fraction+
           '%;background:'+(x.provenance==="measured"?"#4d9f73":"#457bd2")+
           ';border-radius:3px 3px 0 0"></div>';
@@ -1450,13 +1450,13 @@ class TrybatecPanel extends HTMLElement {
     (list.length?list.map(c=>
       '<div class="meter-row"><button type="button" data-reading-select="'+safe(c.key)+'" class="'+
       (this._readingSelected===c.key?"selected":"")+'">'+
-      '<span class="meter-name">'+safe(c.fluid+" · "+c.meter_serial+" · "+c.index)+'</span>'+
-      '<span class="meter-sub">'+safe(c.source_date)+'</span>'+
+      '<span class="meter-name">'+safe(c.fluid+" · "+c.meter_serial+" · "+this._number(c.index))+'</span>'+
+      '<span class="meter-sub">'+safe(this._date(c.source_date,true))+'</span>'+
       '<span class="meter-sub">'+safe(c.reasons.map(r=>explanation[r]||r).join(" · "))+
       " · Décision : "+safe(c.decision)+'</span></button></div>').join(""):'<div class="empty">Aucun relevé à examiner. Lancez l’analyse historique.</div>')+
     '</div><div>'+
     (item?'<h3>Décision sur le relevé</h3>'+
-      '<p class="muted">Index réel : '+safe(item.index)+' · '+safe(item.source_date)+'</p>'+
+      '<p class="muted">Index réel : '+safe(this._number(item.index))+' · '+safe(this._date(item.source_date,true))+'</p>'+
       '<div class="form-grid" style="margin-top:12px">'+
       '<div><label>Traitement</label><select data-reading-field="action">'+
       [["accept","Conserver"],["correct","Corriger ou imputer"],["reject","Écarter"],["postpone","Reporter"]].map(([v,t])=>
@@ -1514,16 +1514,16 @@ class TrybatecPanel extends HTMLElement {
         '<button type="button" data-history-select="'+safe(item.interval_key)+'" class="'+
         (this._historySelected===item.interval_key?"selected":"")+'">'+
         '<span class="meter-name">'+safe(item.fluid+" · "+item.meter_serial)+'</span>'+
-        '<span class="meter-sub">'+safe(item.start_date+" → "+item.end_date+" · "+(blockers[item.status]||item.status))+
+        '<span class="meter-sub">'+safe(this._date(item.start_date)+" → "+this._date(item.end_date)+" · "+(blockers[item.status]||item.status))+
         '</span></button></div>').join("")+'</div>':
       '<div class="empty">'+(this._historyPreview?"Aucun intervalle à signaler sur cette période.":"Analysez une période pour afficher les intervalles concernés.")+'</div>')+
       '</section><section class="card">'+
       (proposal?'<h3>Reconstituer l’intervalle sélectionné</h3>'+
-      '<p class="muted">'+safe(proposal.lot+" · "+proposal.meter_serial+" · "+proposal.start_date+" → "+proposal.end_date)+'</p>'+
+      '<p class="muted">'+safe(proposal.lot+" · "+proposal.meter_serial+" · "+this._date(proposal.start_date)+" → "+this._date(proposal.end_date))+'</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Consommation bornée</span><strong>'+
       safe(proposal.bounded_consumption===undefined?"Non déterminée":proposal.bounded_consumption+" "+proposal.unit)+'</strong></div>'+
-      '<div><span class="smallhead">Index avant → après</span><strong>'+safe(proposal.source_start_index+" → "+proposal.source_end_index)+'</strong></div>'+
+      '<div><span class="smallhead">Index avant → après</span><strong>'+safe(this._number(proposal.source_start_index)+" → "+this._number(proposal.source_end_index))+'</strong></div>'+
       '<div><span class="smallhead">Jours</span><strong>'+safe(proposal.days||"À déterminer")+'</strong></div>'+
       '<div><span class="smallhead">État</span><strong>'+safe(blockers[proposal.status]||proposal.status)+'</strong></div></div>'+
       (ready?'<h3>Aperçu après lissage linéaire</h3>'+this._historyDayBars(proposal)+this._historyComparison(proposal):
@@ -1581,7 +1581,7 @@ class TrybatecPanel extends HTMLElement {
   _annualCostsView() {
     const p=this._costPreview;
     const rows=(p?.annual||[]).slice(0,100);
-    const fmt=n=>Number(n).toLocaleString("fr-FR",{maximumFractionDigits:6});
+    const fmt=n=>this._number(n);
     const table=rows.map(x=>{
       const unit=x.unit==="kWh"?"kWh":"m³";
       const evidence=x.evidence_type==="measured_daily"?"Relevés journaliers":
@@ -1618,8 +1618,8 @@ class TrybatecPanel extends HTMLElement {
       (this._costBusy?"disabled":"")+'>Calculer les coûts de '+safe(this._tariffInput.year)+'</button></div>'+
       (this._costBusy?'<p class="muted">Lecture des relevés et calcul en cours.</p>':"")+
       (this._costError?'<div class="notice warning">'+safe(this._costError)+'</div>':"")+
-      (p?'<p class="muted">Exercice '+safe(this._costYear)+' · '+safe(p.start_date)+
-      ' au '+safe(p.end_date)+' · '+safe(p.withheld_total||0)+
+      (p?'<p class="muted">Exercice '+safe(this._costYear)+' · '+safe(this._date(p.start_date))+
+      ' au '+safe(this._date(p.end_date))+' · '+safe(p.withheld_total||0)+
       ' compteur(s) exclu(s) faute de justification suffisante.</p>'+
       (rows.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Fluide</th>'+
       '<th>Origine</th><th>Consommation</th><th>Tarif</th><th>Coût estimé</th>'+
@@ -1633,13 +1633,13 @@ class TrybatecPanel extends HTMLElement {
     const a=this._current, f=this._tariffInput;
     const rows=Object.entries(a.tariffs).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
       Object.entries(fluids).map(([fluid,t])=>'<tr><td>'+safe(year)+'</td><td>'+safe(FLUID[fluid]||fluid)+
-      '</td><td>'+safe(t.rate)+' '+safe(fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
+      '</td><td>'+safe(this._number(t.rate))+' '+safe(fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
       '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>'));
     const overrides=Object.entries(a.meter_tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,values])=>
       Object.entries(values).map(([key,t])=>{
         const m=a.meters.find(m=>m.physical_key===key);
         return '<tr><td>'+safe(year)+'</td><td>'+safe(m?(FLUID[m.fluid]+" · "+m.serial):"Compteur non identifié")+
-          '</td><td>'+safe(t.rate)+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
+          '</td><td>'+safe(this._number(t.rate))+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
           '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
@@ -1819,7 +1819,7 @@ class TrybatecPanel extends HTMLElement {
       '</div><p class="muted">Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
       (plan?'<div class="notice"><strong>Plan non importé</strong> · '+safe(rows.length)+
         ' séries, '+safe(plan.physical_meters?.length||"?")+' compteurs, période '+
-        safe(plan.start_date)+" → "+safe(plan.end_date)+
+        safe(this._date(plan.start_date))+" → "+safe(this._date(plan.end_date))+
         '. Aucun historique n’a encore été écrit.</div>'+
         '<div class="scroll">'+rows.slice(0,20).map(x=>'<div class="line">'+
         safe(x.fluid+" · "+x.variant+" · "+x.rows+" points · "+x.unit)+'</div>').join("")+'</div>':"")+
