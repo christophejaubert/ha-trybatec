@@ -15,6 +15,7 @@ try:
 except ImportError:  # Older Home Assistant versions
     import voluptuous as vol
 
+from homeassistant.components import frontend
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -371,8 +372,22 @@ class TrybatecOptionsFlow(OptionsFlow):
         # An explicit label mapping is supported by HA's native menu API.
         # Supply nonempty, localized labels directly so a stale/missing
         # frontend translation never creates an invisible clickable row.
+        # Native OptionsFlows cannot redirect directly to a custom panel.
+        # Show a Home Assistant-native, one-click Markdown link while the
+        # existing routes remain available if the panel cannot load.
+        panel_ready = frontend.async_panel_exists(self.hass, "trybatec")
+        panel_link = (
+            self._nav_text("[Ouvrir le panneau Trybatec](/trybatec)",
+                           "[Open Trybatec panel](/trybatec)")
+            if panel_ready
+            else self._nav_text(
+                "Le panneau Trybatec est actuellement indisponible.",
+                "The Trybatec panel is currently unavailable.",
+            )
+        )
         return self.async_show_menu(
             step_id="init",
+            description_placeholders={"panel_link": panel_link},
             menu_options={
                 "settings": self._nav_text("Réglages", "Settings"),
                 "diagnostics": self._nav_text(
