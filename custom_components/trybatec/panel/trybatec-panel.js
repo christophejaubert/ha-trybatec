@@ -636,6 +636,8 @@ class TrybatecPanel extends HTMLElement {
     const slot=this.shadowRoot.querySelector("[data-version-notice]");
     if (!slot) return;
     slot.textContent="";
+    slot.hidden=!this._serverVersionPending;
+    slot.style.display=this._serverVersionPending?"":"none";
     if (!this._serverVersionPending) return;
     const message=document.createElement("span");
     message.textContent="Nouvelle version Trybatec disponible : "+this._serverVersionPending+
@@ -783,6 +785,7 @@ class TrybatecPanel extends HTMLElement {
     if (this._isEditableInput(event.target)) this._change(event);
   }
   _finishFieldChange(event) {
+    this._unsavedInput=true;
     if (this._isEditableInput(event.target)) {
       this._unsavedInput=true;
       // Invalidate stale previews *and* their visible confirmation controls
@@ -1979,7 +1982,7 @@ class TrybatecPanel extends HTMLElement {
     const start=searchFocused ? active.selectionStart : null;
     const end=searchFocused ? active.selectionEnd : null;
     this.shadowRoot.innerHTML='<style>'+style+'</style><div class="wrap">'+this._header()+
-      '<div data-version-notice class="notice warning" role="status" aria-live="polite"></div>'+
+      '<div data-version-notice class="notice warning" role="status" aria-live="polite" hidden style="display:none"></div>'+
       '<div class="shell">'+this._nav()+'<main class="main" id="main">'+this._content()+'</main></div>'+
       '<footer class="footer">Trybatec — Interface expérimentale · Aucune suppression ni écriture Recorder ou Énergie automatique.</footer></div>';
     localizeTrybatecPanel(this.shadowRoot,this._hass?.language);
