@@ -21,6 +21,11 @@ jobs:
     name: Browser FR/EN desktop/mobile (synthetic)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Official version-matched Playwright image ships Chromium and system
+    # dependencies; do not run apt on the hosted runner during browser tests.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --user 1001
     steps:
       - name: Checkout exact source without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,9 +36,7 @@ jobs:
           node --version
           npm --version
       - name: Install isolated Playwright (version pinned)
-        run: |
-          npm install --prefix scripts/browser-ci --no-save --ignore-scripts playwright@1.56.1
-          ./scripts/browser-ci/node_modules/.bin/playwright install --with-deps chromium
+        run: npm install --prefix scripts/browser-ci --no-save --ignore-scripts playwright@1.56.1
       - name: Exercise the real web component in Chromium using synthetic data only
         run: node scripts/browser-ci/acceptance.cjs
       - name: Save synthetic screenshots, including on test failure
