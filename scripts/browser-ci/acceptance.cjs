@@ -143,6 +143,36 @@ async function runCase(browser, locale, device) {
     });
     assert.ok(overflow.documentWidth<=overflow.windowWidth+2,
       "Horizontal page overflow at "+locale+" "+device+" "+tab+": "+JSON.stringify(overflow));
+    if(tab==="overview"){
+      const text=await page.locator("trybatec-panel main").innerText();
+      assert.match(text,locale==="FR"?/État de la configuration/:/Configuration status/);
+    }
+    if(tab==="meters"){
+      const header=page.locator("trybatec-panel .meter-title").first();
+      assert.equal(await header.count(),1,"Meter title must use fluid styling");
+      assert.equal(await header.locator("ha-icon").count(),1,"Meter title fluid pictogram missing");
+      const dates=await page.locator("trybatec-panel main").innerText();
+      assert.doesNotMatch(dates,/2022-01-01T12:00:00/,"Raw ISO date leaked into meter details");
+    }
+    if(tab==="energy"){
+      const locked=page.locator("trybatec-panel fieldset.prerequisite-locked");
+      assert.equal(await locked.count(),1,"The version handoff must be locked without verified versions");
+      assert.equal(await locked.getAttribute("disabled"),"","The handoff controls must be disabled");
+      const panelText=await page.locator("trybatec-panel main").innerText();
+      assert.match(panelText,locale==="FR"?/Parcours indisponible/:/Unavailable: prerequisites/);
+    }
+    if(tab==="settings"){
+      const days=page.locator("trybatec-panel input[data-duration-field='days']");
+      const hours=page.locator("trybatec-panel input[data-duration-field='hours']");
+      const minutes=page.locator("trybatec-panel input[data-duration-field='minutes']");
+      assert.equal(await days.inputValue(),"0");
+      assert.equal(await hours.inputValue(),"12");
+      assert.equal(await minutes.inputValue(),"0");
+    }
+    if(mobile){
+      const hamburger=page.locator("trybatec-panel .menu-toggle");
+      assert.equal(await hamburger.isVisible(),true,"HA main menu access missing on mobile");
+    }
     if(tab==="diagnostics"){
       const content=await page.locator("trybatec-panel main").innerText();
       assert.match(content,locale==="EN"?/Partial audit|Legacy technical generation/i:/Audit partiel|Ancienne génération technique/i);
