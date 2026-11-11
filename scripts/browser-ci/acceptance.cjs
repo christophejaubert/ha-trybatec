@@ -244,7 +244,13 @@ async function runCase(browser, locale, device) {
       assert.equal(await detail.count(),1);
       await detail.locator("summary").click();
       assert.match(await detail.innerText(),/16 Mio/);
-      assert.match(await detail.innerText(),/Budgets proposés — non actifs/);
+      const limitsText=await detail.innerText();
+      assert.match(limitsText,locale==="FR"?
+        /Budgets proposés — non actifs/:/Proposed budgets — not yet active/);
+      assert.match(limitsText,/1[\s ,.]?800|1800/,
+        "The active 1800-second fail-closed ceiling must be disclosed");
+      assert.match(limitsText,/512/,
+        "The active 512-request fail-closed ceiling must be disclosed");
       assert.equal(await detail.locator("input,select,button").count(),0,
         "Technical safeguards must be strictly read-only");
     }
