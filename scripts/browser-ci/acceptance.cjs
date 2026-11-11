@@ -292,7 +292,7 @@ async function runCase(browser, locale, device) {
     }
     if(tab==="settings") {
       const content=await page.locator("trybatec-panel main").innerText();
-      assert.match(content,/Diagnostic et paramètres techniques/);
+      assert.match(content,locale==="FR"?/Journalisation et diagnostics/:/Logging and diagnostics/);
       const detail=page.locator("trybatec-panel main details.technical-limits");
       assert.equal(await detail.count(),1);
       await detail.locator("summary").click();

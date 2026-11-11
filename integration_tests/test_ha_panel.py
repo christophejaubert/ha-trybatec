@@ -270,7 +270,6 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert opts["frontend_url_path"] == "trybatec"
     assert opts["sidebar_title"] == "Trybatec"
     assert opts["require_admin"] is True
-    assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.1b2")
     assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.2b1")
     assert register_ws.call_count == 17
     assert any(call.args[1] is panel_api.ws_panel_tariff_years for call in register_ws.call_args_list)

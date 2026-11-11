@@ -2358,7 +2358,7 @@ class TrybatecPanel extends HTMLElement {
         "Aucune série Trybatec déjà utilisée dans Énergie : cette opération remplace une source existante ; pour une première activation, utiliser le parcours initial de configuration Énergie. ",
         "No Trybatec series in Energy: this operation replaces an existing source; first activation uses the separate initial Energy configuration. ")):'')+
         '<div class="actions"><button type="button" class="secondary" data-tab="history">'+safe(this._t("Examiner l’historique","Review history"))+'</button>'+
-        (!hasCurrentSource?'<button type="button" class="secondary" data-openEnergy>'+safe(this._t("Ouvrir la configuration Énergie","Open Energy settings"))+'</button>':"")+
+        (!hasCurrentSource?'<button type="button" class="secondary" data-open-energy>'+safe(this._t("Ouvrir la configuration Énergie","Open Energy settings"))+'</button>':"")+
         '</div></div>')+
       '<fieldset class="'+(canReplaceVersion?"prerequisite-ready":"prerequisite-locked")+'" '+
       (!canReplaceVersion?'disabled aria-disabled="true"':'')+'>'+

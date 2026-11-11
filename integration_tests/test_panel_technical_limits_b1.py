@@ -59,7 +59,7 @@ def test_approved_budgets_remain_candidates_until_load_tests():
         "progress_after_seconds": 3,
         "slow_notice_after_seconds": 30,
     }
-    assert limits["effective"]["historical_inter_request_pause_ms"] != (
+    assert limits["effective"]["history_pause_ms"] != (
         limits["proposed"]["historical_inter_request_pause_ms"]
     )
 
