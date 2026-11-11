@@ -85,6 +85,15 @@ function trybatecMergeHistoricalObservationDates(account, coverage) {
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
+  ["Fréquence de synchronisation","Synchronization interval"],
+  ["Jours","Days"],
+  ["Heures","Hours"],
+  ["Minutes","Minutes"],
+  ["Rechercher les relevés historiques","Find historical readings"],
+  ["Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.","No Trybatec source found in current Energy configuration."],
+  ["Dernier index historique source (non qualifié)","Latest historical source index (unqualified)"],
+  ["Entités indisponibles détectées","Unavailable entities detected"],
+  ["Compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.","Retired meters without confirmed historical dates in the current inventory."],
   ["Vue d’ensemble","Overview"],
   ["Compteurs","Meters"],
   ["Historique & lissage","History & smoothing"],
@@ -1913,7 +1922,10 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="version-start">Début</label><input id="version-start" data-version-field="start" type="date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="version-end">Fin</label><input id="version-end" data-version-field="end" type="date" value="'+safe(this._historyEnd)+'"></div>'+
 
-      '</div><p class="muted">Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
+      '</div><p class="muted">'+safe(this._t(
+        "Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.",
+        "Cold water, hot water and heating are included in previews subject to unit and history checks. No automatic import."
+      ))+'</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
       (plan?'<div class="notice"><strong>Plan non importé</strong> · '+safe(rows.length)+
         ' séries, '+safe(plan.physical_meters?.length||"?")+' compteurs, période '+
         safe(this._date(plan.start_date))+" → "+safe(this._date(plan.end_date))+
@@ -1931,11 +1943,16 @@ class TrybatecPanel extends HTMLElement {
       '</section><section class="card" style="margin-top:16px"><h3>Choisir une version vérifiée pour Énergie</h3>'+
       '<p class="muted">Sélectionnez une ancienne série Trybatec actuellement affichée, puis une version Recorder vérifiée. Un ancien capteur physique reste géré dans le parcours séparé d’audit.</p>'+
       (canReplaceVersion?"":
-        '<div class="notice warning" role="status"><strong>Parcours indisponible : prérequis manquants.</strong> '+
-        (!hasVerifiedVersion?'Aucune version Recorder vérifiée : analyser les relevés, prévisualiser puis importer après sauvegarde, et contrôler la persistance. ':'')+
-        (!hasCurrentSource?'Aucune série Trybatec déjà utilisée dans Énergie : cette opération remplace une source existante ; pour une première activation, utiliser le parcours initial de configuration Énergie. ':'')+
-        '<div class="actions"><button type="button" class="secondary" data-tab="history">Examiner l’historique</button>'+
-        (!hasCurrentSource?'<button type="button" class="secondary" data-openEnergy>Ouvrir la configuration Énergie</button>':"")+
+        '<div class="notice warning" role="status"><strong>'+safe(this._t(
+        "Parcours indisponible : prérequis manquants.","Unavailable: prerequisites are missing."))+'</strong> '+
+        (!hasVerifiedVersion?safe(this._t(
+        "Aucune version Recorder vérifiée : analyser les relevés, prévisualiser puis importer après sauvegarde, et contrôler la persistance. ",
+        "No verified Recorder version: review readings, preview, import after backup, then verify persistence. ")):'')+
+        (!hasCurrentSource?safe(this._t(
+        "Aucune série Trybatec déjà utilisée dans Énergie : cette opération remplace une source existante ; pour une première activation, utiliser le parcours initial de configuration Énergie. ",
+        "No Trybatec series in Energy: this operation replaces an existing source; first activation uses the separate initial Energy configuration. ")):'')+
+        '<div class="actions"><button type="button" class="secondary" data-tab="history">'+safe(this._t("Examiner l’historique","Review history"))+'</button>'+
+        (!hasCurrentSource?'<button type="button" class="secondary" data-openEnergy>'+safe(this._t("Ouvrir la configuration Énergie","Open Energy settings"))+'</button>':"")+
         '</div></div>')+
       '<fieldset class="'+(canReplaceVersion?"prerequisite-ready":"prerequisite-locked")+'" '+
       (!canReplaceVersion?'disabled aria-disabled="true"':'')+'>'+
