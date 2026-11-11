@@ -652,6 +652,14 @@ class TrybatecPanel extends HTMLElement {
     button.textContent="Actualiser la page";
     slot.append(message,button);
   }
+  _t(fr, en) {
+    return /^en(?:$|[-_])/i.test(String(this._hass?.language || "")) ? en : fr;
+  }
+  _number(value) {
+    return new Intl.NumberFormat(this._hass?.language || "fr-FR", {
+      maximumFractionDigits: 3,
+    }).format(value);
+  }
   get _current() { return this._data && this._data.accounts ? this._data.accounts[this._account] : null; }
   async _fetch() {
     if (!this._hass || this._loading) return;
