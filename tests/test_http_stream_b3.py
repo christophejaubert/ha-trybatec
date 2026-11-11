@@ -39,6 +39,8 @@ class Response:
     def __init__(self, raw: bytes, *, sizes=(3,), content_length=None, delay=0, error=None):
         self.content = ChunkedStream(raw, sizes, delay=delay, error=error)
         self.content_length = content_length
+        self.status = 200
+        self.headers = {}
 
     async def __aenter__(self):
         return self
