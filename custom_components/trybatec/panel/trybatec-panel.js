@@ -584,6 +584,7 @@ const style = [
   ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
   ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
   ".poll-duration{grid-column:span 2;min-width:0}.duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
+  ".meter-options-grid>div,.logging-field{grid-column:span 2;min-width:0}.meter-options-grid input,.meter-options-grid select,.logging-field select{width:100%;padding:10px;border:1px solid var(--divider-color,#cbd5e1);border-radius:9px;color:inherit;background:var(--card-background-color,#fff)}",
   ".prerequisite-locked{opacity:.53;filter:grayscale(.5);border:0;padding:0;margin:0;width:100%;min-width:0}",
   ".prerequisite-ready{border:0;padding:0;margin:0;width:100%;min-width:0}",
   ".readiness-list{display:grid;gap:12px}.readiness-row{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--divider-color,#ddd);padding-top:12px}",
@@ -594,7 +595,7 @@ const style = [
   "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
   ".nav-wrap{padding-inline-end:34px}.nav{scrollbar-width:none;scroll-behavior:smooth}.nav::-webkit-scrollbar{display:none}",
   ".nav-forward{display:flex;align-items:center;justify-content:center;position:absolute;inset-inline-end:0;top:0;bottom:0;min-width:38px;border:0;color:var(--trybatec-green-fg);background:linear-gradient(to right,transparent,var(--card-background-color,#fff) 35%)}",
-  ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.poll-duration{grid-column:1/-1}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
+  ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.poll-duration,.meter-options-grid>div,.logging-field{grid-column:1/-1}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
 ].join("");
 
 class TrybatecPanel extends HTMLElement {
@@ -1267,14 +1268,14 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Unité explicitement fournie par l’API</span><strong>'+safe(source||"Non détectée")+'</strong></div>'+
       '<div><span class="smallhead">Unité de référence du graphique</span><strong>'+safe(option.chart_unit||"Non disponible")+'</strong></div>'+
       '<div><span class="smallhead">Origine de la présélection</span><strong>'+safe(origin)+'</strong></div></div>'+
-      '<div class="form-grid">'+
-      '<div style="grid-column:span 2"><label for="meter-unit-choice">Unité source du compteur</label>'+
+      '<div class="form-grid meter-options-grid">'+
+      '<div><label for="meter-unit-choice">Unité source du compteur</label>'+
       '<select id="meter-unit-choice" data-meter-option-field="unit">'+
       '<option value="unverified" '+(draft.unit==="unverified"?"selected":"")+'>Inconnue / non vérifiée</option>'+
       (option.allowed_units||[]).map(unit=>
         '<option value="'+safe(unit)+'" '+(draft.unit===unit?"selected":"")+
         (conflicting?" disabled":"")+'>'+safe(unit)+'</option>').join("")+'</select></div>'+
-      '<div style="grid-column:span 2"><label for="meter-device-uuid">UUID du dispositif Trybatec (facultatif)</label>'+
+      '<div><label for="meter-device-uuid">UUID du dispositif Trybatec (facultatif)</label>'+
       '<input id="meter-device-uuid" type="text" maxlength="36" spellcheck="false" data-meter-option-field="device_uuid" value="'+
       safe(draft.device_uuid||"")+'" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div></div>'+
       (conflicting?'<div class="notice warning">L’API signale une unité conflictuelle ou inconnue : seule la sélection « Inconnue » est autorisée tant que la source n’est pas clarifiée.</div>':"")+
@@ -2282,7 +2283,7 @@ class TrybatecPanel extends HTMLElement {
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Journalisation et diagnostics</h3>'+
       '<p class="muted">Ce niveau concerne <strong>tous les modules et tous les comptes Trybatec</strong> : synchronisation, communication avec le portail, historiques, services et diagnostics. Il ne change pas les autres intégrations ni le journal Home Assistant global.</p>'+
-      '<div class="form-grid" style="margin-top:18px"><div style="grid-column:span 2">'+
+      '<div class="form-grid" style="margin-top:18px"><div class="logging-field">'+
       '<label for="settings-log">Niveau de journalisation</label>'+
       '<select id="settings-log" data-log-level>'+
       ["ERROR","WARNING","INFO","DEBUG"].map(level=>
