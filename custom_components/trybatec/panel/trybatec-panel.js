@@ -475,6 +475,20 @@ function trybatecDisplayDate(value, language, zone, includeTime=false) {
   } catch (_) {return value;}
 }
 
+function trybatecDurationParts(value) {
+  const total=Math.max(0,Number(value)||0);
+  return {days:String(Math.floor(total/1440)),
+    hours:String(Math.floor(total%1440/60)),minutes:String(total%60)};
+}
+function trybatecDurationMinutes(parts) {
+  const fields=["days","hours","minutes"];
+  if (!fields.every(f=>/^(?:0|[1-9]\d*)$/.test(String(parts?.[f]??""))))
+    return NaN;
+  const days=Number(parts.days),hours=Number(parts.hours),minutes=Number(parts.minutes);
+  if (days>7 || hours>23 || minutes>59) return NaN;
+  const total=days*1440+hours*60+minutes;
+  return total>=60 && total<=10080?total:NaN;
+}
 const style = [
   ":host{--trybatec-ef-brand:#0A84D8;--trybatec-ecs-brand:#C73A5C;--trybatec-cet-brand:#E0A126;--trybatec-brand-green:#4E9E4A;--trybatec-ef-fg:#075A9B;--trybatec-ef-bg:#E8F3FC;--trybatec-ecs-fg:#A9234A;--trybatec-ecs-bg:#FCE9F0;--trybatec-cet-fg:#805500;--trybatec-cet-bg:#FBF3DE;--trybatec-green-fg:#286C32;--trybatec-green-bg:#EBF7EC;--trybatec-card-border:#C7D3E0;--trybatec-section-border:#BBCAD8}",
   ":host([data-trybatec-theme=\"dark\"]){--trybatec-ef-fg:#65B8FA;--trybatec-ef-bg:#18334B;--trybatec-ecs-fg:#FF7897;--trybatec-ecs-bg:#43232F;--trybatec-cet-fg:#FFD166;--trybatec-cet-bg:#3F3218;--trybatec-green-fg:#8ADD8F;--trybatec-green-bg:#203A29;--trybatec-card-border:#526171;--trybatec-section-border:#617487}",
@@ -643,6 +657,7 @@ class TrybatecPanel extends HTMLElement {
     this._energyBackup=false;
     this._energyResult="";
     this._navScrollLeft=0;
+    this._durationInput=null;
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -742,7 +757,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
     if (btn.dataset.account !== undefined) {
-      this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;
+      this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._durationInput=null;
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
       this._costPreview=null;this._costYear=null;this._costError="";
       this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
@@ -756,7 +771,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
-    if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
+    if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._durationInput=null;this._settingsError="";this._render();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
     if (btn.dataset.historySelect !== undefined) {
       this._historySelected=btn.dataset.historySelect;this._render();return;
@@ -841,6 +856,16 @@ class TrybatecPanel extends HTMLElement {
         event.target.type==="checkbox"?Boolean(event.target.checked):event.target.value;
       if (["old","new"].includes(versionField)) this._versionEnergyPlan=null;
       if (["start","end"].includes(versionField)) this._versionPlan=null;
+      this._render();return;
+    }
+    const durationField=event.target.dataset.durationField;
+    if (durationField && ["days","hours","minutes"].includes(durationField)) {
+      if (!this._settingsInput) this._settingsInput={...this._current.settings};
+      if (!this._durationInput)
+        this._durationInput=trybatecDurationParts(this._settingsInput.poll_minutes);
+      this._durationInput[durationField]=event.target.value;
+      const converted=trybatecDurationMinutes(this._durationInput);
+      this._settingsInput.poll_minutes=converted;
       this._render();return;
     }
     const settingsField=event.target.dataset.settingsField;
@@ -1906,7 +1931,8 @@ class TrybatecPanel extends HTMLElement {
   async _saveSettings() {
     if (!this._current || this._settingsBusy) return;
     const settings={...this._current.settings,...this._settingsInput};
-    const poll=Number(settings.poll_minutes);
+    const poll=this._durationInput?
+      trybatecDurationMinutes(this._durationInput):Number(settings.poll_minutes);
     const sparse=Number(settings.sparse_hours);
     const zeros=Number(settings.zero_review_days);
     if (!Number.isInteger(poll)||poll<60||poll>10080 ||
@@ -1930,6 +1956,7 @@ class TrybatecPanel extends HTMLElement {
       });
       this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
       this._settingsInput=null;
+      this._durationInput=null;
       this._settingsMessage="Réglages enregistrés dans la configuration Home Assistant partagée.";
     } catch (_) {
       this._settingsError="Modification refusée ou intégration en cours de rechargement. Actualisez et vérifiez les valeurs.";
@@ -1939,6 +1966,12 @@ class TrybatecPanel extends HTMLElement {
   }
   _settings() {
     const settings={...this._current.settings,...this._settingsInput};
+    const duration=this._durationInput||trybatecDurationParts(settings.poll_minutes);
+    const durationField=(name,label,max)=>
+      '<div><label for="duration-'+name+'">'+label+'</label>'+
+      '<input id="duration-'+name+'" data-duration-field="'+name+'" type="number" min="0" max="'+max+
+      '" step="1" value="'+safe(duration[name])+'"></div>';
+    const durationMinutes=trybatecDurationMinutes(duration);
     const field=(key,label,min,max,description)=>
       '<div><label for="settings-'+key+'">'+label+'</label>'+
       '<input id="settings-'+key+'" data-settings-field="'+key+'" type="number" min="'+min+'" max="'+max+
@@ -1948,8 +1981,13 @@ class TrybatecPanel extends HTMLElement {
       '<section class="card"><h3>Synchronisation et contrôle des relevés</h3>'+
       '<p class="muted">Ces valeurs sont partagées avec Options Trybatec et conservées lors des mises à jour.</p>'+
       '<div class="form-grid" style="margin-top:18px">'+
-      field("poll_minutes","Synchronisation (minutes)",60,10080,
-        "De 60 minutes à 7 jours. Une modification peut recharger l’intégration.")+
+      '<div style="grid-column:span 2"><label>Fréquence de synchronisation</label>'+
+      '<div class="duration-inputs">'+durationField("days","Jours",7)+
+      durationField("hours","Heures",23)+durationField("minutes","Minutes",59)+'</div>'+
+      '<div class="muted">'+(Number.isFinite(durationMinutes)?
+      'Durée totale : '+safe(this._number(durationMinutes))+' minutes. ':
+      'Durée invalide : choisissez entre 1 heure et 7 jours. ')+
+      'La modification peut recharger l’intégration.</div></div>'+
       field("sparse_hours","Intervalle à signaler (heures)",1,87600,
         "Par défaut : 27 h. Un intervalle strictement supérieur est considéré comme espacé.")+
       field("zero_review_days","Index nuls consécutifs (jours)",0,36500,
