@@ -59,7 +59,8 @@
           "history_meters": "Meter details",
           "diagnostics": "Diagnostics and logging",
           "history_smoothing": "Review sparse intervals (linear smoothing)"
-        }
+        },
+        "description": "{panel_link}\n\nThe panel contains Trybatec settings, meter units and UUIDs, historical reviews, annual rates and diagnostics. The native options below remain available as a fallback while the new interface is being verified. No data is changed merely by opening the link."
       },
       "history_review": {
         "title": "Choose a reading for review",
