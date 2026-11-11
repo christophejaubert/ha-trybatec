@@ -10,8 +10,11 @@ API = ROOT / "custom_components" / "trybatec" / "panel_api.py"
 MANIFEST = ROOT / "custom_components" / "trybatec" / "manifest.json"
 
 
-def test_manifest_b3_and_frontend_gets_installed_version() -> None:
-    assert json.loads(MANIFEST.read_text(encoding="utf-8"))["version"] == "0.3.2b1"
+def test_manifest_matches_candidate_notes_and_frontend_gets_installed_version() -> None:
+    version = json.loads(MANIFEST.read_text(encoding="utf-8"))["version"]
+    notes = (ROOT / "RELEASE_NOTES_BETA.md").read_text(encoding="utf-8")
+    assert isinstance(version, str) and version
+    assert notes.startswith(f"# {version} —"), "Update candidate notes when bumping the manifest"
     source = API.read_text(encoding="utf-8")
     assert '(Path(__file__).parent / "manifest.json").read_text' in source
     assert '"version": await hass.async_add_executor_job(_installed_version)' in source

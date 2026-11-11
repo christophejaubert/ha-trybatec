@@ -1,3 +1,19 @@
+# 0.3.3b1 — Consolidation post-recette (bêta expérimentale)
+
+**Préversion expérimentale.** Sa publication ne constitue ni une installation sur Home Assistant ni une validation fonctionnelle en production ; consulter [le périmètre et les limites](docs/RELEASE_SCOPE_0.3.3b1.md).
+
+- Corrige l'escalade des notifications d'accès : après une indisponibilité réseau déjà signalée, un refus d'authentification avéré remplace le message de notification sur le même identifiant, sans notification doublonnée. Une panne transitoire ultérieure ne rétrograde pas l'alerte d'authentification tant qu'une actualisation réussie n'a pas effacé l'incident.
+- Ajoute des tests synthétiques de déduplication, d'escalade, de non-rétrogradation et de résolution de notification.
+- Accessibilité (#70) : les pictogrammes décoratifs du menu Home Assistant, des onglets et du chevron de navigation ne sont plus annoncés séparément par les lecteurs d’écran ; les boutons, textes et états restent explicites. Recette navigateur synthétique requise, sans revendication WCAG générale.
+- Actualise la préparation HACS/Marketplace avec [un audit de travail](docs/MARKETPLACE_READINESS.md), sans candidater au catalogue officiel.
+- Préserve les corrections et parcours existants de `0.3.2b1` ; les anciennes PR #46, #71 et #72 ont déjà été reprises en tout ou partie sous une forme plus récente et ne doivent pas être fusionnées sans réconciliation. La PR #40 est réinterprétée à partir du code actuel.
+
+**Limites et exclusions :** aucune prétention de validation exhaustive WCAG/ergonomie réelle ou des écritures Recorder/Énergie ; les opérations de désinstallation, réinitialisation et purge A01–A31 ne sont pas exposées ; la pondération DJU (#34), EVO-007 et le référencement officiel Marketplace restent différés. Les budgets historiques 120 s/24 HTTP et 600 s/80 HTTP demeurent inactifs : seules les protections existantes de secours continuent de s'appliquer.
+
+**Aucun effet automatique** sur les index du fournisseur, les statistiques Recorder, les références Énergie, les compteurs déposés ni les paramètres Home Assistant. Toute opération sur une installation réelle nécessite une confirmation distincte.
+
+---
+
 # 0.3.2b1 — Cohérence de l'interface et prérequis Énergie (candidate)
 
 Candidate fondée sur le socle correctif 0.3.1b3 (PR #77) intégré dans `main`, sans fusion ni publication automatique.

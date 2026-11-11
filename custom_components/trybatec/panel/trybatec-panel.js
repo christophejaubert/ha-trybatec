@@ -1197,15 +1197,15 @@ class TrybatecPanel extends HTMLElement {
       '<span class="badge" title="Version installée">v'+safe(version)+'</span>':
       '<span class="badge">Bêta</span>';
     const cache=typeof version==="string"?("?v="+encodeURIComponent(version)):"";
-    return '<header class="heading"><button type="button" class="menu-toggle" data-toggle-menu aria-label="Ouvrir le menu Home Assistant"><ha-icon icon="mdi:menu"></ha-icon></button><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
+    return '<header class="heading"><button type="button" class="menu-toggle" data-toggle-menu aria-label="Ouvrir le menu Home Assistant"><ha-icon icon="mdi:menu" aria-hidden="true"></ha-icon></button><div class="mark"><img src="/api/trybatec_panel/logo.png'+cache+'" alt="Trybatec" loading="eager"></div>' +
       '<div><h1>Trybatec '+label+'</h1>' +
       '<p class="headline-sub">Gestion des compteurs, historiques, tarifs et énergie</p></div></header>';
   }
   _nav() {
     return '<div class="nav-wrap"><nav class="nav" aria-label="Navigation Trybatec">' +
       TABS.map(tab=>'<button type="button" data-tab="'+tab[0]+'" aria-current="'+(this._tab===tab[0]?'page':'false')+
-        '" class="'+(this._tab===tab[0]?'active':'')+'"><ha-icon icon="'+tab[2]+'"></ha-icon><span>'+tab[1]+'</span></button>').join("")+
-      '</nav><button type="button" class="nav-forward" data-nav-next aria-label="Afficher les autres onglets"><ha-icon icon="mdi:chevron-right"></ha-icon></button></div>';
+        '" class="'+(this._tab===tab[0]?'active':'')+'"><ha-icon icon="'+tab[2]+'" aria-hidden="true"></ha-icon><span>'+tab[1]+'</span></button>').join("")+
+      '</nav><button type="button" class="nav-forward" data-nav-next aria-label="Afficher les autres onglets"><ha-icon icon="mdi:chevron-right" aria-hidden="true"></ha-icon></button></div>';
   }
   _heading(title,sub,button) {
     return '<div class="intro"><div><h2>'+safe(title)+'</h2><p class="muted">'+safe(sub)+'</p></div>'+(button||"")+'</div>';
