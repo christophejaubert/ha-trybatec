@@ -106,7 +106,7 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
     if not isinstance(current, dict) or not isinstance(current.get("meters"), dict):
         raise ValueError("Trybatec account readings are not loaded")
     allowed_lots = {
-        str(lot).strip() for lot in current.get("lots", ())
+        str(lot).strip() for lot in (current.get("lots") or ())
         if isinstance(lot, str) and lot.strip()
     } or {
         str(meter.get("lot", "")).strip()
