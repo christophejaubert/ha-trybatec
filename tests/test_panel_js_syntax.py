@@ -232,3 +232,14 @@ assert.deepEqual(urls,[
         capture_output=True, text=True, check=False, timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+def test_navigation_icons_are_decorative_but_buttons_remain_labelled() -> None:
+    """Avoid duplicate icon announcements while keeping navigation text."""
+    source = PANEL.read_text(encoding="utf-8")
+    assert '<ha-icon icon="mdi:menu" aria-hidden="true"></ha-icon>' in source
+    assert '''<ha-icon icon="'+tab[2]+'" aria-hidden="true"></ha-icon>''' in source
+    assert '<ha-icon icon="mdi:chevron-right" aria-hidden="true"></ha-icon>' in source
+    assert 'aria-label="Navigation Trybatec"' in source
+    assert 'aria-label="Ouvrir le menu Home Assistant"' in source
+    assert 'aria-label="Afficher les autres onglets"' in source
+    assert 'aria-current="' in source
