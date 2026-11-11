@@ -69,7 +69,12 @@ def test_unavailable_does_not_mean_obsolete_without_exact_technical_identity():
         "status": "unconfigured", "sources": [],
     })
     assert result["potential_legacy_entries"] == 0
-    assert all(x["technical_role"] == "unclassified" for x in result["entities"])
+    assert {x["entity_id"]:x["technical_role"] for x in result["entities"]} == {
+        "sensor.orphan": "unclassified",
+        "sensor.other": "physical_index_status_unknown",
+        "sensor.metric": "unclassified",
+    }
+    assert all(x["can_delete"] is False for x in result["entities"])
 
 
 @pytest.mark.parametrize("bad", [
