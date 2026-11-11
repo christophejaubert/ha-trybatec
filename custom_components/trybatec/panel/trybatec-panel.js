@@ -1014,6 +1014,7 @@ class TrybatecPanel extends HTMLElement {
       '" data-open-meter="'+i+'">'+line+'</button></div>';
   }
   _readinessView(a) {
+    const t=(fr,en)=>this._t(fr,en);
     const meters=Array.isArray(a.meters)?a.meters:[];
     const active=meters.filter(m=>m.status==="en_service");
     const retired=meters.filter(m=>m.status==="depose");
@@ -1035,33 +1036,39 @@ class TrybatecPanel extends HTMLElement {
       '<p>'+safe(description)+'</p>'+
       (!ok?'<div class="actions"><button type="button" class="secondary" data-tab="'+safe(tab)+'">'+
         safe(action)+'</button></div>':"")+'</div></div>';
-    return '<section class="card" style="margin-bottom:20px" aria-label="État de la configuration">'+
-      '<h3>État de la configuration</h3>'+
-      '<p class="muted" style="margin-bottom:16px">Contrôles disponibles, prérequis et actions possibles. Une configuration facultative absente ne constitue pas une panne.</p>'+
+    return '<section class="card" style="margin-bottom:20px" aria-label="'+
+      safe(t("État de la configuration","Configuration status"))+'">'+
+      '<h3>'+safe(t("État de la configuration","Configuration status"))+'</h3>'+
+      '<p class="muted" style="margin-bottom:16px">'+
+      safe(t("Contrôles disponibles, prérequis et actions possibles. Une configuration facultative absente ne constitue pas une panne.",
+      "Available checks, prerequisites and actions. Missing optional settings are not system failures."))+'</p>'+
       '<div class="readiness-list">'+
-      item(activeReady,"Synchronisation des compteurs",
-        activeReady?"Relevés courants présents, unités vérifiées.":
-        "Vérifier les derniers relevés et les unités des compteurs en service.",
-        "meters","Vérifier les compteurs")+
-      item(missingDates.length===0,"Historique des compteurs déposés",
-        missingDates.length===0?"Bornes historiques disponibles pour les compteurs déposés.":
-        String(missingDates.length)+" compteur(s) déposé(s) sans observations historiques complètes dans cet aperçu.",
-        "meters","Vérifier les relevés historiques")+
-      item(verified.length>0 && !ledger.pending,"Versions historiques Recorder",
-        verified.length?
-          String(verified.length)+" version(s) vérifiée(s) ; import(s) en attente : "+String(ledger.pending||0)+".":"Aucune version historique vérifiée. L’import nécessite une prévisualisation, une sauvegarde et une vérification.",
-        "energy","Préparer et vérifier Recorder")+
-      item(energySources.length>0,"Sources Trybatec dans Énergie",
-        energySources.length?String(energySources.length)+" source(s) Trybatec référencée(s).":
-        "Aucune source Trybatec référencée. La première activation est distincte du remplacement d’une version.",
-        "energy","Examiner les prérequis Énergie")+
-      item(tariffsConfigured,"Tarifs annuels",
-        tariffsConfigured?"Tarifs renseignés ; leurs exercices et leur couverture restent à vérifier.":
-        "Aucun tarif annuel renseigné : coûts estimés indisponibles (option facultative).",
-        "tariffs","Renseigner les tarifs",true)+
+      item(activeReady,t("Synchronisation des compteurs","Meter synchronization"),
+        activeReady?t("Relevés courants présents, unités vérifiées.","Current readings available, units verified."):
+        t("Vérifier les derniers relevés et les unités des compteurs en service.","Check readings and units of active meters."),
+        "meters",t("Vérifier les compteurs","Review meters"))+
+      item(missingDates.length===0,t("Historique des compteurs déposés","Retired-meter history"),
+        missingDates.length===0?t("Bornes historiques disponibles pour les compteurs déposés.","Historical reading dates are available."):
+        String(missingDates.length)+t(" compteur(s) déposé(s) sans observations historiques complètes dans cet aperçu."," retired meter(s) without complete historical observations in this view."),
+        "meters",t("Vérifier les relevés historiques","Review historical readings"))+
+      item(verified.length>0 && !ledger.pending,t("Versions historiques Recorder","Recorder history versions"),
+        verified.length?String(verified.length)+t(" version(s) vérifiée(s) ; import(s) en attente : "," verified version(s); pending imports: ")+
+          String(ledger.pending||0)+".":t("Aucune version historique vérifiée. L’import nécessite une prévisualisation, une sauvegarde et une vérification.","No verified version. Import requires a preview, recoverable backup and persistence check."),
+        "energy",t("Préparer et vérifier Recorder","Prepare and verify Recorder"))+
+      item(energySources.length>0,t("Sources Trybatec dans Énergie","Trybatec Energy sources"),
+        energySources.length?String(energySources.length)+t(" source(s) Trybatec référencée(s)."," Trybatec source(s) configured."):
+        t("Aucune source Trybatec référencée. La première activation est distincte du remplacement d’une version.","No Trybatec source configured. First activation is separate from version replacement."),
+        "energy",t("Examiner les prérequis Énergie","Review Energy prerequisites"))+
+      item(tariffsConfigured,t("Tarifs annuels","Annual tariffs"),
+        tariffsConfigured?t("Tarifs renseignés ; leurs exercices et leur couverture restent à vérifier.","Tariffs entered; years and coverage still require checking."):
+        t("Aucun tarif annuel renseigné : coûts estimés indisponibles (option facultative).","No annual tariffs: cost estimates unavailable (optional)."),
+        "tariffs",t("Renseigner les tarifs","Enter tariffs"),true)+
       '<div class="readiness-row pending"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
-      '<div><strong>Audit des identités techniques</strong><p>Un résultat nul dans les compteurs d’erreurs ne prouve pas un audit exhaustif. Aucune suppression sans vérifications de dépendances.</p>'+
-      '<div class="actions"><button type="button" class="secondary" data-tab="diagnostics">Consulter les diagnostics</button></div></div></div>'+
+      '<div><strong>'+safe(t("Audit des identités techniques","Technical identity audit"))+'</strong><p>'+
+      safe(t("Un résultat nul dans les compteurs d’erreurs ne prouve pas un audit exhaustif. Aucune suppression sans vérifications de dépendances.",
+        "Zero reported errors does not prove a complete audit. No deletion without dependency checks."))+
+      '</p><div class="actions"><button type="button" class="secondary" data-tab="diagnostics">'+
+      safe(t("Consulter les diagnostics","Review diagnostics"))+'</button></div></div></div>'+
       '</div></section>';
   }
   _overview() {
