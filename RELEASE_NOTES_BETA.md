@@ -1,3 +1,21 @@
+# 0.3.2b1 — Cohérence de l'interface et prérequis Énergie (candidate)
+
+Proposition empilée sur #74, sans fusion ni publication automatique.
+
+- Dates et horodatages localisés, chiffres groupés sans arrondi, formatage d'index de compteur.
+- Contrôles mobiles : accès au menu HA, onglets défilants signalés et sélection visible.
+- Compteurs déposés : lecture historique explicite en lecture seule ; bornes datées et dernier index source brut présentés avec leur statut, sans déduire une date de remplacement.
+- Charte Trybatec : titres et pictogrammes de fluide colorés, boutons et navigation générale verts, états distincts.
+- Fréquence de synchronisation en jours/heures/minutes, sans changement du stockage des minutes.
+- Accueil : vérifications, prérequis et accès contextuels, sans alerte abusive sur les options facultatives.
+- Les trois fluides sont inclus dans les aperçus Recorder sous contrôle inchangé des unités et des validations.
+- Sélection d'une nouvelle version Énergie désactivée lorsque les versions Recorder vérifiées ou la source Trybatec déjà active sont absentes. La première activation reste un parcours séparé.
+- Tests et vérifications de la candidate : consulter `docs/specifications/trybatec-ui-0.3.2b1.md`, et les contrôles CI du SHA final.
+
+**Aucun effet automatique** sur Recorder, Énergie, les entités, les relevés du fournisseur ou les données locales de Home Assistant. La fusion nécessite une autorisation distincte.
+
+---
+
 # 0.3.1b2 — Correctifs de recette du panneau Trybatec (candidate)
 
 Correctif ciblé après la recette réelle de `0.3.1b1`. Aucune migration automatique,
