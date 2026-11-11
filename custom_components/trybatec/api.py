@@ -13,6 +13,7 @@ from typing import Any
 import aiohttp
 
 from .const import API_BASE
+from .history_guardrails import active_history_operation
 from .units import meter_key
 from .device_units import (
     candidate_devices, candidates_from_index_line, identity_of,
@@ -75,6 +76,9 @@ async def _bounded_json(response: Any, limit: int) -> Any:
             body.extend(chunk)
             if len(body) > limit:
                 raise TrybatecDataError("Trybatec response exceeds permitted size")
+        operation = active_history_operation()
+        if operation is not None:
+            operation.observe(received_bytes=len(body))
         return json.loads(body)
     except (ValueError, UnicodeDecodeError, TypeError) as exc:
         raise TrybatecDataError("Trybatec returned malformed JSON") from exc
@@ -121,12 +125,17 @@ class TrybatecClient:
     async def authenticate(self) -> None:
         """Authenticate with two bounded transient retries; token stays in memory."""
         for attempt in range(3):
+            operation = active_history_operation()
+            if operation is not None:
+                operation.before_request(retry=attempt > 0)
             try:
                 async with self._session.post(
                     f"{API_BASE}/authenticate",
                     json={"username": self._username, "password": self._password},
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
+                    if operation is not None:
+                        operation.observe(status=response.status)
                     if response.status in (401, 403):
                         raise TrybatecAuthError("Credentials rejected")
                     if response.status in RETRYABLE_STATUSES:
@@ -163,12 +172,17 @@ class TrybatecClient:
             await self.authenticate()
         auth_retried = False
         for attempt in range(3):
+            operation = active_history_operation()
+            if operation is not None:
+                operation.before_request(retry=attempt > 0)
             try:
                 async with self._session.get(
                     f"{API_BASE}/housings",
                     headers={"Authorization": f"Bearer {self._token}"},
                     timeout=aiohttp.ClientTimeout(total=25),
                 ) as response:
+                    if operation is not None:
+                        operation.observe(status=response.status)
                     if response.status in (401, 403):
                         if auth_retried:
                             raise TrybatecAuthError("Housing discovery authorization rejected")
@@ -213,13 +227,18 @@ class TrybatecClient:
         }
         auth_retried = False
         temporary_failures = 0
-        for _ in range(5):
+        for attempt in range(5):
+            operation = active_history_operation()
+            if operation is not None:
+                operation.before_request(retry=attempt > 0)
             try:
                 async with self._session.get(
                     f"{API_BASE}/indexes", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as response:
+                    if operation is not None:
+                        operation.observe(status=response.status)
                     if response.status in (401, 403):
                         if auth_retried:
                             raise TrybatecAuthError("Authorization failed")
@@ -251,12 +270,17 @@ class TrybatecClient:
             await self.authenticate()
         unauthorized = False
         for attempt in range(3):
+            operation = active_history_operation()
+            if operation is not None:
+                operation.before_request(retry=attempt > 0)
             try:
                 async with self._session.get(
                     f"{API_BASE}/{path}", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
                     timeout=aiohttp.ClientTimeout(total=20),
                 ) as response:
+                    if operation is not None:
+                        operation.observe(status=response.status)
                     if response.status == 403:
                         # The optional directory/detail may be forbidden even
                         # when the /indexes permission is valid. Do not force
