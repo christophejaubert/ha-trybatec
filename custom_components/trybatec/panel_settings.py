@@ -101,3 +101,56 @@ async def ws_panel_settings_save(
         )
         return
     connection.send_result(msg["id"], result)
+
+
+async def change_panel_log_level(
+    hass: HomeAssistant, coordinator: Any, *, log_level: str,
+    expected_fingerprint: str, confirm: bool,
+) -> dict[str, Any]:
+    """Save the integration-wide logging threshold independently of polling."""
+    if confirm is not True or log_level not in LOG_LEVELS:
+        raise ValueError("Logging level needs explicit valid approval")
+    previous = dict(coordinator.entry.options)
+    if tariff_fingerprint(previous) != expected_fingerprint:
+        raise ValueError("Options changed; refresh before saving")
+    updated = {**previous, CONF_LOG_LEVEL: log_level}
+    if updated != previous:
+        hass.config_entries.async_update_entry(coordinator.entry, options=updated)
+    return {
+        "status": "saved" if updated != previous else "unchanged",
+        "new_fingerprint": tariff_fingerprint(updated),
+        "recorder_writes": False,
+        "energy_writes": False,
+    }
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "trybatec/panel_log_level_save",
+    vol.Required("entry_id"): str,
+    vol.Required("log_level"): vol.In(LOG_LEVELS),
+    vol.Required("expected_fingerprint"): str,
+    vol.Required("confirm"): bool,
+})
+@websocket_api.async_response
+async def ws_panel_log_level_save(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    coordinator = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "trybatec_not_found", "Account is not loaded")
+        return
+    try:
+        result = await change_panel_log_level(
+            hass, coordinator, log_level=msg["log_level"],
+            expected_fingerprint=msg["expected_fingerprint"],
+            confirm=msg["confirm"],
+        )
+    except (ValueError, TypeError, KeyError):
+        connection.send_error(
+            msg["id"], "logging_validation_failed",
+            "Logging level was not saved; refresh and retry",
+        )
+        return
+    connection.send_result(msg["id"], result)
