@@ -42,23 +42,38 @@ def _known_meters(coordinator: Any) -> dict[str, dict[str, Any]]:
         found[key] = dict(meter)
     cache = getattr(coordinator, "_history_review_cache", None)
     if cache is not None:
-        payloads, start, end, lots = cache
         options = coordinator.entry.options
-        history = build_history(
-            payloads, start, end, allowed_lots=lots,
-            sparse_interval_hours=int(options.get(CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS)),
-            zero_index_review_days=int(options.get(
-                CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
-            )),
-        )
-        for (lot, fluid, serial), item in history["__physical_meters__"].items():
-            key = meter_key(lot, fluid, serial)
-            found.setdefault(key, {
-                "lot": lot, "fluid": fluid, "serial": serial,
-                "portal_unit": item.get("portal_unit"),
-                "portal_display_unit": item.get("portal_display_unit")
-                or portal_display_unit(fluid),
-            })
+        sparse = int(options.get(CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS))
+        zeros = int(options.get(CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS))
+        cached = getattr(coordinator, "_panel_meter_options_history_cache", None)
+        if (
+            isinstance(cached, tuple) and len(cached) == 4
+            and cached[0] is cache and cached[1:3] == (sparse, zeros)
+        ):
+            historical = cached[3]
+        else:
+            payloads, start, end, lots = cache
+            history = build_history(
+                payloads, start, end, allowed_lots=lots,
+                sparse_interval_hours=sparse, zero_index_review_days=zeros,
+            )
+            historical = {
+                meter_key(lot, fluid, serial): {
+                    "lot": lot, "fluid": fluid, "serial": serial,
+                    "portal_unit": item.get("portal_unit"),
+                    "portal_display_unit": item.get("portal_display_unit")
+                    or portal_display_unit(fluid),
+                }
+                for (lot, fluid, serial), item in
+                history["__physical_meters__"].items()
+            }
+            # In-memory derived projection only, invalidated on preview/options
+            # changes. No disk storage or new source measurements.
+            coordinator._panel_meter_options_history_cache = (
+                cache, sparse, zeros, historical
+            )
+        for key, item in historical.items():
+            found.setdefault(key, dict(item))
     if len(found) > _MAX_METERS:
         raise ValueError("Too many physical meters")
     return found
