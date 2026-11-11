@@ -27,6 +27,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .api import TrybatecDataError
+from .history_guardrails import active_history_operation, tracked_history
 from .const import (
     CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE,
     CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
@@ -74,6 +75,17 @@ _SAFE_DATA_FAILURES = {
     "Trybatec indexes request timed out": "request_timeout",
 }
 
+# Only these failures may be helped by a smaller date interval.
+# Malformed JSON, invalid structures and network/authentication errors fail
+# closed instead of recursively creating more identical failing requests.
+_SPLITTABLE_FAILURES = frozenset({
+    "response_too_large", "too_many_meter_rows", "too_many_index_points",
+    "window_rejected", "request_timeout",
+})
+# Aggregate protection: each response is at most 16 Mio, and successful
+# chunks are never allowed to accumulate indefinitely in Home Assistant RAM.
+MAX_HISTORY_RECEIVED_BYTES = 64 * 1024 * 1024
+
 
 async def _fetch_history_payloads(client, deal_id: str, windows):
     """Read all dates; split data-invalid windows without ever losing records.
@@ -96,8 +108,23 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
         requests += 1
         try:
             payloads.append(await client.indexes(deal_id, begin, finish))
+            operation = active_history_operation()
+            if operation is not None:
+                if operation.bytes_received > MAX_HISTORY_RECEIVED_BYTES:
+                    raise ServiceValidationError(
+                        "Trybatec history exceeds safe aggregate response size; no partial history accepted"
+                    )
+                operation.verify_period()
         except TrybatecDataError as exc:
             reason = _SAFE_DATA_FAILURES.get(str(exc), "invalid_response")
+            if reason not in _SPLITTABLE_FAILURES:
+                _LOGGER.warning(
+                    "Trybatec history rejected for %s to %s (%s); no subdivision",
+                    begin, finish, reason,
+                )
+                raise ServiceValidationError(
+                    f"Trybatec history response invalid ({reason}); no partial history accepted"
+                ) from exc
             if (finish - begin).days <= 1:
                 _LOGGER.warning(
                     "Trybatec history invalid in %s to %s (%s); "
@@ -107,6 +134,9 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
                     f"Trybatec history invalid for {begin} to {finish} "
                     f"({reason}). No partial history was accepted."
                 ) from exc
+            operation = active_history_operation()
+            if operation is not None:
+                operation.split()
             middle = begin + timedelta(days=(finish - begin).days // 2)
             _LOGGER.info(
                 "Trybatec history response invalid for %s to %s (%s); "
@@ -189,37 +219,40 @@ async def _load(hass: HomeAssistant, call: ServiceCall):
     coordinator = _coordinator(hass, call.data)
     start, end = _dates(call.data)
     windows = history_windows(start, end)
-    if not hasattr(coordinator, "_history_lock"):
-        coordinator._history_lock = asyncio.Lock()
-    async with coordinator._history_lock:
-        payloads, actual_requests = await _fetch_history_payloads(
-            coordinator.client, coordinator.entry.data[CONF_DEAL_ID], windows,
+    async with tracked_history(
+        coordinator, kind="historical_read", start=start, end=end,
+    ):
+        if not hasattr(coordinator, "_history_lock"):
+            coordinator._history_lock = asyncio.Lock()
+        async with coordinator._history_lock:
+            payloads, actual_requests = await _fetch_history_payloads(
+                coordinator.client, coordinator.entry.data[CONF_DEAL_ID], windows,
+            )
+        allowed_lots = set(coordinator.data.get("lots") or ()) or {
+            str(meter["lot"]).strip()
+            for meter in coordinator.data["meters"].values()
+            if meter.get("lot")
+        }
+        if not allowed_lots:
+            raise ServiceValidationError("No verified dwelling lot identifiers to filter history")
+        # Persisted review choices apply only to exact source fingerprint matches.
+        # The preview itself never writes to Home Assistant storage or recorder.
+        decisions = await load_decisions(hass, coordinator.entry.entry_id)
+        # Publish the review cache only once the *complete* response has been
+        # validated, including physical-meter identity and observation limits.
+        # A malformed final window must never replace a usable earlier preview.
+        history = build_history(
+            payloads, start, end, allowed_lots=allowed_lots, decisions=decisions,
+            sparse_interval_hours=int(coordinator.entry.options.get(
+                CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
+            )),
+            zero_index_review_days=int(coordinator.entry.options.get(
+                CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
+            )),
         )
-    allowed_lots = set(coordinator.data.get("lots") or ()) or {
-        str(meter["lot"]).strip()
-        for meter in coordinator.data["meters"].values()
-        if meter.get("lot")
-    }
-    if not allowed_lots:
-        raise ServiceValidationError("No verified dwelling lot identifiers to filter history")
-    # Persisted review choices apply only to exact source fingerprint matches.
-    # The preview itself never writes to Home Assistant storage or recorder.
-    decisions = await load_decisions(hass, coordinator.entry.entry_id)
-    # Publish the review cache only once the *complete* response has been
-    # validated, including physical-meter identity and observation limits.
-    # A malformed final window must never replace a usable earlier preview.
-    history = build_history(
-        payloads, start, end, allowed_lots=allowed_lots, decisions=decisions,
-        sparse_interval_hours=int(coordinator.entry.options.get(
-            CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS
-        )),
-        zero_index_review_days=int(coordinator.entry.options.get(
-            CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS
-        )),
-    )
-    coordinator._history_review_cache = (payloads, start, end, allowed_lots)
-    coordinator._history_review_candidates = history["__review_candidates__"]
-    return coordinator, start, end, history, actual_requests
+        coordinator._history_review_cache = (payloads, start, end, allowed_lots)
+        coordinator._history_review_candidates = history["__review_candidates__"]
+        return coordinator, start, end, history, actual_requests
 
 
 def prepare_import_plan(
