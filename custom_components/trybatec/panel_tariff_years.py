@@ -65,7 +65,7 @@ def merge_cached_historical_bounds(
                     previous is None or
                     (observed < previous if use_earlier else observed > previous)
                 ):
-                    new[field] = observed.isoformat()
+                    new[field] = candidate[field]
         merged.append(new)
     return merged
 
@@ -84,8 +84,8 @@ def _meter_date_bounds(
             continue
         result.append({
             "physical_key": meter_key(lot, fluid, serial),
-            "first_observed_at": min(dates).astimezone(timezone.utc).isoformat(),
-            "last_source_observed_at": max(dates).astimezone(timezone.utc).isoformat(),
+            "first_observed_at": min(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
+            "last_source_observed_at": max(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
         })
     return result
 
