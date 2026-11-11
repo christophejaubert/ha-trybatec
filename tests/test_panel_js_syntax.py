@@ -199,3 +199,36 @@ for (const [source,lang,expected] of cases) {
         capture_output=True, text=True, check=False, timeout=15,
     )
     assert outcome.returncode == 0, outcome.stderr
+
+
+def test_navigation_actions_handle_real_data_attribute_names() -> None:
+    """Exercise the actual event dispatcher, not just HTML string matches."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js unavailable; browser acceptance is mandatory")
+    script = r"""
+const fs=require("node:fs"), vm=require("node:vm"), assert=require("node:assert/strict");
+const urls=[];
+let ctor;
+const context={
+  HTMLElement:class {},
+  customElements:{get:()=>undefined,define:(name,value)=>{ctor=value;}},
+  window:{location:{assign:(url)=>urls.push(url)}},
+};
+vm.runInNewContext(fs.readFileSync(process.argv[1],"utf8"),context);
+for(const attr of ["openEnergy","openOptions","openActions"]){
+  ctor.prototype._click.call({},{
+    target:{closest:()=>({dataset:{[attr]:""}})}
+  });
+}
+assert.deepEqual(urls,[
+  "/energy",
+  "/config/integrations/integration/trybatec",
+  "/developer-tools/action",
+]);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(PANEL)],
+        capture_output=True, text=True, check=False, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
