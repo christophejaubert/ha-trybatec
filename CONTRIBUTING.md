@@ -13,7 +13,7 @@ Les titres ou messages descriptifs des contributions **rédigées ou modifiées 
 ### Quand appliquer le préfixe
 
 - **Nouvelle contribution assistée par IA :** ajouter le préfixe au titre de l'issue, de la pull request ou du message de commit dès sa création.
-- **Contribution existante directement modifiée avec l'IA :** lors d'une modification de son titre ou de son contenu (par exemple, le corps d'une issue ou d'une PR), mettre son titre en conformité à cette occasion, si son origine relève bien de nos contributions assistées par IA.
+- **Contribution existante directement modifiée avec l'IA :** lorsqu'une de nos issues ou PR est modifiée avec l'IA (titre, corps, métadonnées ou commits ajoutés à la branche de la PR), mettre son titre en conformité à cette occasion. L'ajout d'un simple commentaire ou d'une réponse ne déclenche pas, à lui seul, le renommage de l'élément parent.
 - **Releases créées ou modifiées manuellement avec l'IA :** préfixer uniquement leur titre descriptif, jamais leur identifiant de version ou leur tag.
 - **Workflows GitHub Actions créés ou modifiés avec l'IA :** appliquer la convention à leur **nom affiché** (`name:`) lorsque le workflow est une contribution que nous contrôlons ; conserver le nom du fichier et les identifiants techniques.
 - **Autres contributions titrées :** appliquer le même principe lorsque le titre est modifiable sans altérer un identifiant technique.
@@ -46,9 +46,9 @@ Le préfixe ne constitue **jamais** une autorisation de pousser du code, modifie
 
 **Effective 11 November 2026; prospective application only.**
 
-For contributions created or substantively edited with AI assistance under the repository owner's direction, prefix the editable **title or descriptive message** with **`🤖 `** (emoji and one space). This indicates AI assistance, not autonomous decision-making or exclusive authorship.
+For contributions created or edited with AI assistance under the repository owner's direction, prefix the editable **title or descriptive message** with **`🤖 `** (emoji and one space). This indicates AI assistance, not autonomous decision-making or exclusive authorship.
 
-Apply it to new AI-assisted issues, pull requests and commit messages; to existing owner-controlled AI-assisted issues and PRs when their title or body is edited; to manually authored or edited release titles (not version strings or tags); and to display names of owner-controlled workflows (`name:`) when those workflows are created or edited with AI assistance.
+Apply it to new AI-assisted issues, pull requests and commit messages; to existing owner-controlled AI-assisted issues and PRs when their title, body, metadata or associated PR changes are edited; to manually authored or edited release titles (not version strings or tags); and to display names of owner-controlled workflows (`name:`) when those workflows are created or edited with AI assistance.
 
 Do **not** retroactively rename untouched items; do **not** mark or rename third-party contributions or bot actions, including `dependabot[bot]` and `github-actions[bot]`. Do not rename branches, tags, versions, filenames, paths or other technical identifiers, and do not rewrite existing Git commit history. Merely commenting on an issue or PR does not require renaming it. Never duplicate an existing prefix. If AI involvement is uncertain, do not add the marker automatically.
 
