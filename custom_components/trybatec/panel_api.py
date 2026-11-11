@@ -9,6 +9,7 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any
 
 import probatio
@@ -400,6 +401,11 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     if frontend.async_panel_exists(hass, _PANEL_PATH):
         raise ValueError("Another integration already owns the Trybatec panel URL")
     module_path = Path(__file__).parent / "panel" / "trybatec-panel.js"
+    # A new installed release gets a new module URL. This prevents browsers
+    # and HA's panel loader from reusing the previous JavaScript module.
+    # Already-open tabs still require client-side version detection/reload.
+    installed = await hass.async_add_executor_job(_installed_version)
+    cache_token = quote(installed or "unverified", safe="")
     await hass.http.async_register_static_paths(
         [
             StaticPathConfig(
@@ -419,7 +425,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         frontend_url_path=_PANEL_PATH,
         sidebar_title="Trybatec",
         sidebar_icon="mdi:water-thermometer",
-        module_url=f"{_PANEL_ASSETS}/trybatec-panel.js",
+        module_url=f"{_PANEL_ASSETS}/trybatec-panel.js?v={cache_token}",
         require_admin=True,
         embed_iframe=False,
         trust_external=False,
