@@ -2225,8 +2225,8 @@ class TrybatecPanel extends HTMLElement {
       this._loggingError="Niveau de journalisation invalide.";this._render();return;
     }
     if (!this._confirm(
-      "Enregistrer le niveau de journalisation pour tous les modules Trybatec ?"+
-      "\\n\\nCette option s’applique à l’ensemble des comptes Trybatec chargés, et à aucune autre intégration."
+      "Enregistrer le niveau de journalisation de ce compte ?"+
+      "\\n\\nIl définit le journaliseur commun Trybatec. Le niveau le plus détaillé configuré parmi tous les comptes prévaut."
     )) return;
     this._loggingBusy=true;this._loggingError="";this._loggingMessage="";this._render();
     try {
@@ -2282,7 +2282,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="notice">Aucune modification des index source, de Recorder ou du tableau Énergie.</div>'+
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Journalisation et diagnostics</h3>'+
-      '<p class="muted">Ce niveau concerne <strong>tous les modules et tous les comptes Trybatec</strong> : synchronisation, communication avec le portail, historiques, services et diagnostics. Il ne change pas les autres intégrations ni le journal Home Assistant global.</p>'+
+      '<p class="muted">Le niveau est enregistré pour ce compte, mais concerne <strong>tous les modules Trybatec</strong> : synchronisation, communication avec le portail, historiques, services et diagnostics. En présence de plusieurs comptes Trybatec, le niveau le plus détaillé prévaut. Les autres intégrations et le journal global restent inchangés.</p>'+
       '<div class="form-grid" style="margin-top:18px"><div class="logging-field">'+
       '<label for="settings-log">Niveau de journalisation</label>'+
       '<select id="settings-log" data-log-level>'+
