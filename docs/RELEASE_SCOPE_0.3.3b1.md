@@ -23,6 +23,7 @@ Ces anciennes PR restent inchangées par la présente contribution. Leur éventu
 
 - [#35](https://github.com/christophejaubert/ha-trybatec/issues/35) : mise à niveau **sans doublon** d'une notification de perte de connexion vers une notification explicite d'authentification si un refus avéré survient ensuite ; pas de rétrogradation avant une actualisation réussie. Tests synthétiques de déduplication, d'escalade et de résolution. Cela ne prétend pas couvrir à lui seul tous les scénarios de réauthentification.
 - [#39](https://github.com/christophejaubert/ha-trybatec/issues/39) : audit documentaire actualisé, sans candidature officielle à HACS/Marketplace.
+- [#70](https://github.com/christophejaubert/ha-trybatec/issues/70) : pictogrammes décoratifs du menu et de la navigation marqués `aria-hidden`, sans retirer les libellés/états des boutons ; test statique dédié et recette Chromium synthétique à exécuter.
 - Traçabilité [#45](https://github.com/christophejaubert/ha-trybatec/issues/45), [#70](https://github.com/christophejaubert/ha-trybatec/issues/70), [#42](https://github.com/christophejaubert/ha-trybatec/issues/42), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36) et [#37](https://github.com/christophejaubert/ha-trybatec/issues/37) : conservation des fonctions présentes et identification des tests et acceptations encore requis.
 
 ## Critères non encore attestés sur Home Assistant réel
