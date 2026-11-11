@@ -37,6 +37,8 @@ from .panel_energy import (
 from .panel_review import ws_panel_reading_decision
 from .panel_tariff_years import ws_panel_tariff_years, merge_cached_historical_bounds
 from .panel_technical_audit import audited_entity_inventory
+from .panel_technical_limits import technical_limits_snapshot
+from .history_guardrails import diagnostics_for
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -362,12 +364,14 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             },
             "ledger": ledger,
             "warnings": warnings,
+            "communication_diagnostics": diagnostics_for(coordinator).snapshot(),
         })
     return {
         "domain": DOMAIN,
         "panel": "Trybatec",
         "version": await hass.async_add_executor_job(_installed_version),
         "mode": "administrator_read_only",
+        "technical_limits": technical_limits_snapshot(),
         "accounts": accounts,
         "energy": energy,
         "no_automatic_cleanup": True,
