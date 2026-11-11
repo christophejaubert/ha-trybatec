@@ -39,6 +39,23 @@ modification des index hébergés par le fournisseur.
   sans exiger d'index actif. Les erreurs ou métadonnées Recorder incomplètes
   sont signalées sans présenter l'entité comme supprimable ni proposer de
   bascule Énergie. La prévisualisation native de migration reste distincte.
+- **Navigation :** correction des attributs HTML `data-*` des boutons vers
+  Énergie et l’ancienne interface Options ; la délégation des clics est
+  couverte par des tests qui exécutent les gestionnaires réels.
+- **Actualisation de l’IHM :** URL du module de panneau versionnée à partir
+  du manifeste effectivement installé ; contrôle de version lors du retour
+  sur l’onglet et périodiquement lorsque celui-ci est visible. Rechargement
+  automatique uniquement en l’absence de saisies en cours ; sinon,
+  proposition d’actualisation explicite sans écraser le formulaire.
+- **Saisie :** conservation du nœud HTML et du focus lors des événements
+  intermédiaires de dates, heures, valeurs numériques et texte ; les
+  prévisualisations Recorder devenues obsolètes sont invalidées avant toute
+  confirmation. Tests Chromium synthétiques FR/EN, ordinateur/mobile, avec
+  frappes successives et contrôle d’intégrité du champ.
+- **Inventaire des entités :** classification prudente à partir des
+  identifiants techniques et du statut effectivement vérifié (index actifs,
+  index historiques, tarifs, coûts et consommations annuelles). Ni un suffixe
+  `_2`, ni l’état `unknown` ne prouvent une suppression possible.
 - **Tests :** régression sur les dates anciennes et les collisions de comptes,
   absence de données inventées, mise en cache, garde d'identité et refus des
   suppressions automatiques. Validation CI et test réel après installation
