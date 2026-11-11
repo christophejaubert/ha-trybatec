@@ -109,9 +109,18 @@ async def audit_physical_meter_entity(
             lot=lot, fluid=fluid, serial=serial,
         )
     except ValueError:
-        # A retired meter has no live reading and must not be forced through
-        # the live migration guard. The alternate verification is *stricter*
-        # on serial, account ownership and registered unique_id.
+        # Preserve the original refusal when no exact retired physical meter
+        # exists; an unknown entity is NOT a candidate for alternative proof.
+        meters = (getattr(coordinator, "data", None) or {}).get("meters", {})
+        known_retired = [
+            item for item in meters.values() if isinstance(item, dict)
+            and item.get("lot") == lot and item.get("fluid") == fluid
+            and item.get("serial") == serial and item.get("deposed") is True
+        ]
+        if len(known_retired) != 1:
+            raise
+        # A retired meter has no live reading. This proves identity only;
+        # it never grants migration, deletion or Energy handoff rights.
         plan = _verified_retired_meter_plan(
             hass, coordinator, entity_id=entity_id,
             lot=lot, fluid=fluid, serial=serial,
