@@ -52,6 +52,7 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_index_payload: dict[str, Any] | None = None
         self._consecutive_connection_failures = 0
         self._access_notification_active = False
+        self._access_notification_kind: str | None = None
         self._access_notification_id = (
             "trybatec_access_"
             + sha256(entry.entry_id.encode()).hexdigest()[:16]
@@ -69,7 +70,14 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _notify_access_issue(self, *, authorization: bool) -> None:
         """One safe persistent notification per config entry, never per poll."""
-        if self._access_notification_active:
+        kind = "authentication" if authorization else "connectivity"
+        # A proven authentication failure must replace an earlier generic
+        # connectivity warning. Reuse the stable ID instead of creating a
+        # second notification. Do not downgrade an authentication warning
+        # while access has not recovered.
+        if self._access_notification_kind == kind:
+            return
+        if self._access_notification_kind == "authentication":
             return
         message = (
             "Trybatec a refusé les identifiants. Ouvrez les intégrations "
@@ -83,6 +91,7 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             notification_id=self._access_notification_id,
         )
         self._access_notification_active = True
+        self._access_notification_kind = kind
 
     def _clear_access_issue(self) -> None:
         """Resolve a prior incident only after a successful meter refresh."""
@@ -91,6 +100,7 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass, self._access_notification_id
             )
             self._access_notification_active = False
+        self._access_notification_kind = None
         self._consecutive_connection_failures = 0
 
     def _build_state(self, payload: dict[str, Any], today: date) -> dict[str, Any]:
