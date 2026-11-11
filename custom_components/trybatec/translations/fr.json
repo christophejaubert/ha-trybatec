@@ -59,7 +59,8 @@
           "history_meters": "Détails des compteurs",
           "diagnostics": "Diagnostics et journalisation",
           "history_smoothing": "Lissage des intervalles historiques"
-        }
+        },
+        "description": "{panel_link}\n\nLe panneau regroupe les réglages Trybatec, les unités et UUID des compteurs, les révisions historiques, les tarifs et les diagnostics. Les options natives ci-dessous restent disponibles comme solution de secours pendant la validation de la nouvelle interface. L’ouverture du lien ne modifie aucune donnée."
       },
       "history_review": {
         "title": "Choisir un relevé à examiner",
