@@ -527,6 +527,10 @@ class TrybatecPanel extends HTMLElement {
     this._historyReason="manual_periodic";
     this._historyError="";
     this._historyMessage="";
+    this._historyJobId=null;
+    this._historyJobStatus=null;
+    this._tariffJobId=null;
+    this._tariffJobStatus=null;
     this._originMeter="";
     this._originDate="2021-01-01";
     this._originIndex="0";
@@ -648,6 +652,14 @@ class TrybatecPanel extends HTMLElement {
     button.textContent="Actualiser la page";
     slot.append(message,button);
   }
+  _t(fr, en) {
+    return /^en(?:$|[-_])/i.test(String(this._hass?.language || "")) ? en : fr;
+  }
+  _number(value) {
+    return new Intl.NumberFormat(this._hass?.language || "fr-FR", {
+      maximumFractionDigits: 3,
+    }).format(value);
+  }
   get _current() { return this._data && this._data.accounts ? this._data.accounts[this._account] : null; }
   async _fetch() {
     if (!this._hass || this._loading) return;
@@ -668,16 +680,22 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   async _loadTariffYearCoverage(force=false) {
-    if (!this._current || !this._hass) return;
+    // Scanning from year 2000 can be expensive. Never initiate it simply
+    // because the administrator navigates to the Tariffs page.
+    if (!force || !this._current || !this._hass) return;
     const id=this._current.entry_id;
     const prior=this._tariffCoverage.get(id);
-    if (!force && prior && (prior.status==="loading" || prior.status==="complete")) return;
+    if (prior?.status==="loading") return;
     this._tariffCoverage.set(id,{status:"loading"});
-    this._render();
+    this._tariffJobStatus=null;this._tariffJobId=null;
+    if (!this._isEditingForm()) this._render();
     try {
-      const coverage=await this._hass.callWS({
-        type:"trybatec/panel_tariff_years",entry_id:id,
+      const job=await this._hass.callWS({
+        type:"trybatec/panel_history_job_start",
+        entry_id:id,kind:"tariff_year_coverage",
       });
+      this._tariffJobId=job.id;
+      const coverage=await this._waitForHistoryJob(id,job,"tariff_year_coverage");
       if (coverage?.status!=="complete" || coverage?.recorder_writes!==false ||
           coverage?.energy_writes!==false) throw new Error("Incomplete history");
       const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
@@ -686,7 +704,8 @@ class TrybatecPanel extends HTMLElement {
     } catch (_) {
       this._tariffCoverage.set(id,{status:"error"});
     } finally {
-      this._render();
+      this._tariffJobId=null;this._tariffJobStatus=null;
+      if (!this._isEditingForm()) this._render();
     }
   }
   _confirm(message) {
@@ -720,7 +739,10 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
     if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._settingsError="";this._render();return;}
+    if (btn.dataset.copyDiagnostic !== undefined) {this._copyDiagnostics();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
+    if (btn.dataset.historyCancel !== undefined) {this._cancelHistoryJob("historical_preview");return;}
+    if (btn.dataset.tariffYearsCancel !== undefined) {this._cancelHistoryJob("tariff_year_coverage");return;}
     if (btn.dataset.historySelect !== undefined) {
       this._historySelected=btn.dataset.historySelect;this._render();return;
     }
@@ -1165,23 +1187,73 @@ class TrybatecPanel extends HTMLElement {
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
   }
+  async _waitForHistoryJob(entryId, job, kind) {
+    if (!job?.id || job.status!=="running") throw new Error("Unverified history job");
+    while (true) {
+      const state=await this._hass.callWS({
+        type:"trybatec/panel_history_job_status",entry_id:entryId,job_id:job.id,
+      });
+      if (!state || state.id!==job.id) throw new Error("Unknown history job");
+      if (state.status==="complete") {
+        if (state.complete!==true || state.recorder_writes!==false ||
+            state.energy_writes!==false || !state.result)
+          throw new Error("Incomplete history job");
+        return state.result;
+      }
+      if (state.status!=="running") throw new Error("History job interrupted");
+      if (kind==="historical_preview") this._historyJobStatus=state;
+      else this._tariffJobStatus=state;
+      if (!this._isEditingForm()) this._render();
+      await new Promise(resolve=>window.setTimeout(resolve,1500));
+    }
+  }
+  async _cancelHistoryJob(kind) {
+    const jobId=kind==="historical_preview"?this._historyJobId:this._tariffJobId;
+    if (!jobId || !this._current || !this._confirm(
+      this._t("Interrompre la lecture historique en cours ?",
+        "Cancel the current historical read?")
+    )) return;
+    try {
+      await this._hass.callWS({
+        type:"trybatec/panel_history_job_cancel",
+        entry_id:this._current.entry_id,job_id:jobId,confirm:true,
+      });
+    } catch (_) {
+      if (kind==="historical_preview")
+        this._historyError=this._t("Annulation non confirmée par Home Assistant.",
+          "Cancellation not confirmed by Home Assistant.");
+    }
+    if (!this._isEditingForm()) this._render();
+  }
   async _fetchHistory() {
     if (this._historyBusy || !this._current) return;
+    const entryId=this._current.entry_id;
     this._historyBusy=true;
     this._historyError="";this._historyMessage="";this._historyPreview=null;
-    this._historySelected="";this._render();
+    this._historySelected="";this._historyJobStatus=null;this._render();
     try {
-      const result=await this._hass.callWS({
-        type:"trybatec/panel_history_preview",
-        entry_id:this._current.entry_id,
-        start_date:this._historyStart,end_date:this._historyEnd
+      const job=await this._hass.callWS({
+        type:"trybatec/panel_history_job_start",
+        entry_id:entryId,kind:"historical_preview",
+        start_date:this._historyStart,end_date:this._historyEnd,
       });
+      this._historyJobId=job.id;
+      const result=await this._waitForHistoryJob(entryId,job,"historical_preview");
+      if (result.recorder_writes!==false || result.energy_writes!==false ||
+          !result.proposals || !Array.isArray(result.review_candidates))
+        throw new Error("Unverified historical preview");
       this._historyPreview=result;
-      this._historyMessage="Aperçu de l’historique actualisé. Aucune série Recorder n’a été modifiée.";
+      this._historyMessage=this._t(
+        "Aperçu complet validé. Aucune donnée Recorder modifiée.",
+        "Complete preview verified. Recorder data unchanged.");
+      this._unsavedInput=false;
     } catch (_) {
-      this._historyError="Prévisualisation impossible : vérifiez la période, la connexion et les journaux Trybatec.";
+      this._historyError=this._t(
+        "Analyse interrompue : aucun historique partiel n’est validé. Relancer « Analyser les relevés » recommence la lecture complète depuis le début. Consultez Diagnostics.",
+        "History interrupted: no partial history accepted. Selecting Analyze readings again restarts the entire read from the beginning. See Diagnostics.");
     } finally {
-      this._historyBusy=false;this._render();
+      this._historyBusy=false;this._historyJobId=null;this._historyJobStatus=null;
+      if (!this._isEditingForm()) this._render();
     }
   }
   async _approveHistory() {
@@ -1489,7 +1561,17 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
       '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
-      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button></div>'+
+      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button>'+ 
+      (this._historyBusy&&this._historyJobId?
+        '<button type="button" class="secondary" data-history-cancel>'+
+        this._t("Annuler l’analyse","Cancel analysis")+'</button>':"")+'</div>'+
+      (this._historyJobStatus?.status==="running"?
+        '<p class="notice" role="status">'+this._t("Lecture en cours : ","Reading history: ")+
+        safe(this._historyJobStatus.progress?.http_requests??"—")+
+        this._t(" requête(s), "," requests, ")+
+        safe(this._historyJobStatus.progress?.periods_verified??"—")+
+        this._t(" période(s) vérifiée(s)."," verified periods.")+
+        '</p>':"")+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
       '</section><div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
@@ -1629,13 +1711,21 @@ class TrybatecPanel extends HTMLElement {
     const range=trybatecTariffYears(a,new Date().getFullYear());
     const coverage=this._tariffCoverage.get(a.entry_id);
     const coverageNotice=coverage?.status==="loading" ?
-      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques…</p>' :
+      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques… '+
+      (this._tariffJobStatus?.progress?
+        safe(this._tariffJobStatus.progress.http_requests)+
+        ' requête(s) effectuée(s). ':"")+
+      (this._tariffJobId?'<button type="button" data-tariff-years-cancel>Annuler</button>':"")+
+      '</p>' :
       coverage?.status==="error" ?
       '<p class="notice warning" role="alert">Années historiques non vérifiées : la liste peut être incomplète. '+
       '<button type="button" data-tariff-years-retry>Réessayer</button></p>' :
       coverage?.status==="complete" ?
       '<p class="notice" role="status">Exercices fondés sur les relevés historiques datés du compte.</p>' :
-      '<p class="notice" role="status">Vérification des années historiques non encore lancée.</p>';
+      '<p class="notice" role="status">Analyse historique exhaustive non lancée : '+
+      'elle peut solliciter plusieurs années de relevés fournisseur. '+
+      '<button type="button" data-tariff-years-retry>'+
+      'Rechercher les exercices historiques</button></p>';
     if (!range.years.includes(Number(f.year))) {
       f.year=range.years.includes(new Date().getFullYear())?
         new Date().getFullYear():range.years[0];
@@ -1895,7 +1985,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
       '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
       }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
-      '</div></section></div>';
+      '</div></section></div>'+this._communicationDiagnostics();
   }
   async _saveSettings() {
     if (!this._current || this._settingsBusy) return;
@@ -1931,6 +2021,120 @@ class TrybatecPanel extends HTMLElement {
       this._settingsBusy=false;this._render();
     }
   }
+  _technicalLimits() {
+    const details=this._data?.technical_limits;
+    if (!details?.read_only) return '<p class="muted">'+this._t(
+      'Limites techniques non disponibles.',
+      'Technical limits unavailable.')+'</p>';
+    const effective=details.effective||{},proposed=details.proposed||{};
+    const number=value=>Number.isFinite(value)?safe(this._number(value)):this._t(
+      'Non défini','Not defined');
+    const bytes=(value,unit)=>Number.isFinite(value)?
+      number(value/(unit==="Mio"?1048576:1024))+' '+unit:
+      this._t('Non défini','Not defined');
+    const line=(fr,en,value)=>
+      '<div class="line">'+safe(this._t(fr,en))+': <strong>'+value+'</strong></div>';
+    const timeout=effective.timeouts_seconds||{};
+    return '<details class="technical-limits"><summary>'+
+      this._t('Limites et protections (lecture seule)',
+        'Limits and safeguards (read-only)')+'</summary>'+
+      '<p class="muted">'+this._t(
+        'Valeurs effectives issues de l’intégration, non modifiables.',
+        'Active limits reported by the integration; not editable.')+'</p>'+
+      line('Taille maximale des réponses d’index','Maximum index response',
+        bytes(effective.index_max_bytes,'Mio'))+
+      line('Taille maximale des métadonnées','Maximum metadata response',
+        bytes(effective.metadata_max_bytes,'Kio'))+
+      line('Volume historique reçu au total','Aggregate received history limit',
+        bytes(effective.max_history_received_bytes,'Mio'))+
+      line('Lignes par réponse','Rows per response',number(effective.max_index_lines))+
+      line('Points par réponse','Points per response',number(effective.max_index_points))+
+      line('Délai HTTP des index','Index HTTP timeout',number(timeout.indexes)+' s')+
+      line('Délai HTTP d’authentification','Authentication HTTP timeout',
+        number(timeout.authentication)+' s')+
+      line('Délai HTTP de découverte','Discovery HTTP timeout',number(timeout.housing)+' s')+
+      line('Délai HTTP des appareils','Device HTTP timeout',number(timeout.device)+' s')+
+      line('Tentatives transitoires','Transient attempts',number(effective.transient_max_attempts))+
+      line('Itérations index (réauthentification comprise)','Index iterations (including reauth)',
+        number(effective.max_index_iterations_with_reauth))+
+      line('Temporisations transitoires','Transient retry delays',
+        this._t('Base ','Base ')+number(effective.transient_backoff_base_ms)+
+        ' ms + '+this._t('jitter ; plafond ','jitter; cap ')+
+        number(effective.transient_backoff_max_ms)+' ms')+
+      line('Pause entre sous-périodes historiques','Pause between history subwindows',
+        number(effective.history_pause_ms)+' ms')+
+      line('Lectures historiques simultanées par compte','Concurrent historical scans per account',
+        effective.history_serialized_per_account?'1':this._t('Non vérifié','Unverified'))+
+      line('Durée globale actuellement appliquée','Current overall duration limit',
+        effective.max_global_duration_seconds===null?this._t('Non définie','Not defined'):
+          number(effective.max_global_duration_seconds)+' s')+
+      line('Appels HTTP actuellement plafonnés par opération','Current HTTP requests per operation',
+        number(effective.max_global_http_requests))+
+      '<h4>'+this._t('Budgets proposés — non actifs',
+        'Proposed budgets — not yet active')+'</h4>'+
+      '<p class="muted">'+this._t(
+        'Valeurs candidates à confirmer après tests représentatifs.',
+        'Candidate thresholds pending representative load tests.')+'</p>'+
+      line('Analyse standard (durée / requêtes)','Standard (duration / requests)',
+        number(proposed.standard?.duration_seconds)+' s / '+
+        number(proposed.standard?.http_requests))+
+      line('Analyse exhaustive (durée / requêtes)','Exhaustive (duration / requests)',
+        number(proposed.exhaustive?.duration_seconds)+' s / '+
+        number(proposed.exhaustive?.http_requests))+
+      line('Temporisation historique proposée','Proposed history pause',
+        number(proposed.proposed_pause_ms)+' ms')+
+      line('Concurrence cible par compte','Target concurrency per account',
+        number(proposed.max_concurrent_historical_scans_per_account))+
+      '</details>';
+  }
+  _communicationDiagnostics() {
+    const diagnostics=this._current?.communication_diagnostics||{};
+    const recent=Array.isArray(diagnostics.recent)?diagnostics.recent:[];
+    const active=Array.isArray(diagnostics.active)?diagnostics.active:[];
+    const view=(operation)=>{
+      const info=[operation.kind,operation.status,operation.started_at,
+        operation.elapsed_seconds+' s',
+        operation.http_requests+' '+this._t('requêtes','requests'),
+        operation.retries+' '+this._t('tentatives supplémentaires','retries'),
+        operation.subdivisions+' '+this._t('subdivisions','splits')].join(' · ');
+      const details=this._t('Volume reçu','Received bytes')+': '+
+        safe(operation.bytes_received??'—')+' octets · '+
+        this._t('Plus grande réponse','Largest response')+': '+
+        safe(operation.largest_response_bytes??'—')+' octets';
+      return '<li><div>'+safe(info)+'</div><div class="muted">'+details+'</div>'+
+        (operation.error_type?'<div class="muted">'+this._t('Cause','Cause')+
+          ': '+safe(operation.error_type)+'</div>':"")+'</li>';
+    };
+    return '<section class="card" style="margin-top:16px">'+
+      '<h3>'+this._t('Diagnostic des communications Trybatec',
+        'Trybatec communications diagnostics')+'</h3>'+
+      '<p class="muted">'+this._t(
+        'Au plus 20 opérations conservées en mémoire pendant 24 heures ; aucun relevé ni identifiant de compte.',
+        'At most 20 in-memory operations for 24 hours; no readings or account identifiers.')+'</p>'+
+      (active.length?'<div class="notice">'+this._t('Opération(s) en cours',
+        'Running operations')+': '+safe(active.length)+'</div>':"")+
+      '<details><summary>'+this._t('Consulter les dernières opérations',
+        'Inspect recent operations')+'</summary>'+
+      (recent.length?'<ul>'+recent.slice(0,20).map(view).join('')+'</ul>':
+        '<p class="muted">'+this._t('Aucun diagnostic disponible.',
+        'No diagnostics available.')+'</p>')+'</details>'+
+      '<div class="actions"><button type="button" class="secondary" data-copy-diagnostic>'+
+      this._t('Copier le rapport expurgé','Copy redacted report')+'</button></div>'+
+      '<div class="muted">'+this._t(
+        'Copie locale uniquement ; aucun envoi automatique.',
+        'Local copy only; no automatic transmission.')+'</div></section>';
+  }
+  async _copyDiagnostics() {
+    if (!this._current || !this._data?.technical_limits || !navigator.clipboard?.writeText)
+      return;
+    const report={
+      version:this._data.version,
+      technical_limits:this._data.technical_limits,
+      operations:this._current.communication_diagnostics,
+    };
+    // The backend deliberately provides only safe metrics and opaque job IDs.
+    await navigator.clipboard.writeText(JSON.stringify(report,null,2));
+  }
   _settings() {
     const settings={...this._current.settings,...this._settingsInput};
     const field=(key,label,min,max,description)=>
@@ -1961,7 +2165,10 @@ class TrybatecPanel extends HTMLElement {
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Autres options Trybatec</h3>'+
       '<p>Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.</p>'+
-      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir Options Trybatec</button></div></section>';
+      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir Options Trybatec</button></div></section>'+
+      '<section class="card" style="margin-top:16px"><h3>Diagnostic et paramètres techniques</h3>'+
+      this._technicalLimits()+
+      '<div class="actions"><button class="secondary" type="button" data-tab="diagnostics">Consulter les diagnostics</button></div></section>';
   }
   _content() {
     if (this._loading) return '<div class="card empty">Chargement des données Trybatec…</div>';

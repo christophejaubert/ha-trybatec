@@ -264,12 +264,15 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert opts["sidebar_title"] == "Trybatec"
     assert opts["require_admin"] is True
     assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.1b2")
-    assert register_ws.call_count == 12
+    assert register_ws.call_count == 15
     assert any(call.args[1] is panel_api.ws_panel_tariff_years for call in register_ws.call_args_list)
     handlers = [call.args[1].__name__ for call in register_ws.call_args_list]
     assert "ws_panel_snapshot" in handlers
     assert "ws_panel_tariff_change" in handlers
     assert "ws_panel_history_preview" in handlers
+    assert "ws_panel_history_job_start" in handlers
+    assert "ws_panel_history_job_status" in handlers
+    assert "ws_panel_history_job_cancel" in handlers
     assert "ws_panel_smoothing_choice" in handlers
     assert "ws_panel_entity_audit" in handlers
     assert "ws_panel_energy_handoff_preview" in handlers

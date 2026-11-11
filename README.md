@@ -4,7 +4,7 @@
   <img src="custom_components/trybatec/brand/icon@2x.png" alt="Unofficial Trybatec Home Assistant integration icon" width="128" height="128">
 </p>
 
-**Version in `main`: 0.2.0b17** (once this PR is merged). The earlier b15 version was integrated through [PR #38](https://github.com/christophejaubert/ha-trybatec/pull/38). Check [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) for actual published versions; merging does not create a tag or release. No publication authorizes historical imports on a real Home Assistant instance. Back up Home Assistant before any separately approved import.
+**Version et installation / Release status:** [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases) présente les versions effectivement publiées. La branche `main` peut contenir une version en préparation : une fusion ne crée ni tag ni release. / GitHub Releases is the authoritative list of published versions; merging into `main` does not publish an update. Sauvegarder Home Assistant avant installation, mise à jour ou import historique. Aucun import Recorder ni changement Énergie n'est déclenché automatiquement par la mise à jour.
 
 **FR :** Intégration Home Assistant non officielle pour compteurs intégrés au portail Trybatec (eau froide, eau chaude, chauffage). Bêta expérimentale sans maintenance garantie.
 
@@ -170,7 +170,7 @@ Les textes français/anglais utilisent désormais de vrais sauts de paragraphe, 
 
 ## Historical b7 development notes (archived)
 
-The paragraphs in this section describe the earlier experimental b7 branch at the time of its development. They are retained as historical implementation notes, **not** as the current release status. Current published version: **b14**; b15 remains in development. No historical data is written automatically.
+The paragraphs in this section describe the earlier experimental b7 branch at the time of its development. They are retained as historical implementation notes, **not** as the current release status. The published release status must be checked on [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases). No historical data is written automatically.
 
 New administrator-only read-only Home Assistant actions:
 
@@ -357,6 +357,17 @@ Preview action results may contain physical meter serials and index values. Reda
 4. Ouvrir ce dépôt dans Marketplace, puis activer **Pre-release / Préversions** dans les options du dépôt pour voir les versions expérimentales.
 5. Installer la préversion voulue, puis ajouter **Trybatec (Unofficial Beta)** dans **Paramètres → Appareils et services**. Redémarrer Home Assistant si l’interface le demande.
 6. Renseigner ses propres identifiants et son UUID de copropriété, sans jamais les transmettre dans GitHub.
+
+**Mise à jour d'une installation existante (bêta)**
+
+Après avoir réalisé une sauvegarde Home Assistant, ouvrir le dépôt Trybatec
+dans Marketplace/HACS, activer l'affichage des préversions et sélectionner
+la version publiée souhaitée, par exemple `0.3.1b3` lorsqu'elle apparaît
+dans [GitHub Releases](https://github.com/christophejaubert/ha-trybatec/releases).
+Installer la mise à jour et suivre les instructions de redémarrage affichées
+par Home Assistant. Contrôler ensuite la version affichée dans le panneau
+Trybatec et les trois fluides effectivement présents. Ne pas déclencher
+d'import Recorder ni de bascule Énergie sans préparation spécifique.
 
 **Installation manuelle de dépannage**
 

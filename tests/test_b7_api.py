@@ -23,8 +23,14 @@ class Reply:
 
     @staticmethod
     def _reader(raw):
+        offset = 0
+
         async def read(n):
-            return raw[:n]
+            nonlocal offset
+            part = raw[offset:offset + n]
+            offset += len(part)
+            return part
+
         return read
 
     async def __aenter__(self):
