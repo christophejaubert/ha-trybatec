@@ -36,7 +36,8 @@ def test_indexes_respects_supplier_rate_limit_without_more_than_three_requests(m
     async def record_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("custom_components.trybatec.api.asyncio.sleep", record_sleep)
+    from custom_components.trybatec import api
+    monkeypatch.setattr(api.asyncio, "sleep", record_sleep)
 
     class Response:
         def __init__(self, status, headers=None):
