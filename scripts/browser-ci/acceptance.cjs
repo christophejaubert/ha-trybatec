@@ -149,11 +149,24 @@ async function runCase(browser, locale, device) {
   assert.match(first,locale==="FR"?/Vue d’ensemble/:/Overview/);
   for(const tab of tabs){
     await page.locator('trybatec-panel nav button[data-tab="'+tab+'"]').click();
-    await page.waitForFunction(tab=>{
-      const root=document.querySelector("trybatec-panel")?.shadowRoot;
-      return root?.querySelector('button[data-tab="'+tab+'"]')?.getAttribute("aria-current")==="page"
-        && Boolean(root.querySelector("main h2"));
-    },tab);
+    try {
+      await page.waitForFunction(tab=>{
+        const root=document.querySelector("trybatec-panel")?.shadowRoot;
+        return root?.querySelector('button[data-tab="'+tab+'"]')?.getAttribute("aria-current")==="page"
+          && Boolean(root.querySelector("main h2"));
+      },tab,{timeout:8000});
+    } catch(error) {
+      const state=await page.evaluate(()=>{
+        const host=document.querySelector("trybatec-panel");
+        const root=host?.shadowRoot;
+        return {tab:host?._tab,heading:root?.querySelector("main h2")?.textContent,
+          nav:[...(root?.querySelectorAll("nav button[data-tab]")||[])].map(x=>({
+            tab:x.dataset.tab,selected:x.getAttribute("aria-current")
+          }))};
+      });
+      throw new Error("Navigation "+locale+"/"+device+"/"+tab+" failed: "+JSON.stringify(state)+
+        "; pageerrors="+errors.join(" | ")+"; cause="+error.message);
+    }
     const heading=await page.locator("trybatec-panel main h2").first().innerText();
     assert.ok(heading.length>0,"Missing heading: "+tab);
     const overflow=await page.evaluate(()=>{
