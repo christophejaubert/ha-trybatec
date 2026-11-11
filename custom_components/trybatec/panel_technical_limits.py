@@ -1,63 +1,53 @@
-"""Read-only technical protections for the administrator Trybatec panel.
-
-Effective values are imported from the actual HTTP/history implementation,
-not duplicated in JavaScript. Candidate budgets are *not enforced* and must
-never be labelled as active until representative validation is complete.
-No requests, mutation, secrets or account identifiers are involved.
-"""
+"""Authoritative, read-only technical limits for the Trybatec panel."""
 from __future__ import annotations
 
 from .api import (
-    AUTH_TIMEOUT_SECONDS,
-    DEVICE_TIMEOUT_SECONDS,
-    HOUSING_TIMEOUT_SECONDS,
-    INDEX_TIMEOUT_SECONDS,
-    INDEX_MAX_ITERATIONS_WITH_REAUTH,
-    MAX_AUTH_BYTES,
-    MAX_INDEX_BYTES,
-    MAX_INDEX_LINES,
-    MAX_INDEX_POINTS,
-    TRANSIENT_BACKOFF_STEP_SECONDS,
-    TRANSIENT_MAX_ATTEMPTS,
+    MAX_AUTH_BYTES, MAX_INDEX_BYTES, MAX_INDEX_LINES, MAX_INDEX_POINTS,
+    AUTH_TIMEOUT_SECONDS, HOUSING_TIMEOUT_SECONDS, INDEX_TIMEOUT_SECONDS,
+    DEVICE_TIMEOUT_SECONDS, TRANSIENT_MAX_ATTEMPTS,
+    INDEX_MAX_ITERATIONS_WITH_REAUTH, TRANSIENT_BACKOFF_BASE_SECONDS,
+    TRANSIENT_BACKOFF_MAX_SECONDS,
 )
-from .history_services import HISTORY_WINDOW_PAUSE_SECONDS
+from .history_guardrails import (
+    DIAGNOSTIC_LIMIT, DIAGNOSTIC_TTL_SECONDS, EMERGENCY_MAX_SECONDS,
+    EMERGENCY_MAX_REQUESTS, technical_budget_snapshot,
+)
+from .history_services import (
+    HISTORY_WINDOW_PAUSE_SECONDS, MAX_HISTORY_RECEIVED_BYTES,
+)
 
 
 def technical_limits_snapshot() -> dict:
-    """Expose the effective guards and separately approved *candidate* budgets."""
+    """Explicitly separate applied protections from conditional proposals."""
     return {
         "read_only": True,
         "effective": {
-            "index_response_max_bytes": MAX_INDEX_BYTES,
-            "metadata_response_max_bytes": MAX_AUTH_BYTES,
-            "index_response_max_lines": MAX_INDEX_LINES,
-            "index_response_max_points": MAX_INDEX_POINTS,
-            "request_timeout_seconds": {
+            "index_max_bytes": MAX_INDEX_BYTES,
+            "metadata_max_bytes": MAX_AUTH_BYTES,
+            "max_index_lines": MAX_INDEX_LINES,
+            "max_index_points": MAX_INDEX_POINTS,
+            "max_history_received_bytes": MAX_HISTORY_RECEIVED_BYTES,
+            "timeouts_seconds": {
                 "indexes": INDEX_TIMEOUT_SECONDS,
                 "authentication": AUTH_TIMEOUT_SECONDS,
-                "housing_discovery": HOUSING_TIMEOUT_SECONDS,
-                "device_metadata": DEVICE_TIMEOUT_SECONDS,
+                "housing": HOUSING_TIMEOUT_SECONDS,
+                "device": DEVICE_TIMEOUT_SECONDS,
             },
             "transient_max_attempts": TRANSIENT_MAX_ATTEMPTS,
-            "index_max_iterations_with_reauthentication": (
-                INDEX_MAX_ITERATIONS_WITH_REAUTH
-            ),
-            "transient_backoff_step_ms": round(TRANSIENT_BACKOFF_STEP_SECONDS * 1000),
-            "historical_inter_request_pause_ms": round(
-                HISTORY_WINDOW_PAUSE_SECONDS * 1000
-            ),
-            "historical_operations_serialized_per_account": True,
-            "historical_operation_timeout_seconds": None,
-            "historical_operation_max_http_requests": None,
+            "max_index_iterations_with_reauth": INDEX_MAX_ITERATIONS_WITH_REAUTH,
+            "transient_backoff_base_ms": round(TRANSIENT_BACKOFF_BASE_SECONDS * 1000),
+            "transient_backoff_max_ms": round(TRANSIENT_BACKOFF_MAX_SECONDS * 1000),
+            "transient_backoff_uses_jitter": True,
+            "retry_after_honored": True,
+            "history_pause_ms": round(HISTORY_WINDOW_PAUSE_SECONDS * 1000),
+            "history_serialized_per_account": True,
+            "max_global_duration_seconds": EMERGENCY_MAX_SECONDS,
+            "max_global_http_requests": EMERGENCY_MAX_REQUESTS,
         },
-        "candidate": {
-            "status": "not_enforced_pending_load_tests",
-            "standard": {"duration_seconds": 120, "http_requests": 24},
-            "exhaustive": {"duration_seconds": 600, "http_requests": 80},
-            "historical_inter_request_pause_ms": 500,
-            "max_historical_operations_per_account": 1,
-            "progress_visible_after_seconds": 3,
-            "slow_information_after_seconds": 30,
-            "requires_async_progress_cancel_resume": True,
+        "proposed": technical_budget_snapshot(),
+        "diagnostics": {
+            "retention_hours": DIAGNOSTIC_TTL_SECONDS // 3600,
+            "max_operations": DIAGNOSTIC_LIMIT,
+            "persisted": False,
         },
     }

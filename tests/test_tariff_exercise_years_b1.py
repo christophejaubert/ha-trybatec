@@ -142,7 +142,9 @@ def test_tariff_selector_includes_dated_retired_meter_after_history_scan() -> No
 
 def test_tariff_page_triggers_lazy_scan_and_has_failure_indicator() -> None:
     source = PANEL.read_text(encoding="utf-8")
-    assert 'type:"trybatec/panel_tariff_years"' in source
-    assert 'if(this._tab==="tariffs")this._loadTariffYearCoverage()' in source
+    assert 'type:"trybatec/panel_history_job_start"' in source
+    assert 'kind:"tariff_year_coverage"' in source
+    assert 'if (!force || !this._current || !this._hass) return;' in source
+    assert 'data-tab="tariffs"' not in source or 'data-tariff-years-retry' in source
     assert "Années historiques non vérifiées" in source
     assert "data-tariff-years-retry" in source

@@ -76,11 +76,23 @@ const snapshot = {
     meter_tariffs:{},tariff_fingerprint:"synthetic-no-write",
     settings:{poll_minutes:720,sparse_hours:27,zero_review_days:1,log_level:"WARNING"},
     ledger:{status:"no_import",series:[],pending:0},
+    communication_diagnostics:{active:[],recent:[],max_operations:20,retention_hours:24,persisted:false},
     archived_inventory_count:1,warnings:[],
   }],
   energy:{status:"available",sources:[{
     index:0,type:"water",statistic_id:"sensor.synth_ef_index",
   }]},
+  technical_limits:{read_only:true,effective:{
+    index_max_bytes:16777216,metadata_max_bytes:65536,max_history_received_bytes:67108864,
+    max_index_lines:20000,max_index_points:120000,
+    timeouts_seconds:{indexes:60,authentication:30,housing:25,device:20},
+    transient_max_attempts:3,max_index_iterations_with_reauth:5,
+    transient_backoff_base_ms:250,transient_backoff_max_ms:30000,
+    history_pause_ms:200,history_serialized_per_account:true,
+    max_global_duration_seconds:1800,max_global_http_requests:512,
+  },proposed:{enforced:false,standard:{duration_seconds:120,http_requests:24},
+    exhaustive:{duration_seconds:600,http_requests:80},proposed_pause_ms:500,
+    max_concurrent_historical_scans_per_account:1}},
   no_automatic_cleanup:true,no_automatic_recorder_or_energy_changes:true,
 };
 const tabs=["overview","meters","history","tariffs","energy","diagnostics","settings"];
@@ -115,14 +127,23 @@ async function runCase(browser, locale, device) {
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
-        if (command.type==="trybatec/panel_tariff_years") return {
-          status:"complete", recorder_writes:false, energy_writes:false,
-          meters:[{
-            physical_key:snapshot.accounts[0].meters[1].physical_key,
-            first_observed_at:"2021-12-21T00:00:00+01:00",
-            last_source_observed_at:"2024-12-30T00:00:00+01:00",
-          }],
-        };
+        if (command.type==="trybatec/panel_history_job_start") {
+          globalThis.__lastJobKind=command.kind;
+          return {id:"SYNTHETIC-JOB",kind:command.kind,status:"running"};
+        }
+        if (command.type==="trybatec/panel_history_job_status") {
+          const result=globalThis.__lastJobKind==="tariff_year_coverage"?
+            {status:"complete",recorder_writes:false,energy_writes:false,
+              meters:[{
+                physical_key:snapshot.accounts[0].meters[1].physical_key,
+                first_observed_at:"2021-12-21T00:00:00+01:00",
+                last_source_observed_at:"2024-12-30T00:00:00+01:00",
+              }]}:
+            {recorder_writes:false,energy_writes:false,
+              proposals:{intervals:[]},review_candidates:[]};
+          return {id:command.job_id,status:"complete",complete:true,
+            recorder_writes:false,energy_writes:false,result};
+        }
         throw new Error("Network and writes disabled in synthetic browser harness");
       },
     };
@@ -137,11 +158,24 @@ async function runCase(browser, locale, device) {
   assert.match(first,locale==="FR"?/Vue d’ensemble/:/Overview/);
   for(const tab of tabs){
     await page.locator('trybatec-panel nav button[data-tab="'+tab+'"]').click();
-    await page.waitForFunction(tab=>{
-      const root=document.querySelector("trybatec-panel")?.shadowRoot;
-      return root?.querySelector('button[data-tab="'+tab+'"]')?.getAttribute("aria-current")==="page"
-        && Boolean(root.querySelector("main h2"));
-    },tab);
+    try {
+      await page.waitForFunction(tab=>{
+        const root=document.querySelector("trybatec-panel")?.shadowRoot;
+        return root?.querySelector('button[data-tab="'+tab+'"]')?.getAttribute("aria-current")==="page"
+          && Boolean(root.querySelector("main h2"));
+      },tab,{timeout:8000});
+    } catch(error) {
+      const state=await page.evaluate(()=>{
+        const host=document.querySelector("trybatec-panel");
+        const root=host?.shadowRoot;
+        return {tab:host?._tab,heading:root?.querySelector("main h2")?.textContent,
+          nav:[...(root?.querySelectorAll("nav button[data-tab]")||[])].map(x=>({
+            tab:x.dataset.tab,selected:x.getAttribute("aria-current")
+          }))};
+      });
+      throw new Error("Navigation "+locale+"/"+device+"/"+tab+" failed: "+JSON.stringify(state)+
+        "; pageerrors="+errors.join(" | ")+"; cause="+error.message);
+    }
     const heading=await page.locator("trybatec-panel main h2").first().innerText();
     assert.ok(heading.length>0,"Missing heading: "+tab);
     const overflow=await page.evaluate(()=>{
@@ -256,6 +290,23 @@ async function runCase(browser, locale, device) {
       const hamburger=page.locator("trybatec-panel .menu-toggle");
       assert.equal(await hamburger.isVisible(),true,"HA main menu access missing on mobile");
     }
+    if(tab==="settings") {
+      const content=await page.locator("trybatec-panel main").innerText();
+      assert.match(content,/Diagnostic et paramètres techniques/);
+      const detail=page.locator("trybatec-panel main details.technical-limits");
+      assert.equal(await detail.count(),1);
+      await detail.locator("summary").click();
+      assert.match(await detail.innerText(),/16 Mio/);
+      const limitsText=await detail.innerText();
+      assert.match(limitsText,locale==="FR"?
+        /Budgets proposés — non actifs/:/Proposed budgets — not yet active/);
+      assert.match(limitsText,/1[\s ,.]?800|1800/,
+        "The active 1800-second fail-closed ceiling must be disclosed");
+      assert.match(limitsText,/512/,
+        "The active 512-request fail-closed ceiling must be disclosed");
+      assert.equal(await detail.locator("input,select,button").count(),0,
+        "Technical safeguards must be strictly read-only");
+    }
     if(tab==="diagnostics"){
       const content=await page.locator("trybatec-panel main").innerText();
       assert.match(content,locale==="EN"?/Partial audit|Legacy technical generation/i:/Audit partiel|Ancienne génération technique/i);
@@ -263,6 +314,7 @@ async function runCase(browser, locale, device) {
       assert.doesNotMatch(content,/data-technical-delete/);
     }
     if(tab==="tariffs"){
+      await page.locator("trybatec-panel button[data-tariff-years-retry]").click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
         return root?.querySelector('select#tariff-year option[value="2020"]');
@@ -316,10 +368,13 @@ async function runCase(browser, locale, device) {
     "Uncommitted user input must prevent automatic page reload");
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
-  assert.ok(observed.every(x=>["trybatec/panel_snapshot","trybatec/panel_tariff_years"].includes(x)),
-    "Only read-only snapshots and historical tariff scans are allowed in visual acceptance");
-  assert.ok(observed.includes("trybatec/panel_tariff_years"),
-    "Opening tariffs must load verified historical year bounds");
+  assert.ok(observed.every(x=>["trybatec/panel_snapshot",
+      "trybatec/panel_history_job_start","trybatec/panel_history_job_status"].includes(x)),
+    "Only read-only snapshots and historical preview jobs are allowed in visual acceptance");
+  assert.ok(observed.includes("trybatec/panel_history_job_start"),
+    "Explicit tariff-year request must start a monitored read-only job");
+  assert.ok(observed.includes("trybatec/panel_history_job_status"),
+    "The panel must verify a completed job before accepting historical bounds");
   await context.close();
   return {locale,device,tabs:tabs.length,errors:errors.length};
 }

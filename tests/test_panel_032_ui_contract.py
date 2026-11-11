@@ -80,7 +80,7 @@ function versionPanel(hasNew,hasOld) {
 const noPreconditions=versionPanel(false,false);
 assert.match(noPreconditions,/disabled aria-disabled="true"/);
 assert.match(noPreconditions,/Parcours indisponible/);
-assert.match(noPreconditions,/data-openEnergy/);
+assert.match(noPreconditions,/data-open-energy/);
 const ready=versionPanel(true,true);
 assert.doesNotMatch(ready,/disabled aria-disabled="true"/);
 assert.match(ready,/trybatec:synthetic_new/);
@@ -118,7 +118,7 @@ const settingsFixture={
   _settingsInput:null,_durationInput:null,_loggingInput:null,
   _settingsError:"",_settingsMessage:"",_loggingError:"",_loggingMessage:"",
   _settingsBusy:false,_loggingBusy:false,_heading:()=>"",
-  _number:v=>String(v)
+  _number:v=>String(v),_technicalLimits:()=>''
 };
 const settingsView=ctx.__check.Panel.prototype._settings.call(settingsFixture);
 const firstSection=settingsView.slice(

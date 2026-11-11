@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_DEAL_ID, DOMAIN, TIMEZONE
 from .history import combine_payloads, history_windows
 from .history_services import _fetch_history_payloads
+from .history_guardrails import tracked_history
 from .units import meter_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,33 +130,37 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
     if not hasattr(coordinator, "_history_lock"):
         coordinator._history_lock = asyncio.Lock()
 
-    async with coordinator._history_lock:
-        # Avoid concurrent duplicate scans after waiting for another caller.
-        cached = getattr(coordinator, "_panel_tariff_coverage", None)
-        if isinstance(cached, dict) and cached.get("coverage_end") == today.isoformat():
-            return {**cached, "cache_hit": True}
-        payloads, count = await _fetch_history_payloads(
-            coordinator.client, coordinator.entry.data[CONF_DEAL_ID],
-            history_windows(_EARLIEST_SUPPORTED_DATE, today),
-        )
-        validated, _conflicts = combine_payloads(
-            payloads, allowed_lots=allowed_lots,
-            start=_EARLIEST_SUPPORTED_DATE, end=today,
-        )
-        meters = _meter_date_bounds(validated)
-        result = {
-            "status": "complete",
-            "coverage_start": _EARLIEST_SUPPORTED_DATE.isoformat(),
-            "coverage_end": today.isoformat(),
-            "meters": meters,
-            "api_requests": count,
-            "cache_hit": False,
-            "source": "verified_supplier_history",
-            "recorder_writes": False,
-            "energy_writes": False,
-        }
-        coordinator._panel_tariff_coverage = result
-        return result
+    async with tracked_history(
+        coordinator, kind="tariff_year_coverage", start=_EARLIEST_SUPPORTED_DATE,
+        end=today,
+    ):
+        async with coordinator._history_lock:
+            # Avoid concurrent duplicate scans after waiting for another caller.
+            cached = getattr(coordinator, "_panel_tariff_coverage", None)
+            if isinstance(cached, dict) and cached.get("coverage_end") == today.isoformat():
+                return {**cached, "cache_hit": True}
+            payloads, count = await _fetch_history_payloads(
+                coordinator.client, coordinator.entry.data[CONF_DEAL_ID],
+                history_windows(_EARLIEST_SUPPORTED_DATE, today),
+            )
+            validated, _conflicts = combine_payloads(
+                payloads, allowed_lots=allowed_lots,
+                start=_EARLIEST_SUPPORTED_DATE, end=today,
+            )
+            meters = _meter_date_bounds(validated)
+            result = {
+                "status": "complete",
+                "coverage_start": _EARLIEST_SUPPORTED_DATE.isoformat(),
+                "coverage_end": today.isoformat(),
+                "meters": meters,
+                "api_requests": count,
+                "cache_hit": False,
+                "source": "verified_supplier_history",
+                "recorder_writes": False,
+                "energy_writes": False,
+            }
+            coordinator._panel_tariff_coverage = result
+            return result
 
 
 @websocket_api.require_admin

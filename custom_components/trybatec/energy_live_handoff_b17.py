@@ -30,11 +30,11 @@ def _audit(hass: Any, entry_id: str) -> Store:
 
 
 async def _metadata(hass: Any, ids: set[str]) -> dict:
-    """Read existing Recorder metadata without writing a single statistic."""
+    """Read precise Recorder metadata; Core forbids statistic_type with statistic_ids."""
     if "recorder" not in hass.config.components:
         raise ValueError("Recorder must be loaded for an Energy handoff")
     return await get_instance(hass).async_add_executor_job(
-        partial(get_metadata, hass, statistic_ids=ids, statistic_type="sum")
+        partial(get_metadata, hass, statistic_ids=ids)
     )
 
 

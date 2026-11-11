@@ -45,6 +45,8 @@ def ui(monkeypatch):
                          In=lambda x:x, All=lambda *x:x, Length=lambda **kw:kw, Coerce=lambda x:x,
                          Range=lambda **kw:kw),
         "homeassistant": mod("homeassistant"),
+        "homeassistant.components": mod("homeassistant.components",
+            frontend=SimpleNamespace(async_panel_exists=lambda *args: False)),
         "homeassistant.config_entries": mod("homeassistant.config_entries", ConfigFlow=Flow, ConfigFlowResult=dict, OptionsFlow=Options),
         "homeassistant.const": mod("homeassistant.const", CONF_USERNAME="username", CONF_PASSWORD="password"),
         "homeassistant.helpers": mod("homeassistant.helpers"),

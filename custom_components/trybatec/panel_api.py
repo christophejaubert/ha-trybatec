@@ -26,6 +26,10 @@ from .parsing import validate_tariffs
 from .units import meter_key
 from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_tariff_change
 from .panel_history import ws_panel_history_preview, ws_panel_smoothing_choice
+from .panel_history_jobs import (
+    ws_panel_history_job_start, ws_panel_history_job_status,
+    ws_panel_history_job_cancel,
+)
 from .panel_origin import (
     ws_panel_estimated_origin_preview, ws_panel_estimated_origin_save,
 )
@@ -39,6 +43,7 @@ from .panel_review import ws_panel_reading_decision
 from .panel_tariff_years import ws_panel_tariff_years, merge_cached_historical_bounds
 from .panel_technical_audit import audited_entity_inventory
 from .panel_technical_limits import technical_limits_snapshot
+from .history_guardrails import diagnostics_for
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_PATH = "trybatec"
@@ -370,12 +375,14 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             },
             "ledger": ledger,
             "warnings": warnings,
+            "communication_diagnostics": diagnostics_for(coordinator).snapshot(),
         })
     return {
         "domain": DOMAIN,
         "panel": "Trybatec",
         "version": await hass.async_add_executor_job(_installed_version),
         "mode": "administrator_read_only",
+        "technical_limits": technical_limits_snapshot(),
         "accounts": accounts,
         "energy": energy,
         "technical_limits": technical_limits_snapshot(),
@@ -443,6 +450,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_snapshot)
     websocket_api.async_register_command(hass, ws_panel_tariff_change)
     websocket_api.async_register_command(hass, ws_panel_history_preview)
+    websocket_api.async_register_command(hass, ws_panel_history_job_start)
+    websocket_api.async_register_command(hass, ws_panel_history_job_status)
+    websocket_api.async_register_command(hass, ws_panel_history_job_cancel)
     websocket_api.async_register_command(hass, ws_panel_smoothing_choice)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_preview)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_save)
