@@ -24,6 +24,14 @@ MAX_AUTH_BYTES = 64 * 1024
 MAX_INDEX_BYTES = 16 * 1024 * 1024
 MAX_INDEX_LINES = 20000
 MAX_INDEX_POINTS = 120000
+# Public read-only diagnostics expose these effective limits; retain one source.
+AUTH_TIMEOUT_SECONDS = 30
+HOUSING_TIMEOUT_SECONDS = 25
+INDEX_TIMEOUT_SECONDS = 60
+DEVICE_TIMEOUT_SECONDS = 20
+TRANSIENT_MAX_ATTEMPTS = 3
+INDEX_MAX_ITERATIONS_WITH_REAUTH = 5
+TRANSIENT_BACKOFF_STEP_SECONDS = 0.25
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -111,18 +119,18 @@ class TrybatecClient:
 
     async def authenticate(self) -> None:
         """Authenticate with two bounded transient retries; token stays in memory."""
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             try:
                 async with self._session.post(
                     f"{API_BASE}/authenticate",
                     json={"username": self._username, "password": self._password},
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT_SECONDS),
                 ) as response:
                     if response.status in (401, 403):
                         raise TrybatecAuthError("Credentials rejected")
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(TRANSIENT_BACKOFF_STEP_SECONDS * (attempt + 1))
                             continue
                         raise TrybatecConnectionError("Trybatec authentication temporarily unavailable")
                     if response.status >= 400:
@@ -153,12 +161,12 @@ class TrybatecClient:
         if self._token is None:
             await self.authenticate()
         auth_retried = False
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             try:
                 async with self._session.get(
                     f"{API_BASE}/housings",
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=25),
+                    timeout=aiohttp.ClientTimeout(total=HOUSING_TIMEOUT_SECONDS),
                 ) as response:
                     if response.status in (401, 403):
                         if auth_retried:
@@ -169,7 +177,7 @@ class TrybatecClient:
                         continue
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(TRANSIENT_BACKOFF_STEP_SECONDS * (attempt + 1))
                             continue
                         raise TrybatecConnectionError("Housing discovery temporarily unavailable")
                     if response.status >= 400:
@@ -204,12 +212,12 @@ class TrybatecClient:
         }
         auth_retried = False
         temporary_failures = 0
-        for _ in range(5):
+        for _ in range(INDEX_MAX_ITERATIONS_WITH_REAUTH):
             try:
                 async with self._session.get(
                     f"{API_BASE}/indexes", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=60),
+                    timeout=aiohttp.ClientTimeout(total=INDEX_TIMEOUT_SECONDS),
                 ) as response:
                     if response.status in (401, 403):
                         if auth_retried:
@@ -221,7 +229,7 @@ class TrybatecClient:
                     if response.status in RETRYABLE_STATUSES:
                         if temporary_failures < 2:
                             temporary_failures += 1
-                            await asyncio.sleep(0.25 * temporary_failures)
+                            await asyncio.sleep(TRANSIENT_BACKOFF_STEP_SECONDS * temporary_failures)
                             continue
                         raise TrybatecConnectionError("Trybatec indexes temporarily unavailable")
                     if response.status in (408, 413, 414, 422):
@@ -241,12 +249,12 @@ class TrybatecClient:
         if not self._token:
             await self.authenticate()
         unauthorized = False
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             try:
                 async with self._session.get(
                     f"{API_BASE}/{path}", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=20),
+                    timeout=aiohttp.ClientTimeout(total=DEVICE_TIMEOUT_SECONDS),
                 ) as response:
                     if response.status == 403:
                         # The optional directory/detail may be forbidden even
@@ -267,7 +275,7 @@ class TrybatecClient:
                         return None
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(TRANSIENT_BACKOFF_STEP_SECONDS * (attempt + 1))
                             continue
                         return None  # Live index polling must remain usable.
                     if response.status >= 400:
