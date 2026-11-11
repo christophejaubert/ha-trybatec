@@ -67,6 +67,15 @@ def merge_cached_historical_bounds(
                     (observed < previous if use_earlier else observed > previous)
                 ):
                     new[field] = candidate[field]
+            # Raw historical source index is presentation-only: no Recorder / Energy write,
+            # no substitution for a verified normalized current index.
+            raw = candidate.get("last_source_index_raw")
+            if new.get("status") == "depose" and isinstance(raw, (int, float)):
+                from math import isfinite
+                if isfinite(raw):
+                    new["historical_last_index_raw"] = raw
+                    new["historical_last_index_at"] = candidate.get("last_source_observed_at")
+                    new["historical_index_conflict"] = bool(candidate.get("has_conflicts"))
         merged.append(new)
     return merged
 
@@ -87,6 +96,8 @@ def _meter_date_bounds(
             "physical_key": meter_key(lot, fluid, serial),
             "first_observed_at": min(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
             "last_source_observed_at": max(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
+            "last_source_index_raw": meter["indexes"][max(dates)],
+            "has_conflicts": bool(meter.get("conflicts")),
         })
     return result
 

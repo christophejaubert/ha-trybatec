@@ -33,7 +33,8 @@ from .panel_history_jobs import (
 from .panel_origin import (
     ws_panel_estimated_origin_preview, ws_panel_estimated_origin_save,
 )
-from .panel_settings import ws_panel_settings_save
+from .panel_settings import ws_panel_settings_save, ws_panel_log_level_save
+from .panel_meter_settings import meter_options_snapshot, ws_panel_meter_options_save
 from .panel_energy import (
     ws_panel_entity_audit, ws_panel_energy_handoff_preview,
     ws_panel_energy_handoff_apply,
@@ -341,6 +342,11 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
         except ValueError:
             ledger = {"status": "invalid_requires_review", "series": [], "pending": 0}
             warnings.append("history_version_ledger_requires_recovery")
+        try:
+            editable_meter_options = meter_options_snapshot(coordinator)
+        except (ValueError, TypeError, KeyError):
+            editable_meter_options = []
+            warnings.append("meter_options_require_review_in_native_settings")
         physical_meters = _meter_inventory(coordinator.data, archive)
         physical_meters = merge_cached_historical_bounds(coordinator, physical_meters)
         technical_audit = audited_entity_inventory(
@@ -351,6 +357,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             "title": coordinator.entry.title,
             "data_loaded": coordinator.data is not None,
             "meters": physical_meters,
+            "meter_options": editable_meter_options,
             "physical_meter_timeline": _physical_meter_timeline(physical_meters),
             "archived_inventory_count": len(archive),
             "entities": technical_audit["entities"],
@@ -378,6 +385,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "technical_limits": technical_limits_snapshot(),
         "accounts": accounts,
         "energy": energy,
+        "technical_limits": technical_limits_snapshot(),
         "no_automatic_cleanup": True,
         "no_automatic_recorder_or_energy_changes": True,
     }
@@ -449,6 +457,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_preview)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_save)
     websocket_api.async_register_command(hass, ws_panel_settings_save)
+    websocket_api.async_register_command(hass, ws_panel_log_level_save)
+    websocket_api.async_register_command(hass, ws_panel_meter_options_save)
     websocket_api.async_register_command(hass, ws_panel_entity_audit)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_preview)
     websocket_api.async_register_command(hass, ws_panel_energy_handoff_apply)

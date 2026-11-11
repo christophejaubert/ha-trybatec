@@ -10,8 +10,8 @@ API = ROOT / "custom_components" / "trybatec" / "panel_api.py"
 MANIFEST = ROOT / "custom_components" / "trybatec" / "manifest.json"
 
 
-def test_manifest_b2_and_frontend_gets_installed_version() -> None:
-    assert json.loads(MANIFEST.read_text(encoding="utf-8"))["version"] == "0.3.1b3"
+def test_manifest_b3_and_frontend_gets_installed_version() -> None:
+    assert json.loads(MANIFEST.read_text(encoding="utf-8"))["version"] == "0.3.2b1"
     source = API.read_text(encoding="utf-8")
     assert '(Path(__file__).parent / "manifest.json").read_text' in source
     assert '"version": await hass.async_add_executor_job(_installed_version)' in source

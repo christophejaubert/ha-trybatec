@@ -223,6 +223,10 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     assert account["physical_meter_timeline"][0]["meters"][0]["first_observation_known"] is True
     assert account["tariffs"]["2022"]["EF"]["rate"] == 2.5
     assert account["archived_inventory_count"] == 0
+    assert len(account["meter_options"]) == 1
+    assert account["meter_options"][0]["serial"] == "CI-PANEL-METER"
+    assert account["meter_options"][0]["source_unit"] == "m³"
+    assert account["meter_options"][0]["confirmed_unit"] == "m³"
     assert account["ledger"]["status"] == "no_import"
     assert all(not x["can_delete"] for x in account["entities"])
     assert "password" not in repr(snapshot).lower()
@@ -234,6 +238,9 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     assert flow["type"] == "menu"
     assert flow["step_id"] == "init"
     assert len(flow["menu_options"]) == 7
+    assert "panel_link" in flow["description_placeholders"]
+    # The headless fixture has no panel, so the fallback link is not broken.
+    assert "/trybatec" not in flow["description_placeholders"]["panel_link"]
 
 
 async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatch):
@@ -248,7 +255,7 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     register_ws = Mock()
     fake_hass = SimpleNamespace(
         http=SimpleNamespace(async_register_static_paths=register_static),
-        async_add_executor_job=AsyncMock(return_value="0.3.1b2"),
+        async_add_executor_job=AsyncMock(return_value="0.3.2b1"),
     )
     monkeypatch.setattr(frontend, "async_panel_exists", lambda h, p: False)
     monkeypatch.setattr(panel_custom, "async_register_panel", register_gui)
@@ -263,8 +270,8 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert opts["frontend_url_path"] == "trybatec"
     assert opts["sidebar_title"] == "Trybatec"
     assert opts["require_admin"] is True
-    assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.1b2")
-    assert register_ws.call_count == 15
+    assert opts["module_url"].endswith("/trybatec-panel.js?v=0.3.2b1")
+    assert register_ws.call_count == 17
     assert any(call.args[1] is panel_api.ws_panel_tariff_years for call in register_ws.call_args_list)
     handlers = [call.args[1].__name__ for call in register_ws.call_args_list]
     assert "ws_panel_snapshot" in handlers
@@ -281,3 +288,5 @@ async def test_panel_registers_exact_sidebar_title_and_requires_admin(monkeypatc
     assert "ws_panel_estimated_origin_preview" in handlers
     assert "ws_panel_estimated_origin_save" in handlers
     assert "ws_panel_settings_save" in handlers
+    assert "ws_panel_log_level_save" in handlers
+    assert "ws_panel_meter_options_save" in handlers
