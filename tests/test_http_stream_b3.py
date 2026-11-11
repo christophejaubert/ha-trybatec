@@ -86,6 +86,22 @@ def test_large_payload_with_missing_content_length_is_bounded():
     assert resp.content.pos <= 100001
 
 
+def test_gzip_transfer_is_bounded_by_decompressed_body_size():
+    """aiohttp exposes decompressed content; compressed Content-Length is not a limit."""
+    import gzip
+
+    raw = b'{"lines":[],"padding":"' + b"x" * 15000 + b'"}'
+    compressed_size = len(gzip.compress(raw))
+    assert compressed_size < 1024
+    # Simulate an aiohttp decompressed stream with the compressed wire length.
+    response = Response(
+        raw, sizes=(4096,), content_length=compressed_size,
+    )
+    with pytest.raises(TrybatecDataError, match="permitted size"):
+        asyncio.run(_bounded_json(response, 2048))
+    assert response.content.pos <= 2049
+
+
 def test_truncated_or_malformed_json_is_rejected_without_leaking_payload():
     for raw in [b'{"lines":[{"indexes":', b"{not json}", b""]:
         with pytest.raises(TrybatecDataError, match="malformed JSON") as err:
