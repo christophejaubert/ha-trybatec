@@ -2160,7 +2160,7 @@ class TrybatecPanel extends HTMLElement {
         type:"trybatec/panel_settings_save",
         entry_id:this._current.entry_id,
         poll_minutes:poll,sparse_hours:sparse,
-        zero_review_days:zeros,log_level:settings.log_level,
+        zero_review_days:zeros,log_level:this._current.settings.log_level,
         expected_fingerprint:this._current.tariff_fingerprint,
         confirm:true
       });
@@ -2173,6 +2173,33 @@ class TrybatecPanel extends HTMLElement {
     } finally {
       this._settingsBusy=false;this._render();
     }
+  }
+  async _saveLogLevel() {
+    if (!this._current || this._loggingBusy) return;
+    const level=this._loggingInput??this._current.settings.log_level;
+    if (!["ERROR","WARNING","INFO","DEBUG"].includes(level)) {
+      this._loggingError="Niveau de journalisation invalide.";this._render();return;
+    }
+    if (!this._confirm(
+      "Enregistrer le niveau de journalisation pour tous les modules Trybatec ?"+
+      "\\n\\nCette option s’applique à l’ensemble des comptes Trybatec chargés, et à aucune autre intégration."
+    )) return;
+    this._loggingBusy=true;this._loggingError="";this._loggingMessage="";this._render();
+    try {
+      const result=await this._hass.callWS({
+        type:"trybatec/panel_log_level_save",
+        entry_id:this._current.entry_id,log_level:level,
+        expected_fingerprint:this._current.tariff_fingerprint,
+        confirm:true
+      });
+      if (result.recorder_writes!==false||result.energy_writes!==false)
+        throw new Error("Unverified logger save");
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._loggingInput=null;
+      this._loggingMessage="Journalisation mise à jour pour Trybatec.";
+    } catch (_) {
+      this._loggingError="Modification refusée ou paramètres modifiés entre-temps. Actualisez puis réessayez.";
+    } finally {this._loggingBusy=false;this._render();}
   }
   _settings() {
     const settings={...this._current.settings,...this._settingsInput};
@@ -2187,9 +2214,10 @@ class TrybatecPanel extends HTMLElement {
       '<input id="settings-'+key+'" data-settings-field="'+key+'" type="number" min="'+min+'" max="'+max+
       '" step="1" value="'+safe(settings[key])+'">'+
       '<div class="muted">'+description+'</div></div>';
-    return this._heading("Réglages","Modifiez les paramètres existants sans supprimer l’ancienne interface.")+
+    const logLevel=this._loggingInput??this._current.settings.log_level;
+    return this._heading("Réglages","Options partagées avec Home Assistant : synchronisation, contrôles et diagnostics.")+
       '<section class="card"><h3>Synchronisation et contrôle des relevés</h3>'+
-      '<p class="muted">Ces valeurs sont partagées avec Options Trybatec et conservées lors des mises à jour.</p>'+
+      '<p class="muted">Ces valeurs sont partagées avec les options natives Trybatec et conservées lors des mises à jour.</p>'+
       '<div class="form-grid" style="margin-top:18px">'+
       '<div class="poll-duration"><label>Fréquence de synchronisation</label>'+
       '<div class="duration-inputs">'+durationField("days","Jours",7)+
@@ -2202,20 +2230,31 @@ class TrybatecPanel extends HTMLElement {
         "Par défaut : 27 h. Un intervalle strictement supérieur est considéré comme espacé.")+
       field("zero_review_days","Index nuls consécutifs (jours)",0,36500,
         "0 désactive la sollicitation ; 1 signale dès le premier jour avec un index nul.")+
-      '<div><label for="settings-log">Journalisation</label><select id="settings-log" data-settings-field="log_level">'+
-      ["ERROR","WARNING","INFO","DEBUG"].map(level=>
-        '<option value="'+level+'" '+(settings.log_level===level?"selected":"")+'>'+level+'</option>'
-      ).join("")+'</select><div class="muted">DEBUG peut produire davantage de journaux.</div></div>'+
       '</div>'+
-      (this._settingsError?'<div class="notice warning">'+safe(this._settingsError)+'</div>':"")+
-      (this._settingsMessage?'<div class="notice">'+safe(this._settingsMessage)+'</div>':"")+
-      '<div class="actions"><button class="primary" type="button" data-settings-save '+(this._settingsBusy?"disabled":"")+'>Enregistrer les réglages</button>'+
+      (this._settingsError?'<div role="alert" class="notice warning">'+safe(this._settingsError)+'</div>':"")+
+      (this._settingsMessage?'<div role="status" class="notice">'+safe(this._settingsMessage)+'</div>':"")+
+      '<div class="actions"><button class="primary" type="button" data-settings-save '+(this._settingsBusy?"disabled":"")+'>Enregistrer ces réglages</button>'+
       '<button class="secondary" type="button" data-settings-reset>Annuler les modifications</button></div>'+
-      '<div class="notice">Aucune modification de relevé, aucune écriture Recorder ni changement du tableau Énergie. Les réglages existants restent accessibles dans le menu natif.</div>'+
+      '<div class="notice">Aucune modification des index source, de Recorder ou du tableau Énergie.</div>'+
       '</section>'+
-      '<section class="card" style="margin-top:16px"><h3>Autres options Trybatec</h3>'+
-      '<p>Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.</p>'+
-      '<div class="actions"><button class="secondary" type="button" data-openOptions>Ouvrir Options Trybatec</button></div></section>';
+      '<section class="card" style="margin-top:16px"><h3>Journalisation et diagnostics</h3>'+
+      '<p class="muted">Ce niveau concerne <strong>tous les modules et tous les comptes Trybatec</strong> : synchronisation, communication avec le portail, historiques, services et diagnostics. Il ne change pas les autres intégrations ni le journal Home Assistant global.</p>'+
+      '<div class="form-grid" style="margin-top:18px"><div style="grid-column:span 2">'+
+      '<label for="settings-log">Niveau de journalisation</label>'+
+      '<select id="settings-log" data-log-level>'+
+      ["ERROR","WARNING","INFO","DEBUG"].map(level=>
+        '<option value="'+level+'" '+(logLevel===level?"selected":"")+'>'+level+'</option>'
+      ).join("")+'</select><div class="muted">WARNING est recommandé en usage courant. DEBUG augmente la quantité de messages de diagnostic.</div></div></div>'+
+      (this._loggingError?'<div role="alert" class="notice warning">'+safe(this._loggingError)+'</div>':"")+
+      (this._loggingMessage?'<div role="status" class="notice">'+safe(this._loggingMessage)+'</div>':"")+
+      '<div class="actions"><button type="button" class="primary" data-log-save '+
+      (this._loggingBusy?"disabled":"")+'>Enregistrer la journalisation</button>'+
+      '<button type="button" class="secondary" data-log-reset>Annuler la modification</button>'+
+      '<button type="button" class="secondary" data-tab="diagnostics">Afficher les diagnostics</button></div>'+
+      '</section>'+
+      '<section class="card" style="margin-top:16px"><h3>Accès de secours aux options natives</h3>'+
+      '<p class="muted">Les unités, UUID, paramètres de diagnostic et parcours historiques sont disponibles dans ce panneau. Le menu natif reste accessible en secours tant que la recette de parité fonctionnelle n’est pas achevée.</p>'+
+      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir les options natives de secours</button></div></section>';
   }
   _content() {
     if (this._loading) return '<div class="card empty">Chargement des données Trybatec…</div>';
