@@ -574,6 +574,8 @@ const style = [
   ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
   ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
   ".duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
+  ".prerequisite-locked{opacity:.53;filter:grayscale(.5);border:0;padding:0;margin:0;width:100%;min-width:0}",
+  ".prerequisite-ready{border:0;padding:0;margin:0;width:100%;min-width:0}",
   ".readiness-list{display:grid;gap:12px}.readiness-row{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--divider-color,#ddd);padding-top:12px}",
   ".readiness-row:first-child{border-top:0;padding-top:0}.readiness-row ha-icon{--mdc-icon-size:23px;flex-shrink:0}",
   ".readiness-row.ok ha-icon{color:var(--trybatec-green-fg)}.readiness-row.pending ha-icon{color:var(--warning-color,#A46A0C)}",
@@ -1829,6 +1831,13 @@ class TrybatecPanel extends HTMLElement {
         '<option value="'+safe(v.statistic_id)+'" '+(this._versionNew===v.statistic_id?"selected":"")+'>'+
         safe(row.logical_id+" · V"+v.number+" · "+v.state)+'</option>'
       )).join("");
+    const verifiedVersions=(ledger.series||[]).flatMap(row=>(row.versions||[]).filter(v=>
+      ["verified","archived"].includes(v.state)));
+    const configuredTrybatec=(this._data.energy.sources||[]).filter(x=>
+      typeof x.statistic_id==="string" && x.statistic_id.startsWith("trybatec:"));
+    const hasVerifiedVersion=verifiedVersions.length>0;
+    const hasCurrentSource=configuredTrybatec.length>0;
+    const canReplaceVersion=hasVerifiedVersion && hasCurrentSource;
     const sourceOpts=(this._data.energy.sources||[]).filter(x=>
       typeof x.statistic_id==="string"&&x.statistic_id.startsWith("trybatec:")
     ).map(x=>'<option value="'+safe(x.statistic_id)+'" '+(this._versionOld===x.statistic_id?"selected":"")+'>'+
@@ -1858,6 +1867,15 @@ class TrybatecPanel extends HTMLElement {
       (this._versionVerify?'<pre class="mono" style="white-space:pre-wrap;max-height:240px;overflow:auto">'+safe(JSON.stringify(this._versionVerify,null,2))+'</pre>':"")+
       '</section><section class="card" style="margin-top:16px"><h3>Choisir une version vérifiée pour Énergie</h3>'+
       '<p class="muted">Sélectionnez une ancienne série Trybatec actuellement affichée, puis une version Recorder vérifiée. Un ancien capteur physique reste géré dans le parcours séparé d’audit.</p>'+
+      (canReplaceVersion?"":
+        '<div class="notice warning" role="status"><strong>Parcours indisponible : prérequis manquants.</strong> '+
+        (!hasVerifiedVersion?'Aucune version Recorder vérifiée : analyser les relevés, prévisualiser puis importer après sauvegarde, et contrôler la persistance. ':'')+
+        (!hasCurrentSource?'Aucune série Trybatec déjà utilisée dans Énergie : cette opération remplace une source existante ; pour une première activation, utiliser le parcours initial de configuration Énergie. ':'')+
+        '<div class="actions"><button type="button" class="secondary" data-tab="history">Examiner l’historique</button>'+
+        (!hasCurrentSource?'<button type="button" class="secondary" data-openEnergy>Ouvrir la configuration Énergie</button>':"")+
+        '</div></div>')+
+      '<fieldset class="'+(canReplaceVersion?"prerequisite-ready":"prerequisite-locked")+'" '+
+      (!canReplaceVersion?'disabled aria-disabled="true"':'')+'>'+
       '<div class="grid-two" style="margin-top:12px">'+
       '<div><label for="version-old">Série actuellement sélectionnée</label><select id="version-old" data-version-field="old">'+
       '<option value="">Sélectionner une source Trybatec versionnée</option>'+sourceOpts+'</select></div>'+
@@ -1874,7 +1892,7 @@ class TrybatecPanel extends HTMLElement {
       (this._versionRollback?"checked":"")+'> J’approuve le retour vers une version archivée</label></div>'+
       '<div class="actions"><button type="button" class="primary" data-version-energy-apply '+
       (!this._versionEnergyPlan||!this._versionEnergyBackup||this._versionBusy?"disabled":"")+
-      '>5. Confirmer le basculement Énergie</button></div></section>'+
+      '>5. Confirmer le basculement Énergie</button></div></fieldset></section>'+
       (this._versionError?'<div class="notice warning">'+safe(this._versionError)+'</div>':"")+
       (this._versionMessage?'<div class="notice">'+safe(this._versionMessage)+'</div>':"");
   }
