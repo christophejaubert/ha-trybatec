@@ -49,10 +49,10 @@ const assert=require("node:assert/strict");
 const js=fs.readFileSync(process.argv[1],"utf8");
 const ctx={HTMLElement:class {},customElements:{get:()=>false,define:()=>{}}};
 vm.runInNewContext(js+
-  "\\n globalThis.__check={format:trybatecDisplayNumber,date:trybatecDisplayDate,parts:trybatecDurationParts,minutes:trybatecDurationMinutes};",
+  "\n globalThis.__check={format:trybatecDisplayNumber,date:trybatecDisplayDate,parts:trybatecDurationParts,minutes:trybatecDurationMinutes};",
   ctx,{timeout:2000});
 const {format,date,parts,minutes}=ctx.__check;
-assert.equal(format("1234567.8900","fr-FR"),"1\\u202f234\\u202f567,8900");
+assert.equal(format("1234567.8900","fr-FR"),"1\u202f234\u202f567,8900");
 assert.equal(format("1234567.8900","en-US"),"1,234,567.8900");
 assert.equal(format("90.958","fr-FR"),"90,958");
 assert.equal(date("2026-01-30T00:00:00+01:00","fr-FR","Europe/Paris"),"vendredi 30 janvier 2026");
