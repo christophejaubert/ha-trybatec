@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
+
+@asynccontextmanager
+async def _mock_history_tracking(*args, **kwargs):
+    yield None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "custom_components" / "trybatec" / "panel_tariff_years.py"
@@ -125,6 +131,7 @@ def test_full_history_scan_is_lazy_account_scoped_and_cached() -> None:
         "asyncio": asyncio, "CONF_DEAL_ID": "deal_id",
         "history_windows": lambda start, end: [(start, end)],
         "_fetch_history_payloads": fetch,
+        "tracked_history": _mock_history_tracking,
         "combine_payloads": lambda *args, **kwargs: ({
             ("LOT-A", "EF", "OLD"): {
                 "indexes": {old_reading: 1.0, new_reading: 2.0},
