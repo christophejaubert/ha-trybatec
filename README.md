@@ -15,7 +15,7 @@
 > **EXPERIMENTAL BETA — UNSUPPORTED / MAINTENANCE NON GARANTIE.** The service endpoints were identified from the
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
-> HACS, or OpenAI. Test with your own account before using it for monitoring.
+> HACS, or any AI tool provider. Test with your own account before using it for monitoring.
 
 ## b17 — Safe coexistence of historical and current meter identities
 
@@ -461,17 +461,23 @@ failures and issue updates as needed.
 
 ## AI-assisted development disclosure
 
-This software was developed with the assistance of **ChatGPT (OpenAI)** under
-the direction of the repository owner. This is an independent community project,
-**not** endorsed, officially authored, supported, or maintained by OpenAI.
-**Neither OpenAI nor the repository owner commits to ongoing maintenance or
-support.** AI-assisted code requires independent human review, security testing,
-and licensing review before production use.
+This project has been developed and documented with the assistance of artificial intelligence (AI) tools, under the direction and supervision of the repository owner.
 
-Ce logiciel a été développé avec l'assistance de **ChatGPT (OpenAI)**, sous la
-direction du propriétaire du dépôt. Ce projet indépendant n'est ni affilié,
-ni approuvé, ni officiellement développé, ni maintenu par OpenAI. **Ni OpenAI
-ni le propriétaire du dépôt ne garantissent la maintenance ou l'assistance.**
+The project is independent and is not affiliated with, endorsed by, or officially maintained by any AI tool provider.
+
+AI-assisted contributions remain subject to human review, security testing, and licensing verification. No guarantee of ongoing maintenance or support is provided.
+
+## Déclaration d'utilisation d'outils d'intelligence artificielle
+
+Ce projet a été développé et documenté avec l'assistance d'outils d'intelligence artificielle (IA), sous la direction et la supervision du responsable du dépôt.
+
+Il s'agit d'un projet indépendant, sans affiliation, approbation ni maintenance officielle de la part des fournisseurs d'outils d'IA.
+
+Les contributions assistées par IA restent soumises à une revue humaine, à des vérifications de sécurité et au respect des licences applicables. Aucune garantie de maintenance ou d'assistance continue n'est fournie.
+
+**AI contribution title convention / Convention de nommage IA:** see [CONTRIBUTING.md](CONTRIBUTING.md) for the prospective `🤖 ` prefix policy and [AGENTS.md](AGENTS.md) for AI assistant instructions. Existing contributions are not renamed retroactively; third-party and automated contributions remain unchanged.
+
+**Convention de traçabilité des contributions IA :** consulter [CONTRIBUTING.md](CONTRIBUTING.md) (règle prospective du préfixe `🤖 `) et [AGENTS.md](AGENTS.md) (consignes aux agents IA). Aucun renommage rétroactif ; les contributions tierces et automatisées sont exclues.
 
 ## License
 
