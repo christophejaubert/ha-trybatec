@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import random
+from email.utils import parsedate_to_datetime
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -26,6 +29,16 @@ MAX_INDEX_BYTES = 16 * 1024 * 1024
 MAX_INDEX_LINES = 20000
 MAX_INDEX_POINTS = 120000
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+# One source for effective limits, exposed read-only by the panel.
+AUTH_TIMEOUT_SECONDS = 30
+HOUSING_TIMEOUT_SECONDS = 25
+INDEX_TIMEOUT_SECONDS = 60
+DEVICE_TIMEOUT_SECONDS = 20
+TRANSIENT_MAX_ATTEMPTS = 3
+INDEX_MAX_ITERATIONS_WITH_REAUTH = 5
+TRANSIENT_BACKOFF_BASE_SECONDS = 0.25
+TRANSIENT_BACKOFF_MAX_SECONDS = 30.0
+
 
 
 class TrybatecError(Exception):
@@ -50,6 +63,39 @@ class TrybatecWindowError(TrybatecDataError):
     The caller may retry a smaller interval, without retrying unrelated
     authentication or network failures as though they were range limits.
     """
+
+
+def _retry_delay(response: Any, attempt: int) -> float:
+    """Bounded exponential backoff, jitter and Retry-After (HTTP 429 only).
+
+    A requested rate-limit wait exceeding the safe ceiling fails closed
+    instead of silently ignoring the server's direction to slow down.
+    """
+    if response.status == 429:
+        headers = getattr(response, "headers", {}) or {}
+        value = headers.get("Retry-After")
+        if value is not None:
+            try:
+                delay = float(value)
+            except (TypeError, ValueError):
+                try:
+                    when = parsedate_to_datetime(value)
+                    if when.tzinfo is None:
+                        when = when.replace(tzinfo=timezone.utc)
+                    delay = (when - datetime.now(timezone.utc)).total_seconds()
+                except (TypeError, ValueError, OverflowError):
+                    delay = float("nan")
+            if math.isfinite(delay):
+                if delay > TRANSIENT_BACKOFF_MAX_SECONDS:
+                    raise TrybatecConnectionError(
+                        "Trybatec rate limit requires a later retry"
+                    )
+                return max(0.0, delay)
+    backoff = TRANSIENT_BACKOFF_BASE_SECONDS * (2 ** attempt)
+    return min(
+        TRANSIENT_BACKOFF_MAX_SECONDS,
+        backoff + random.uniform(0, TRANSIENT_BACKOFF_BASE_SECONDS),
+    )
 
 
 async def _bounded_json(response: Any, limit: int) -> Any:
@@ -124,7 +170,7 @@ class TrybatecClient:
 
     async def authenticate(self) -> None:
         """Authenticate with two bounded transient retries; token stays in memory."""
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             operation = active_history_operation()
             if operation is not None:
                 operation.before_request(retry=attempt > 0)
@@ -132,7 +178,7 @@ class TrybatecClient:
                 async with self._session.post(
                     f"{API_BASE}/authenticate",
                     json={"username": self._username, "password": self._password},
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=AUTH_TIMEOUT_SECONDS),
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
@@ -140,7 +186,7 @@ class TrybatecClient:
                         raise TrybatecAuthError("Credentials rejected")
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(_retry_delay(response, attempt))
                             continue
                         raise TrybatecConnectionError("Trybatec authentication temporarily unavailable")
                     if response.status >= 400:
@@ -171,7 +217,7 @@ class TrybatecClient:
         if self._token is None:
             await self.authenticate()
         auth_retried = False
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             operation = active_history_operation()
             if operation is not None:
                 operation.before_request(retry=attempt > 0)
@@ -179,7 +225,7 @@ class TrybatecClient:
                 async with self._session.get(
                     f"{API_BASE}/housings",
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=25),
+                    timeout=aiohttp.ClientTimeout(total=HOUSING_TIMEOUT_SECONDS),
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
@@ -192,7 +238,7 @@ class TrybatecClient:
                         continue
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(_retry_delay(response, attempt))
                             continue
                         raise TrybatecConnectionError("Housing discovery temporarily unavailable")
                     if response.status >= 400:
@@ -227,7 +273,7 @@ class TrybatecClient:
         }
         auth_retried = False
         temporary_failures = 0
-        for attempt in range(5):
+        for attempt in range(INDEX_MAX_ITERATIONS_WITH_REAUTH):
             operation = active_history_operation()
             if operation is not None:
                 operation.before_request(retry=attempt > 0)
@@ -235,7 +281,7 @@ class TrybatecClient:
                 async with self._session.get(
                     f"{API_BASE}/indexes", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=60),
+                    timeout=aiohttp.ClientTimeout(total=INDEX_TIMEOUT_SECONDS),
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
@@ -249,7 +295,7 @@ class TrybatecClient:
                     if response.status in RETRYABLE_STATUSES:
                         if temporary_failures < 2:
                             temporary_failures += 1
-                            await asyncio.sleep(0.25 * temporary_failures)
+                            await asyncio.sleep(_retry_delay(response, temporary_failures - 1))
                             continue
                         raise TrybatecConnectionError("Trybatec indexes temporarily unavailable")
                     if response.status in (408, 413, 414, 422):
@@ -269,7 +315,7 @@ class TrybatecClient:
         if not self._token:
             await self.authenticate()
         unauthorized = False
-        for attempt in range(3):
+        for attempt in range(TRANSIENT_MAX_ATTEMPTS):
             operation = active_history_operation()
             if operation is not None:
                 operation.before_request(retry=attempt > 0)
@@ -277,7 +323,7 @@ class TrybatecClient:
                 async with self._session.get(
                     f"{API_BASE}/{path}", params=params,
                     headers={"Authorization": f"Bearer {self._token}"},
-                    timeout=aiohttp.ClientTimeout(total=20),
+                    timeout=aiohttp.ClientTimeout(total=DEVICE_TIMEOUT_SECONDS),
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
@@ -300,7 +346,7 @@ class TrybatecClient:
                         return None
                     if response.status in RETRYABLE_STATUSES:
                         if attempt < 2:
-                            await asyncio.sleep(0.25 * (attempt + 1))
+                            await asyncio.sleep(_retry_delay(response, attempt))
                             continue
                         return None  # Live index polling must remain usable.
                     if response.status >= 400:
