@@ -2050,7 +2050,9 @@ class TrybatecPanel extends HTMLElement {
       line('Itérations index (réauthentification comprise)','Index iterations (including reauth)',
         number(effective.max_index_iterations_with_reauth))+
       line('Temporisations transitoires','Transient retry delays',
-        (effective.transient_delays_ms||[]).map(v=>number(v)+' ms').join(' / '))+
+        this._t('Base ','Base ')+number(effective.transient_backoff_base_ms)+
+        ' ms + '+this._t('jitter ; plafond ','jitter; cap ')+
+        number(effective.transient_backoff_max_ms)+' ms')+
       line('Pause entre sous-périodes historiques','Pause between history subwindows',
         number(effective.history_pause_ms)+' ms')+
       line('Lectures historiques simultanées par compte','Concurrent historical scans per account',
