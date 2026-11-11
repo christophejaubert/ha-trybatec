@@ -1008,6 +1008,57 @@ class TrybatecPanel extends HTMLElement {
     return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+
       '" data-open-meter="'+i+'">'+line+'</button></div>';
   }
+  _readinessView(a) {
+    const meters=Array.isArray(a.meters)?a.meters:[];
+    const active=meters.filter(m=>m.status==="en_service");
+    const retired=meters.filter(m=>m.status==="depose");
+    const missingDates=retired.filter(m=>!m.first_observed_at||!m.last_source_observed_at);
+    const tariffsConfigured=Object.keys(a.tariffs||{}).length+
+      Object.keys(a.meter_tariffs||{}).length>0;
+    const ledger=a.ledger||{};
+    const verified=(ledger.series||[]).flatMap(row=>
+      (row.versions||[]).filter(v=>v.state==="verified"||v.state==="archived"));
+    const energySources=(this._data?.energy?.sources||[]).filter(src=>
+      typeof src.statistic_id==="string" && src.statistic_id.startsWith("trybatec:"));
+    const activeReady=active.length>0 && active.every(m=>
+      m.last_index!==null && m.last_index!==undefined && m.unit_verified);
+    const item=(ok,title,description,tab,action,optional=false)=>
+      '<div class="readiness-row '+(ok?"ok":"pending")+'">'+
+      '<ha-icon icon="'+(ok?"mdi:check-circle-outline":
+        optional?"mdi:information-outline":"mdi:alert-circle-outline")+
+      '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
+      '<p>'+safe(description)+'</p>'+
+      (!ok?'<div class="actions"><button type="button" class="secondary" data-tab="'+safe(tab)+'">'+
+        safe(action)+'</button></div>':"")+'</div></div>';
+    return '<section class="card" style="margin-bottom:20px" aria-label="État de la configuration">'+
+      '<h3>État de la configuration</h3>'+
+      '<p class="muted" style="margin-bottom:16px">Contrôles disponibles, prérequis et actions possibles. Une configuration facultative absente ne constitue pas une panne.</p>'+
+      '<div class="readiness-list">'+
+      item(activeReady,"Synchronisation des compteurs",
+        activeReady?"Relevés courants présents, unités vérifiées.":
+        "Vérifier les derniers relevés et les unités des compteurs en service.",
+        "meters","Vérifier les compteurs")+
+      item(missingDates.length===0,"Historique des compteurs déposés",
+        missingDates.length===0?"Bornes historiques disponibles pour les compteurs déposés.":
+        String(missingDates.length)+" compteur(s) déposé(s) sans observations historiques complètes dans cet aperçu.",
+        "meters","Vérifier les relevés historiques")+
+      item(verified.length>0 && !ledger.pending,"Versions historiques Recorder",
+        verified.length?
+          String(verified.length)+" version(s) vérifiée(s) ; import(s) en attente : "+String(ledger.pending||0)+".":"Aucune version historique vérifiée. L’import nécessite une prévisualisation, une sauvegarde et une vérification.",
+        "energy","Préparer et vérifier Recorder")+
+      item(energySources.length>0,"Sources Trybatec dans Énergie",
+        energySources.length?String(energySources.length)+" source(s) Trybatec référencée(s).":
+        "Aucune source Trybatec référencée. La première activation est distincte du remplacement d’une version.",
+        "energy","Examiner les prérequis Énergie")+
+      item(tariffsConfigured,"Tarifs annuels",
+        tariffsConfigured?"Tarifs renseignés ; leurs exercices et leur couverture restent à vérifier.":
+        "Aucun tarif annuel renseigné : coûts estimés indisponibles (option facultative).",
+        "tariffs","Renseigner les tarifs",true)+
+      '<div class="readiness-row pending"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
+      '<div><strong>Audit des identités techniques</strong><p>Un résultat nul dans les compteurs d’erreurs ne prouve pas un audit exhaustif. Aucune suppression sans vérifications de dépendances.</p>'+
+      '<div class="actions"><button type="button" class="secondary" data-tab="diagnostics">Consulter les diagnostics</button></div></div></div>'+
+      '</div></section>';
+  }
   _overview() {
     const a=this._current, meters=this._meters(), counts=this._counts();
     const suspects=a.entities.filter(e=>e.state==="unavailable"||e.state==="not_loaded");
@@ -1018,9 +1069,9 @@ class TrybatecPanel extends HTMLElement {
       '<section class="cards" aria-label="Synthèse">'+
       this._stat(counts.en_service,"Compteurs en service","mdi:check-circle-outline")+
       this._stat(counts.depose,"Compteurs déposés","mdi:archive-outline")+
-      this._stat(suspects.length,"Entités à examiner","mdi:alert-circle-outline")+
+      this._stat(suspects.length,"Entités indisponibles détectées","mdi:alert-circle-outline")+
       this._stat(Object.keys(a.tariffs).length,"Exercices tarifaires","mdi:calendar-check-outline")+
-      '</section><div class="columns">'+groups.map((group,index)=>
+      '</section>'+this._readinessView(a)+'<div class="columns">'+groups.map((group,index)=>
       '<section class="card"><div class="panel-title"><h3>'+group[0]+'</h3><span class="badge">'+group[1].length+'</span></div>'+
       '<p class="muted">'+[
         "Compteurs physiques actuellement relevés.",
