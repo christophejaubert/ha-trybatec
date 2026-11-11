@@ -26,7 +26,7 @@ from .history_comparison import preview_daily_before_after
 from .history_services import _load
 from .history_smoothing_store import load_choices, save_choice
 from .history_store import load_decisions
-from .units import resolve_meter_unit, normalized_unit, validate_meter_units
+from .units import meter_key, resolve_meter_unit, normalized_unit, validate_meter_units
 
 _ALLOWED_MODES = ("none", "linear")
 _ALLOWED_REASONS = ("manual_periodic", "telemetry_failure", "other")
