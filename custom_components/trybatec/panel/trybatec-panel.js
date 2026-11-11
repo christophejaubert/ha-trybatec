@@ -1251,7 +1251,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="actions"><button type="button" class="secondary" data-tab="history">Analyser l’historique</button>'+
       '<button type="button" class="secondary" data-open-options>Options natives de secours</button></div></section>';
     const draft=this._meterOptionDraft?.physical_key===option.physical_key?
-      this._meterOptionDraft:option;
+      this._meterOptionDraft:{unit:option.selected_unit,device_uuid:option.device_uuid};
     const source=option.source_unit;
     const conflicting=source==="conflict"||source==="unverified";
     const origin={
@@ -1292,7 +1292,7 @@ class TrybatecPanel extends HTMLElement {
       x.physical_key===meter?.physical_key);
     if (!option) return;
     const draft=this._meterOptionDraft?.physical_key===option.physical_key?
-      this._meterOptionDraft:option;
+      this._meterOptionDraft:{unit:option.selected_unit,device_uuid:option.device_uuid};
     if (!this._confirm(
       "Enregistrer l’unité et l’UUID pour ce compteur physique uniquement ?"+
       "\n\n"+meter.fluid+" · "+meter.serial+
