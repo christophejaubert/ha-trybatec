@@ -1869,7 +1869,17 @@ class TrybatecPanel extends HTMLElement {
       '<div class="scroll">'+(a.entities.length?a.entities.map(e=>{
       const candidate=e.technical_role==="legacy_same_device_candidate";
       const refs=Array.isArray(e.energy_references)?e.energy_references:[];
-      const label=candidate?"Ancienne génération technique à auditer":"Entité technique non classée";
+      const roles={
+        active_physical_index:"Index d’un compteur physique en service",
+        retired_physical_index:"Index historique d’un compteur déposé",
+        physical_index_status_unknown:"Index physique · statut du compteur à vérifier",
+        account_ytd_usage_estimate:"Indicateur annuel · consommation estimée",
+        account_ytd_cost_estimate:"Indicateur annuel · coût estimé",
+        account_annual_unit_price:"Indicateur annuel · tarif unitaire",
+        legacy_same_device_candidate:"Ancienne génération technique à auditer",
+        unclassified:"Entité technique non classée"
+      };
+      const label=roles[e.technical_role]||roles.unclassified;
       const successors=Array.isArray(e.same_device_successors)?e.same_device_successors:[];
       return '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
       '<div class="muted">'+safe(label)+' · État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+'</div>'+
