@@ -117,7 +117,38 @@ async def _proposals_from_cached_history(
         # Presentation only. Source daily measurements cannot be inferred from
         # sparse endpoints: unknown pre-lissage days remain null, not 0.
         interval["before_after"] = preview_daily_before_after(interval)
+    physical = history["__physical_meters__"]
+    if len(physical) > 500:
+        raise ValueError("Historical meter summary exceeds safe display bounds")
+    summary = {
+        "meters": len(physical),
+        "readings_to_review": len(history["__review_candidates__"]),
+        "by_fluid": {
+            fluid: {
+                "meters": int(history[fluid]["meters"]),
+                "gaps": int(history[fluid]["gaps"]),
+                "conflicts": int(history[fluid]["conflicts"]),
+            }
+            for fluid in ("EF", "ECS", "CET")
+        },
+        "by_meter": [
+            {
+                "physical_key": meter_key(lot, fluid, serial),
+                "fluid": fluid,
+                "lot": lot,
+                "serial": serial,
+                "first_observed_at": meter["first"].isoformat(),
+                "last_observed_at": meter["last"].isoformat(),
+                "gaps": int(meter["gaps"]),
+                "decreases": int(meter["decreases"]),
+                "conflicts": int(meter["conflicts"]),
+                "source_unit": meter.get("portal_unit"),
+            }
+            for (lot, fluid, serial), meter in sorted(physical.items())
+        ],
+    }
     return {
+        "history_summary": summary,
         "proposals": proposals,
         "review_candidates": link_review_candidates_to_previous_intervals(
             history["__review_candidates__"][:_MAX_RESULT_ROWS],
