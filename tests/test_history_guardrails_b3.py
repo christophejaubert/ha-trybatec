@@ -46,6 +46,28 @@ def test_emergency_elapsed_time_rejects_new_requests(monkeypatch):
     assert operation.calls == 0
 
 
+def test_emergency_timeout_stops_history_without_publishing_partial_result(
+    monkeypatch,
+):
+    monkeypatch.setattr(guard, "BUDGETS_ENFORCED", False)
+    monkeypatch.setattr(guard, "EMERGENCY_MAX_SECONDS", 0.01)
+    coordinator = SimpleNamespace()
+
+    async def verify():
+        with pytest.raises(guard.HistoryBudgetExceeded):
+            async with guard.tracked_history(
+                coordinator, kind="historical_read",
+                start=date(2025, 1, 1), end=date(2025, 12, 31),
+            ):
+                await asyncio.sleep(0.05)
+
+    asyncio.run(verify())
+    report = guard.diagnostics_for(coordinator).snapshot()
+    assert report["active"] == []
+    assert report["recent"][0]["status"] == "interrupted"
+    assert report["recent"][0]["error_type"] == "budget_exceeded"
+
+
 def test_actual_per_request_counter_can_enforce_both_approved_profiles(monkeypatch):
     monkeypatch.setattr(guard, "BUDGETS_ENFORCED", True)
     start, end = "2025-01-01", "2025-12-31"
