@@ -1,6 +1,6 @@
-# 0.3.3b1 — Consolidation post-recette (candidate non publiée)
+# 0.3.3b1 — Consolidation post-recette (bêta expérimentale)
 
-**Préparation sur branche dédiée.** Cette version n'est pas installée et ne constitue pas une validation de production ; consulter [le périmètre de candidature](docs/RELEASE_SCOPE_0.3.3b1.md).
+**Préversion expérimentale.** Sa publication ne constitue ni une installation sur Home Assistant ni une validation fonctionnelle en production ; consulter [le périmètre et les limites](docs/RELEASE_SCOPE_0.3.3b1.md).
 
 - Corrige l'escalade des notifications d'accès : après une indisponibilité réseau déjà signalée, un refus d'authentification avéré remplace le message de notification sur le même identifiant, sans notification doublonnée. Une panne transitoire ultérieure ne rétrograde pas l'alerte d'authentification tant qu'une actualisation réussie n'a pas effacé l'incident.
 - Ajoute des tests synthétiques de déduplication, d'escalade, de non-rétrogradation et de résolution de notification.
@@ -10,7 +10,7 @@
 
 **Limites et exclusions :** aucune prétention de validation exhaustive WCAG/ergonomie réelle ou des écritures Recorder/Énergie ; les opérations de désinstallation, réinitialisation et purge A01–A31 ne sont pas exposées ; la pondération DJU (#34), EVO-007 et le référencement officiel Marketplace restent différés. Les budgets historiques 120 s/24 HTTP et 600 s/80 HTTP demeurent inactifs : seules les protections existantes de secours continuent de s'appliquer.
 
-**Aucun effet automatique** sur les index du fournisseur, les statistiques Recorder, les références Énergie, les compteurs déposés ni les paramètres Home Assistant. La fusion, la publication et les opérations sur une instance réelle demandent chacune une validation distincte.
+**Aucun effet automatique** sur les index du fournisseur, les statistiques Recorder, les références Énergie, les compteurs déposés ni les paramètres Home Assistant. Toute opération sur une installation réelle nécessite une confirmation distincte.
 
 ---
 
