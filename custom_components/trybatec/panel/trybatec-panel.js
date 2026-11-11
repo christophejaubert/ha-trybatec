@@ -1351,7 +1351,21 @@ class TrybatecPanel extends HTMLElement {
       '<div class="empty">Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.</div>')+
       '<div class="actions"><button type="button" class="secondary" data-tab="history">Historique & lissage</button>'+
       '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
-      this._auditDetails(m)+this._meterOptionsEditor(m)+'</div>';
+      this._auditDetails(m)+this._meterHistoricalMetrics(m)+this._meterOptionsEditor(m)+'</div>';
+  }
+  _meterHistoricalMetrics(m) {
+    const item=(this._historyPreview?.history_summary?.by_meter||[]).find(row=>
+      row.physical_key===m.physical_key);
+    if (!item) return "";
+    return '<section class="line" style="margin-top:16px"><h3>Contrôles historiques de ce compteur</h3>'+
+      '<p class="muted">Indicateurs issus du dernier aperçu ; un écart ou conflit n’est pas nécessairement une erreur de mesure.</p>'+
+      '<div class="detail-grid">'+
+      '<div><span class="smallhead">Intervalles lacunaires</span><strong>'+safe(item.gaps)+'</strong></div>'+
+      '<div><span class="smallhead">Baisses d’index</span><strong>'+safe(item.decreases)+'</strong></div>'+
+      '<div><span class="smallhead">Conflits de relevés</span><strong>'+safe(item.conflicts)+'</strong></div>'+
+      '<div><span class="smallhead">Première observation</span><strong>'+safe(this._date(item.first_observed_at))+'</strong></div>'+
+      '<div><span class="smallhead">Dernière observation</span><strong>'+safe(this._date(item.last_observed_at))+'</strong></div>'+
+      '<div><span class="smallhead">Unité de l’index source</span><strong>'+safe(item.source_unit||"Non confirmée")+'</strong></div></div></section>';
   }
   _meterTimeline() {
     const groups=this._current?.physical_meter_timeline||[];
@@ -1695,6 +1709,35 @@ class TrybatecPanel extends HTMLElement {
       '<div class="empty">Sélectionnez un relevé pour le qualifier ou corriger son attribution.</div>')+
     '</div></div></section>';
   }
+  _historySummary() {
+    const summary=this._historyPreview?.history_summary;
+    if (!summary) return '<section class="card" style="margin-top:16px">'+
+      '<h3>Synthèse historique par fluide</h3>'+
+      '<div class="empty">Aucune prévisualisation actuelle. Utilisez « Analyser les relevés » pour calculer les indicateurs à partir des observations source.</div></section>';
+    const rows=(summary.by_meter||[]);
+    return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur</h3>'+
+      '<p class="muted">Période : '+safe(this._date(this._historyPreview.start_date))+
+      ' → '+safe(this._date(this._historyPreview.end_date))+
+      '. '+safe(this._number(summary.meters))+' compteur(s) physique(s) et '+
+      safe(this._number(summary.readings_to_review))+' relevé(s) à examiner. Les compteurs successifs ne sont pas fusionnés.</p>'+
+      '<div class="grid-two">'+["EF","ECS","CET"].map(fluid=>{
+        const item=summary.by_fluid?.[fluid]||{};
+        return '<div class="line '+safe(FLUID_CLASS[fluid]||"")+'" style="border-inline-start:4px solid var(--fluid-fg)">'+
+          '<strong>'+safe(FLUID[fluid])+'</strong><div class="muted">'+
+          safe(this._number(item.meters??0))+' compteur(s) · '+
+          safe(this._number(item.gaps??0))+' intervalle(s) lacunaire(s) · '+
+          safe(this._number(item.conflicts??0))+' conflit(s)</div></div>';
+      }).join("")+'</div>'+
+      (rows.length?'<details style="margin-top:16px"><summary>Voir les indicateurs par compteur physique</summary>'+
+        '<div class="scroll"><table><thead><tr><th>Fluide</th><th>Compteur</th><th>Première observation</th>'+
+        '<th>Dernière observation</th><th>Lacunes</th><th>Baisses</th><th>Conflits</th></tr></thead><tbody>'+
+        rows.map(m=>'<tr><td>'+safe(m.fluid)+'</td><td class="mono">'+safe(m.serial)+
+          '</td><td>'+safe(this._date(m.first_observed_at))+'</td><td>'+
+          safe(this._date(m.last_observed_at))+'</td><td>'+safe(this._number(m.gaps))+
+          '</td><td>'+safe(this._number(m.decreases))+'</td><td>'+
+          safe(this._number(m.conflicts))+'</td></tr>').join("")+
+        '</tbody></table></div></details>':"")+'</section>';
+  }
   _history() {
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
       x=>x.interval_key===this._historySelected
@@ -1719,7 +1762,7 @@ class TrybatecPanel extends HTMLElement {
       '>Analyser les relevés</button><button class="secondary" type="button" data-openOptions>Ancienne IHM de révision</button></div>'+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
-      '</section><div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
+      '</section>'+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
       '<p class="muted">L’analyse ne déduit jamais une origine manuelle ou automatique.</p>'+
       (list.length?'<div class="scroll">'+list.map(item=>'<div class="meter-row">'+
         '<button type="button" data-history-select="'+safe(item.interval_key)+'" class="'+
