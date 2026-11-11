@@ -48,6 +48,15 @@ const snapshot = {
     entry_id:"SYNTHETIC-ENTRY-NO-SECRETS",
     title:"Synthetic fixture (no vendor access)",
     data_loaded:true,meters,
+    meter_options:meters.map(m=>({
+      physical_key:m.physical_key,serial:m.serial,fluid:m.fluid,lot:m.lot,
+      source_unit:m.unit??"unverified",chart_unit:m.fluid==="CET"?"kWh":"m³",
+      confirmed_unit:m.unit,saved_unit:null,
+      selected_unit:m.unit||"unverified",
+      selection_origin:m.unit?"api":"unverified",
+      allowed_units:m.fluid==="CET"?["kWh","MWh","GJ"]:["m³","L"],
+      device_uuid:"",
+    })),
     physical_meter_timeline:[{
       lot:"SYNTH-LOT",fluid:"EF",count:2,
       meters:[meters[1],meters[0]],
@@ -153,6 +162,11 @@ async function runCase(browser, locale, device) {
       assert.equal(await header.locator("ha-icon").count(),1,"Meter title fluid pictogram missing");
       const dates=await page.locator("trybatec-panel main").innerText();
       assert.doesNotMatch(dates,/2022-01-01T12:00:00/,"Raw ISO date leaked into meter details");
+      const editor=page.locator("trybatec-panel .meter-options-grid");
+      assert.equal(await editor.count(),1,"Meter unit/UUID editor missing");
+      assert.equal(await page.locator("trybatec-panel select[data-meter-option-field='unit']").inputValue(),"m³");
+      assert.equal(await page.locator("trybatec-panel input[data-meter-option-field='device_uuid']").inputValue(),"");
+      assert.equal(await page.locator("trybatec-panel button[data-meter-options-save]").count(),1);
     }
     if(tab==="energy"){
       const locked=page.locator("trybatec-panel fieldset.prerequisite-locked");
@@ -168,6 +182,15 @@ async function runCase(browser, locale, device) {
       assert.equal(await days.inputValue(),"0");
       assert.equal(await hours.inputValue(),"12");
       assert.equal(await minutes.inputValue(),"0");
+      const panels=page.locator("trybatec-panel main section.card");
+      assert.ok(await panels.count()>=3,"Settings, logging and fallback need separate cards");
+      const firstCard=panels.first();
+      assert.equal(await firstCard.locator("select[data-log-level]").count(),0,
+        "Logging must not be in polling card");
+      const logs=page.locator("trybatec-panel select[data-log-level]");
+      assert.equal(await logs.inputValue(),"WARNING");
+      assert.equal(await page.locator("trybatec-panel button[data-log-save]").count(),1);
+      assert.equal(await page.locator("trybatec-panel button[data-settings-save]").count(),1);
     }
     if(mobile){
       const hamburger=page.locator("trybatec-panel .menu-toggle");
