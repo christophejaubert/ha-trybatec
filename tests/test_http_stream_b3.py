@@ -88,7 +88,8 @@ def test_truncated_or_malformed_json_is_rejected_without_leaking_payload():
     for raw in [b'{"lines":[{"indexes":', b"{not json}", b""]:
         with pytest.raises(TrybatecDataError, match="malformed JSON") as err:
             asyncio.run(_bounded_json(Response(raw), 1024))
-        assert raw.decode("utf-8", errors="replace") not in str(err.value)
+        if raw:
+            assert raw.decode("utf-8", errors="replace") not in str(err.value)
 
 
 def test_midstream_disconnect_and_cancel_propagate():
