@@ -2296,6 +2296,82 @@ class TrybatecPanel extends HTMLElement {
       this._loggingError="Modification refusée ou paramètres modifiés entre-temps. Actualisez puis réessayez.";
     } finally {this._loggingBusy=false;this._render();}
   }
+  _technicalLimits() {
+    const technical=this._data?.technical_limits;
+    if(!technical?.read_only) {
+      return '<p class="muted">'+this._t(
+        'Limites techniques non disponibles sur cette version.',
+        'Technical limits unavailable in this version.')+'</p>';
+    }
+    const applied=technical.effective||{};
+    const proposed=technical.candidate||{};
+    const none=this._t('Non défini','Not defined');
+    const scalar=(value,suffix='')=>Number.isFinite(value)?
+      safe(this._number(value))+suffix:none;
+    const mib=value=>Number.isFinite(value)?scalar(value/1048576,' Mio'):none;
+    const kib=value=>Number.isFinite(value)?scalar(value/1024,' Kio'):none;
+    const seconds=value=>scalar(value,' s');
+    const milliseconds=value=>scalar(value,' ms');
+    const item=(label,value)=>
+      '<div class="line">'+safe(label)+' : <strong>'+value+'</strong></div>';
+    const time=applied.request_timeout_seconds||{};
+    const effective=[
+      item(this._t('Réponse des index','Index response'),mib(applied.index_response_max_bytes)),
+      item(this._t('Réponse authentification/découverte','Authentication/discovery response'),
+        kib(applied.metadata_response_max_bytes)),
+      item(this._t('Lignes d’index par réponse','Index rows per response'),
+        scalar(applied.index_response_max_lines)),
+      item(this._t('Points par réponse','Points per response'),
+        scalar(applied.index_response_max_points)),
+      item(this._t('Délai HTTP pour les index','Index HTTP timeout'),seconds(time.indexes)),
+      item(this._t('Délai HTTP d’authentification','Authentication HTTP timeout'),
+        seconds(time.authentication)),
+      item(this._t('Délai HTTP de découverte','Discovery HTTP timeout'),
+        seconds(time.housing_discovery)),
+      item(this._t('Délai HTTP des métadonnées','Metadata HTTP timeout'),
+        seconds(time.device_metadata)),
+      item(this._t('Tentatives transitoires maximum','Maximum transient attempts'),
+        scalar(applied.transient_max_attempts)),
+      item(this._t('Itérations maximales des index (réauthentification comprise)',
+        'Maximum index iterations (including reauthentication)'),
+        scalar(applied.index_max_iterations_with_reauthentication)),
+      item(this._t('Pas de temporisation HTTP transitoire','Transient HTTP delay step'),
+        milliseconds(applied.transient_backoff_step_ms)),
+      item(this._t('Pause entre fenêtres historiques','Pause between history windows'),
+        milliseconds(applied.historical_inter_request_pause_ms)),
+      item(this._t('Analyse par compte','Per-account history processing'),
+        applied.historical_operations_serialized_per_account?
+          this._t('Sérialisée','Serialized'):this._t('Non vérifiée','Unverified')),
+      item(this._t('Durée globale maximale','Maximum global duration'),
+        seconds(applied.historical_operation_timeout_seconds)),
+      item(this._t('Budget global de requêtes','Global request budget'),
+        scalar(applied.historical_operation_max_http_requests))
+    ].join('');
+    const candidate=[
+      item(this._t('Analyse standard (durée / requêtes)','Standard history (duration / requests)'),
+        seconds(proposed.standard?.duration_seconds)+' / '+scalar(proposed.standard?.http_requests)),
+      item(this._t('Analyse exhaustive (durée / requêtes)',
+        'Exhaustive history (duration / requests)'),
+        seconds(proposed.exhaustive?.duration_seconds)+' / '+scalar(proposed.exhaustive?.http_requests)),
+      item(this._t('Temporisation historique proposée','Proposed history pacing'),
+        milliseconds(proposed.historical_inter_request_pause_ms)),
+      item(this._t('Concurrence par compte proposée','Proposed concurrency per account'),
+        scalar(proposed.max_historical_operations_per_account))
+    ].join('');
+    return '<details class="technical-limits"><summary>'+
+      this._t('Limites et protections (lecture seule)',
+        'Limits and safeguards (read-only)')+'</summary>'+
+      '<p class="muted">'+this._t(
+        'Valeurs effectivement appliquées par le backend, sans modification possible.',
+        'Effective backend values; they cannot be changed here.')+'</p>'+
+      effective+
+      '<h4>'+this._t('Budgets proposés — non actifs',
+        'Proposed budgets — not active')+'</h4>'+
+      '<p class="muted">'+this._t(
+        'Valeurs approuvées pour des tests de charge ; elles ne sont pas encore appliquées.',
+        'Approved for load testing; these budgets are not yet enforced.')+'</p>'+
+      candidate+'</details>';
+  }
   _settings() {
     const settings={...this._current.settings,...this._settingsInput};
     const duration=this._durationInput||trybatecDurationParts(settings.poll_minutes);
@@ -2346,6 +2422,7 @@ class TrybatecPanel extends HTMLElement {
       (this._loggingBusy?"disabled":"")+'>Enregistrer la journalisation</button>'+
       '<button type="button" class="secondary" data-log-reset>Annuler la modification</button>'+
       '<button type="button" class="secondary" data-tab="diagnostics">Afficher les diagnostics</button></div>'+
+      this._technicalLimits()+
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Accès de secours aux options natives</h3>'+
       '<p class="muted">Les unités, UUID, paramètres de diagnostic et parcours historiques sont disponibles dans ce panneau. Le menu natif reste accessible en secours tant que la recette de parité fonctionnelle n’est pas achevée.</p>'+
