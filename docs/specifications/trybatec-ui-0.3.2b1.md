@@ -72,7 +72,7 @@ Tests unitaires et navigateur synthétique FR/EN mobile/bureau, modes clair/somb
   les limites réellement appliquées (tailles 16 Mio/64 Kio, 60/30/25/20 s
   selon endpoint, lignes/points, temporisations et tentatives).
 - Les valeurs proviennent des constantes Python effectives, pas d'une
-  duplication en JavaScript. Signaler honnêtement les plafonds globaux non définis.
+  duplication en JavaScript, notamment les plafonds de secours actifs 1 800 s / 512 tentatives HTTP et 64 Mio de données historiques cumulées.
 - **Budgets candidats validés pour essais, non actifs tant que la recette
   de charge n'est pas terminée :** standard 120 s et 24 requêtes ; exhaustive
   600 s et 80 requêtes ; pause cible 500 ms ; 1 analyse par compte.
@@ -82,6 +82,9 @@ Tests unitaires et navigateur synthétique FR/EN mobile/bureau, modes clair/somb
   historisation partielle présentée comme complète. Les contrôles UI
   correspondant à une fonction non développée ne doivent pas être affichés
   comme opérationnels.
-- La correction du lecteur HTTP fragmenté et des tests de charge
-  représentatifs conditionne toute activation des budgets proposés.
+- Le lecteur HTTP fragmenté a été corrigé en 0.3.1b3 : aucune régression de cette correction n'est autorisée. Les mesures de charge représentatives conditionnent toute activation des budgets proposés.
 - Spécification complète : [Budgets et diagnostics historiques](trybatec-history-resource-guardrails-0.3.2b1.md).
+
+## Hors périmètre de 0.3.2b1 — EVO-007
+
+L'amélioration de Home Assistant Marketplace visant à sauvegarder la version précédente d'une intégration lors de sa mise à jour est **différée**. Ne pas modifier le mécanisme Marketplace depuis Trybatec, ne pas ajouter de restauration Home Assistant globale au panneau, et ne pas annoncer de case native de sauvegarde comme disponible.

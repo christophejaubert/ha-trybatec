@@ -97,7 +97,7 @@ const summary=ctx.__check.Panel.prototype._historySummary.call({
   _historyPreview:syntheticSummary,_date:x=>x,_number:x=>String(x)
 });
 assert.match(summary,/Synthèse historique par fluide et compteur/);
-assert.match(summary,/3 intervalle\\(s\\) lacunaire\\(s\\)/);
+assert.match(summary,/3 intervalle\(s\) lacunaire\(s\)/);
 assert.match(summary,/SYNTH/);
 const unitKey="a".repeat(24);
 const unitRecord={physical_key:unitKey,fluid:"EF",lot:"SYNTH",serial:"SYNTH",

@@ -1,6 +1,6 @@
 # 0.3.2b1 — Cohérence de l'interface et prérequis Énergie (candidate)
 
-Candidate basée sur les correctifs de #74 désormais intégrés à main, sans fusion ni publication automatique.
+Candidate fondée sur le socle correctif 0.3.1b3 (PR #77) intégré dans `main`, sans fusion ni publication automatique.
 
 - Dates et horodatages localisés, chiffres groupés sans arrondi, formatage d'index de compteur.
 - Contrôles mobiles : accès au menu HA, onglets défilants signalés et sélection visible.
@@ -11,6 +11,8 @@ Candidate basée sur les correctifs de #74 désormais intégrés à main, sans f
 - Les trois fluides sont inclus dans les aperçus Recorder sous contrôle inchangé des unités et des validations.
 - Sélection d'une nouvelle version Énergie désactivée lorsque les versions Recorder vérifiées ou la source Trybatec déjà active sont absentes. La première activation reste un parcours séparé.
 - UI-003 : configuration complète des unités et UUID dans Compteurs, synthèse des anomalies historiques, journalisation dans un encart autonome et lien d'accès au panneau depuis l'engrenage Home Assistant. Les options natives restent disponibles en secours pendant la recette.
+- Maintien des protections 0.3.1b3 : lecteur HTTP fragmenté, garde 1 800 s / 512 appels, 16 Mio par réponse d'index, 64 Mio historiques cumulés, diagnostics et annulation asynchrone ; budgets 120 s/24 et 600 s/80 toujours non actifs.
+- EVO-007 (sauvegarde de version via Marketplace) est différée et n'est pas développée dans cette version.
 - Tests et vérifications de la candidate : consulter `docs/specifications/trybatec-ui-0.3.2b1.md`, et les contrôles CI du SHA final.
 
 **Aucun effet automatique** sur Recorder, Énergie, les entités, les relevés du fournisseur ou les données locales de Home Assistant. La fusion nécessite une autorisation distincte.
