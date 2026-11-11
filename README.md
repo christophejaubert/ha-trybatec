@@ -12,6 +12,8 @@
 
 [Français](#installation-fr) · [English](#installation-en)
 
+**Préparation des versions / Release preparation:** [périmètre de la candidate 0.3.3b1](docs/RELEASE_SCOPE_0.3.3b1.md) et [audit de préparation Marketplace](docs/MARKETPLACE_READINESS.md). Ces documents ne prouvent ni la conformité finale ni la publication d'une version stable. / These working documents are not evidence of a completed acceptance test, a stable release or a public-catalog listing.
+
 > **EXPERIMENTAL BETA — UNSUPPORTED / MAINTENANCE NON GARANTIE.** The service endpoints were identified from the
 > authenticated consumer portal, **not from a published Trybatec API contract**.
 > They may change. This project is not affiliated with Trybatec, Home Assistant,
