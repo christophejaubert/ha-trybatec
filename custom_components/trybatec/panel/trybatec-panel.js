@@ -672,16 +672,22 @@ class TrybatecPanel extends HTMLElement {
     }
   }
   async _loadTariffYearCoverage(force=false) {
-    if (!this._current || !this._hass) return;
+    // Scanning from year 2000 can be expensive. Never initiate it simply
+    // because the administrator navigates to the Tariffs page.
+    if (!force || !this._current || !this._hass) return;
     const id=this._current.entry_id;
     const prior=this._tariffCoverage.get(id);
-    if (!force && prior && (prior.status==="loading" || prior.status==="complete")) return;
+    if (prior?.status==="loading") return;
     this._tariffCoverage.set(id,{status:"loading"});
-    this._render();
+    this._tariffJobStatus=null;this._tariffJobId=null;
+    if (!this._isEditingForm()) this._render();
     try {
-      const coverage=await this._hass.callWS({
-        type:"trybatec/panel_tariff_years",entry_id:id,
+      const job=await this._hass.callWS({
+        type:"trybatec/panel_history_job_start",
+        entry_id:id,kind:"tariff_year_coverage",
       });
+      this._tariffJobId=job.id;
+      const coverage=await this._waitForHistoryJob(id,job,"tariff_year_coverage");
       if (coverage?.status!=="complete" || coverage?.recorder_writes!==false ||
           coverage?.energy_writes!==false) throw new Error("Incomplete history");
       const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
@@ -690,7 +696,8 @@ class TrybatecPanel extends HTMLElement {
     } catch (_) {
       this._tariffCoverage.set(id,{status:"error"});
     } finally {
-      this._render();
+      this._tariffJobId=null;this._tariffJobStatus=null;
+      if (!this._isEditingForm()) this._render();
     }
   }
   _confirm(message) {
@@ -1695,13 +1702,21 @@ class TrybatecPanel extends HTMLElement {
     const range=trybatecTariffYears(a,new Date().getFullYear());
     const coverage=this._tariffCoverage.get(a.entry_id);
     const coverageNotice=coverage?.status==="loading" ?
-      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques…</p>' :
+      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques… '+
+      (this._tariffJobStatus?.progress?
+        safe(this._tariffJobStatus.progress.http_requests)+
+        ' requête(s) effectuée(s). ':"")+
+      (this._tariffJobId?'<button type="button" data-tariff-years-cancel>Annuler</button>':"")+
+      '</p>' :
       coverage?.status==="error" ?
       '<p class="notice warning" role="alert">Années historiques non vérifiées : la liste peut être incomplète. '+
       '<button type="button" data-tariff-years-retry>Réessayer</button></p>' :
       coverage?.status==="complete" ?
       '<p class="notice" role="status">Exercices fondés sur les relevés historiques datés du compte.</p>' :
-      '<p class="notice" role="status">Vérification des années historiques non encore lancée.</p>';
+      '<p class="notice" role="status">Analyse historique exhaustive non lancée : '+
+      'elle peut solliciter plusieurs années de relevés fournisseur. '+
+      '<button type="button" data-tariff-years-retry>'+
+      'Rechercher les exercices historiques</button></p>';
     if (!range.years.includes(Number(f.year))) {
       f.year=range.years.includes(new Date().getFullYear())?
         new Date().getFullYear():range.years[0];
