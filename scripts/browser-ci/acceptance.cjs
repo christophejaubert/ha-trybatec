@@ -258,7 +258,7 @@ async function runCase(browser, locale, device) {
     } finally {host._hass.callWS=previous;}
   });
   assert.equal(upgrade.pending,"0.3.1b2");
-  assert.match(upgrade.notice,/0\\.3\\.1b2/);
+  assert.ok(upgrade.notice.includes("0.3.1b2"));
   assert.equal(upgrade.reloadButton,true,
     "Uncommitted user input must prevent automatic page reload");
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
