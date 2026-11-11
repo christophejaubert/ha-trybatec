@@ -572,7 +572,7 @@ const style = [
   "@media(max-width:740px){.wrap{padding:15px 13px 28px}.heading{gap:10px;margin-bottom:15px}.mark{width:46px;height:46px}h1{font-size:25px}",
   ".shell{grid-template-columns:1fr;gap:14px}.nav{position:static;display:flex;flex-direction:row;overflow-x:auto;border:0;padding:4px 0;white-space:nowrap}",
   ".nav button{padding:10px 12px}.nav button span{white-space:nowrap}.intro{display:block}.columns,.grid-two,.detail-grid,.form-grid{grid-template-columns:1fr}",
-  ".card{padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.stat strong{font-size:23px}}"
+  ".card{padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.stat strong{font-size:23px}}",
   ":host{--trybatec-action-bg:#286C32;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#286C32}",
   ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#8ADD8F;--trybatec-action-text:#152D1A;--trybatec-action-border:#8ADD8F}",
   ".nav-wrap{position:relative;min-width:0}.nav-forward{display:none}.menu-toggle{display:none}",
