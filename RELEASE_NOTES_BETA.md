@@ -16,7 +16,7 @@ Cette préversion corrective fait suite aux vérifications après installation d
 - Diagnostics : préparer l'inventaire en lecture seule des limites techniques
   effectives, la traçabilité expurgée et les budgets candidats validés sous
   réserve de tests représentatifs ; ne pas les afficher comme actifs prématurément.
-- Tests : flux HTTP fragmenté, caractères UTF-8 répartis, taille bornée, JSON
+- Progression historique : ne jamais présenter comme progression de la tâche\n  demandée les mesures d'une autre opération concurrente du même compte.\n- Tests : flux HTTP fragmenté, caractères UTF-8 répartis, taille bornée, JSON
   invalide, annulation, échecs d'historique, audit Recorder et CI complète.
 
 Les autres évolutions fonctionnelles et visuelles de 0.3.2b1 restent sur la PR #75.
