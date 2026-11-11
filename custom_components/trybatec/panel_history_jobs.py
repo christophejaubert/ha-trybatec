@@ -58,15 +58,21 @@ def _job(coordinator: Any) -> dict | None:
 def _job_view(coordinator: Any, job: dict, *, include_result: bool) -> dict:
     """Only an authenticated administrator receives a selected account result."""
     operations = diagnostics_for(coordinator).snapshot()
-    active = operations["active"]
-    newest = active[0] if active else None
+    # Never attribute a concurrent account operation to the wrong job.
+    # The tracked operation runs within this job's background task.
+    task = job.get("task")
+    newest = next(
+        (operation for operation in diagnostics_for(coordinator).active.values()
+         if task is not None and operation.task is task),
+        None,
+    )
     result = {
         "id": job["id"],
         "kind": job["kind"],
         "status": job["state"],
         "started_at": job["started_at"],
         "elapsed_seconds": round(max(0, monotonic() - job["started_mono"]), 2),
-        "progress": newest if job["state"] == "running" else None,
+        "progress": newest.snapshot() if newest is not None and job["state"] == "running" else None,
         "failure_type": job.get("failure_type"),
         "complete": job["state"] == "complete",
         "recorder_writes": False,
