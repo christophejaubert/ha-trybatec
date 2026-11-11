@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from .api import (
     MAX_AUTH_BYTES, MAX_INDEX_BYTES, MAX_INDEX_LINES, MAX_INDEX_POINTS,
+    AUTH_TIMEOUT_SECONDS, HOUSING_TIMEOUT_SECONDS, INDEX_TIMEOUT_SECONDS,
+    DEVICE_TIMEOUT_SECONDS, TRANSIENT_MAX_ATTEMPTS,
+    INDEX_MAX_ITERATIONS_WITH_REAUTH, TRANSIENT_BACKOFF_BASE_SECONDS,
+    TRANSIENT_BACKOFF_MAX_SECONDS,
 )
 from .history_guardrails import (
     DIAGNOSTIC_LIMIT, DIAGNOSTIC_TTL_SECONDS, technical_budget_snapshot,
@@ -23,14 +27,17 @@ def technical_limits_snapshot() -> dict:
             "max_index_points": MAX_INDEX_POINTS,
             "max_history_received_bytes": MAX_HISTORY_RECEIVED_BYTES,
             "timeouts_seconds": {
-                "indexes": 60,
-                "authentication": 30,
-                "housing": 25,
-                "device": 20,
+                "indexes": INDEX_TIMEOUT_SECONDS,
+                "authentication": AUTH_TIMEOUT_SECONDS,
+                "housing": HOUSING_TIMEOUT_SECONDS,
+                "device": DEVICE_TIMEOUT_SECONDS,
             },
-            "transient_max_attempts": 3,
-            "max_index_iterations_with_reauth": 5,
-            "transient_delays_ms": [250, 500],
+            "transient_max_attempts": TRANSIENT_MAX_ATTEMPTS,
+            "max_index_iterations_with_reauth": INDEX_MAX_ITERATIONS_WITH_REAUTH,
+            "transient_backoff_base_ms": round(TRANSIENT_BACKOFF_BASE_SECONDS * 1000),
+            "transient_backoff_max_ms": round(TRANSIENT_BACKOFF_MAX_SECONDS * 1000),
+            "transient_backoff_uses_jitter": True,
+            "retry_after_honored": True,
             "history_pause_ms": round(HISTORY_WINDOW_PAUSE_SECONDS * 1000),
             "history_serialized_per_account": True,
             "max_global_duration_seconds": None,
