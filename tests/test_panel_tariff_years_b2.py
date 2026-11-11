@@ -30,7 +30,7 @@ def _load(names: list[str], namespace: dict) -> dict:
     future = ast.ImportFrom(
         module="__future__", names=[ast.alias(name="annotations")], level=0,
     )
-    exec(compile(ast.Module(body=[future, *blocks], type_ignores=[]), str(SOURCE), "exec"), scope)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[future, *blocks], type_ignores=[])), str(SOURCE), "exec"), scope)
     return scope
 
 
