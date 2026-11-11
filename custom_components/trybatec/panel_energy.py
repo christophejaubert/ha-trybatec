@@ -8,6 +8,9 @@ b17 handoff transaction after fresh preview and backup confirmation.
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
+import json
+import logging
 from typing import Any
 
 import probatio as vol
@@ -15,25 +18,113 @@ import probatio as vol
 from homeassistant.components import websocket_api
 from homeassistant.components.energy.data import async_get_manager
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
 from .energy_live_handoff_b17 import (
     _metadata, apply_live_energy_handoff, preview_live_energy_handoff,
 )
 from .migration_runtime_b15 import preview_identity_migration
+from .sensor import TrybatecMeterSensor
 
+_LOGGER = logging.getLogger(__name__)
 _ALLOWED_FLUIDS = ("EF", "ECS", "CET")
+
+
+def _verified_retired_meter_plan(
+    hass: HomeAssistant, coordinator: Any, *,
+    entity_id: str, lot: str, fluid: str, serial: str,
+) -> dict[str, Any]:
+    """Prove a retired sensor's account/serial without demanding a live index.
+
+    This is an inventory audit only, never authorization to migrate or delete.
+    An arbitrary unavailable or similarly named sensor is not accepted.
+    """
+    matches = [
+        meter for meter in (coordinator.data or {}).get("meters", {}).values()
+        if meter.get("serial") == serial and meter.get("lot") == lot
+        and meter.get("fluid") == fluid and meter.get("deposed") is True
+    ]
+    if len(matches) != 1:
+        raise ValueError("Not one verified retired physical meter")
+    entity = er.async_get(hass).async_get(entity_id)
+    if (
+        entity is None or entity.platform != DOMAIN or
+        entity.config_entry_id != coordinator.entry.entry_id
+    ):
+        raise ValueError("Retired entity not owned by the selected account")
+    account = coordinator.entry.unique_id or coordinator.entry.entry_id
+    expected_ids = {
+        f"{account}_{serial}_index",
+        TrybatecMeterSensor(coordinator, account, serial).unique_id,
+    }
+    digest = sha256(json.dumps(
+        [lot, fluid, serial], separators=(",", ":"),
+    ).encode()).hexdigest()[:24]
+    expected_ids.add(f"{account}_b15_retired_{digest}")
+    if entity.unique_id not in expected_ids:
+        raise ValueError("Retired technical identity cannot be proven")
+    state = hass.states.get(entity_id)
+    if state is not None and state.attributes.get("lot") not in (None, lot):
+        raise ValueError("Retired entity has a conflicting lot")
+    return {"status": "retired_physical_meter_read_only", "active_entity_id": None}
+
+
+def _statistic_details(metadata: Any, relevant_ids: list[str]) -> dict[str, Any]:
+    """Normalize native Recorder metadata; never treat a failed check as absent."""
+    if not isinstance(metadata, dict):
+        return {"status": "incomplete_requires_review", "existing": {}}
+    values = {}
+    malformed = False
+    for statistic_id in relevant_ids:
+        record = metadata.get(statistic_id)
+        if record is None:
+            values[statistic_id] = {"found": False, "unit": None, "has_sum": None}
+            continue
+        if isinstance(record, (list, tuple)) and len(record) == 2:
+            record = record[1]
+        if not isinstance(record, dict):
+            malformed = True
+            values[statistic_id] = {"found": None, "unit": None, "has_sum": None}
+            continue
+        values[statistic_id] = {
+            "found": True,
+            "unit": record.get("unit_of_measurement"),
+            "has_sum": record.get("has_sum"),
+        }
+    return {
+        "status": "incomplete_requires_review" if malformed else "read_only",
+        "existing": values,
+    }
 
 
 async def audit_physical_meter_entity(
     hass: HomeAssistant, coordinator: Any, *,
     entity_id: str, lot: str, fluid: str, serial: str,
 ) -> dict[str, Any]:
-    """Never infer a cleanable entity from being unavailable or suffixed."""
-    plan = preview_identity_migration(
-        hass, coordinator, entity_id=entity_id,
-        lot=lot, fluid=fluid, serial=serial,
-    )
+    """Audit exact ownership, dependencies and statistics; never clean anything."""
+    try:
+        plan = preview_identity_migration(
+            hass, coordinator, entity_id=entity_id,
+            lot=lot, fluid=fluid, serial=serial,
+        )
+    except ValueError:
+        # Preserve the original refusal when no exact retired physical meter
+        # exists; an unknown entity is NOT a candidate for alternative proof.
+        meters = (getattr(coordinator, "data", None) or {}).get("meters", {})
+        known_retired = [
+            item for item in meters.values() if isinstance(item, dict)
+            and item.get("lot") == lot and item.get("fluid") == fluid
+            and item.get("serial") == serial and item.get("deposed") is True
+        ]
+        if len(known_retired) != 1:
+            raise
+        # A retired meter has no live reading. This proves identity only;
+        # it never grants migration, deletion or Energy handoff rights.
+        plan = _verified_retired_meter_plan(
+            hass, coordinator, entity_id=entity_id,
+            lot=lot, fluid=fluid, serial=serial,
+        )
     active = plan.get("active_entity_id")
     relevant_ids = [entity_id] + ([active] if active else [])
     if "energy" in hass.config.components:
@@ -47,21 +138,20 @@ async def audit_physical_meter_entity(
     else:
         sources = []
 
-    stats = {"status": "not_checked", "existing": {}}
+    stats: dict[str, Any] = {"status": "not_checked", "existing": {}}
     if "recorder" in hass.config.components:
-        metadata = await _metadata(hass, set(relevant_ids))
-        stats = {
-            "status": "read_only",
-            "existing": {
-                item: {
-                    "found": item in metadata,
-                    "unit": metadata[item][1].get("unit_of_measurement")
-                        if item in metadata else None,
-                    "has_sum": metadata[item][1].get("has_sum")
-                        if item in metadata else None,
-                } for item in relevant_ids
-            },
-        }
+        try:
+            metadata = await _metadata(hass, set(relevant_ids))
+            stats = _statistic_details(metadata, relevant_ids)
+        except Exception as exc:
+            # Recorder failures must not conceal a successfully proven sensor
+            # identity. Make the incomplete dependency audit explicit and
+            # prohibit cleanup/handoff based on missing statistics.
+            _LOGGER.warning(
+                "Trybatec read-only entity audit: Recorder check unavailable (%s)",
+                type(exc).__name__,
+            )
+            stats = {"status": "unavailable_requires_review", "existing": {}}
     return {
         "status": plan["status"],
         "physical_meter": {"lot": lot, "fluid": fluid, "serial": serial},
@@ -77,6 +167,9 @@ async def audit_physical_meter_entity(
         "would_delete_recorder": False,
         "energy_handoff_possible_only_after_separate_preview": (
             plan["status"] == "coexisting_physical_entities" and
+            stats.get("status") == "read_only" and
+            all(stats.get("existing", {}).get(item, {}).get("found") is True
+                for item in relevant_ids) and
             any(src["statistic_id"] == entity_id for src in sources)
         ),
     }

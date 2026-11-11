@@ -10,11 +10,14 @@ API = ROOT / "custom_components" / "trybatec" / "panel_api.py"
 MANIFEST = ROOT / "custom_components" / "trybatec" / "manifest.json"
 
 
-def test_manifest_b1_and_frontend_gets_installed_version() -> None:
-    assert json.loads(MANIFEST.read_text(encoding="utf-8"))["version"] == "0.3.1b1"
+def test_manifest_b2_and_frontend_gets_installed_version() -> None:
+    assert json.loads(MANIFEST.read_text(encoding="utf-8"))["version"] == "0.3.1b2"
     source = API.read_text(encoding="utf-8")
     assert '(Path(__file__).parent / "manifest.json").read_text' in source
-    assert '"version": _installed_version()' in source
+    assert '"version": await hass.async_add_executor_job(_installed_version)' in source
+    assert '"version": _installed_version()' not in source
+    assert 'module_url=f"{_PANEL_ASSETS}/trybatec-panel.js?v={cache_token}"' in source
+    assert 'installed = await hass.async_add_executor_job(_installed_version)' in source
     assert 'trybatec/panel_snapshot' in source
     panel = PANEL.read_text(encoding="utf-8")
     assert 'const version=this._data?.version;' in panel

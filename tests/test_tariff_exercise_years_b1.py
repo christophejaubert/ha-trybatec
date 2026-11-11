@@ -94,3 +94,55 @@ def test_no_hardcoded_2000_to_2100_dropdown_or_year_2026() -> None:
     assert "trybatecTariffYears(a,new Date().getFullYear())" in source
     assert "Aucun relevé daté" in source
     assert "this._costPreview=null;this._costYear=null;this._costError=" in source
+
+
+_NODE_MERGE = r"""
+const fs=require("node:fs"), vm=require("node:vm");
+const data=JSON.parse(fs.readFileSync(0,"utf8"));
+const source=fs.readFileSync(process.argv[1],"utf8");
+const context={HTMLElement:class{},customElements:{get:()=>true}};
+vm.runInNewContext(source+"\nglobalThis.__merge=trybatecMergeHistoricalObservationDates;globalThis.__years=trybatecTariffYears;",context,{filename:process.argv[1]});
+context.__merge(data.account,data.coverage);
+process.stdout.write(JSON.stringify(context.__years(data.account,2026)));
+"""
+
+
+def test_tariff_selector_includes_dated_retired_meter_after_history_scan() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is not installed")
+    account = {
+        "meters": [
+            {"physical_key": "a" * 24, "status": "en_service",
+             "first_observed_at": "2026-01-01", "last_source_observed_at": "2026-11-11"},
+            {"physical_key": "b" * 24, "status": "depose",
+             "first_observed_at": None, "last_source_observed_at": None},
+        ],
+        "tariffs": {}, "meter_tariffs": {},
+    }
+    coverage = {
+        "status": "complete",
+        "meters": [
+            {"physical_key": "b" * 24, "first_observed_at": "2021-12-21T00:00:00+00:00",
+             "last_source_observed_at": "2024-12-31T00:00:00+00:00"},
+            {"physical_key": "c" * 24, "first_observed_at": "2003-01-01T00:00:00+00:00",
+             "last_source_observed_at": "2004-01-01T00:00:00+00:00"},
+        ],
+    }
+    result = subprocess.run(
+        [node, "-e", _NODE_MERGE, str(PANEL)],
+        input=json.dumps({"account": account, "coverage": coverage}),
+        text=True, capture_output=True, check=False, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "years": list(range(2027, 2019, -1)), "fallback": False,
+    }
+
+
+def test_tariff_page_triggers_lazy_scan_and_has_failure_indicator() -> None:
+    source = PANEL.read_text(encoding="utf-8")
+    assert 'type:"trybatec/panel_tariff_years"' in source
+    assert 'if(this._tab==="tariffs")this._loadTariffYearCoverage()' in source
+    assert "Années historiques non vérifiées" in source
+    assert "data-tariff-years-retry" in source

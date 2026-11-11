@@ -1,3 +1,52 @@
+# 0.3.1b2 — Correctifs de recette du panneau Trybatec (candidate)
+
+Correctif ciblé après la recette réelle de `0.3.1b1`. Aucune migration automatique,
+aucun changement des préférences Énergie, aucun import Recorder et aucune
+modification des index hébergés par le fournisseur.
+
+- **Version du panneau :** lecture effective du manifeste déplacée vers un exécuteur
+  Home Assistant ; évite les accès bloquants au disque dans la boucle asyncio,
+  tout en conservant la valeur de version réellement installée.
+- **Tarifs annuels :** à l'ouverture de la page Tarifs, interrogation historique
+  *en lecture seule* des relevés fournisseur datés (de 2000 à aujourd'hui),
+  limitée au périmètre vérifié de chaque compte. Les dates des compteurs déposés
+  alimentent les exercices proposés (première/dernière année observée ± 1 an).
+  Les tarifs déjà saisis restent proposés même hors intervalle. L'interface
+  indique explicitement un échec ou une vérification en cours ; elle n'invente
+  pas de dates de remplacement ni d'années vérifiées. Les résultats complets
+  sont mis en cache en mémoire par compte pour la journée.
+- **Audit des entités :** vérification conservatrice des compteurs déposés
+  à partir des identifiants techniques exacts et de l'appartenance au compte,
+  sans exiger d'index actif. Les erreurs ou métadonnées Recorder incomplètes
+  sont signalées sans présenter l'entité comme supprimable ni proposer de
+  bascule Énergie. La prévisualisation native de migration reste distincte.
+- **Navigation :** correction des attributs HTML `data-*` des boutons vers
+  Énergie et l’ancienne interface Options ; la délégation des clics est
+  couverte par des tests qui exécutent les gestionnaires réels.
+- **Actualisation de l’IHM :** URL du module de panneau versionnée à partir
+  du manifeste effectivement installé ; contrôle de version lors du retour
+  sur l’onglet et périodiquement lorsque celui-ci est visible. Rechargement
+  automatique uniquement en l’absence de saisies en cours ; sinon,
+  proposition d’actualisation explicite sans écraser le formulaire.
+- **Saisie :** conservation du nœud HTML et du focus lors des événements
+  intermédiaires de dates, heures, valeurs numériques et texte ; les
+  prévisualisations Recorder devenues obsolètes sont invalidées avant toute
+  confirmation. Tests Chromium synthétiques FR/EN, ordinateur/mobile, avec
+  frappes successives et contrôle d’intégrité du champ.
+- **Inventaire des entités :** classification prudente à partir des
+  identifiants techniques et du statut effectivement vérifié (index actifs,
+  index historiques, tarifs, coûts et consommations annuelles). Ni un suffixe
+  `_2`, ni l’état `unknown` ne prouvent une suppression possible.
+- **Tests :** régression sur les dates anciennes et les collisions de comptes,
+  absence de données inventées, mise en cache, garde d'identité et refus des
+  suppressions automatiques. Validation CI et test réel après installation
+  nécessaires avant toute affirmation de recette achevée.
+
+**Exclusions :** aucune suppression, réinitialisation, purge, retouche des
+statistiques Recorder, bascule Énergie, modification des tarifs ou du portail
+fournisseur. Les spécifications A01–A31 restent documentaires.
+
+---
 # 0.3.1b1 — Interface et identité Trybatec (préversion candidate, non publiée)
 
 **Périmètre de cette tranche : corrections d'interface non destructrices.** Ce candidat n'autorise aucune migration ni modification d'une installation Home Assistant.

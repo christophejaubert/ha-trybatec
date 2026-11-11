@@ -42,6 +42,30 @@ function trybatecTariffYears(account, currentYear) {
   return {years:[...years].sort((a,b)=>b-a), fallback};
 }
 
+/** Merge dated historical supplier observations by exact physical meter key only. */
+function trybatecMergeHistoricalObservationDates(account, coverage) {
+  if (!account || coverage?.status !== "complete" || !Array.isArray(coverage.meters))
+    throw new Error("Verified historical coverage is required");
+  const bounds=new Map();
+  for (const item of coverage.meters) {
+    if (typeof item?.physical_key==="string" && item.physical_key.length===24)
+      bounds.set(item.physical_key,item);
+  }
+  const pick=(existing,incoming,earliest) => {
+    if (typeof incoming!=="string" || !Number.isFinite(Date.parse(incoming))) return existing;
+    if (typeof existing!=="string" || !Number.isFinite(Date.parse(existing))) return incoming;
+    return (earliest ? Date.parse(incoming)<Date.parse(existing) :
+      Date.parse(incoming)>Date.parse(existing)) ? incoming : existing;
+  };
+  for (const meter of (account.meters||[])) {
+    const item=bounds.get(meter.physical_key);
+    if (!item) continue;
+    meter.first_observed_at=pick(meter.first_observed_at,item.first_observed_at,true);
+    meter.last_source_observed_at=pick(meter.last_source_observed_at,item.last_source_observed_at,false);
+  }
+  account.historical_years_scan_complete=true;
+}
+
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
   ["Vue d’ensemble","Overview"],
@@ -489,6 +513,7 @@ class TrybatecPanel extends HTMLElement {
     this._started = false;
     this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
     this._tariffBusy = false;
+    this._tariffCoverage = new Map();
     this._costPreview=null;
     this._costBusy=false;
     this._costError="";
@@ -545,8 +570,15 @@ class TrybatecPanel extends HTMLElement {
     this._energyHandoffPreview=null;
     this._energyBackup=false;
     this._energyResult="";
+    this._unsavedInput=false;
+    this._serverVersionPending=null;
+    this._versionCheckBusy=false;
+    this._versionPoll=null;
+    this._visibilityCheck=()=>{if (document.visibilityState==="visible") this._checkServerVersion();};
+
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
+    this.shadowRoot.addEventListener("input", (event) => this._input(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
   }
   set hass(value) {
@@ -560,7 +592,62 @@ class TrybatecPanel extends HTMLElement {
   }
   set narrow(value) { this._narrow = value; }
   set panel(value) { this._panel = value; }
-  connectedCallback() { this._render(); if (this._hass && !this._started) this._fetch(); }
+  connectedCallback() {
+    this._render();
+    if (this._hass && !this._started) this._fetch();
+    if (!this._versionPoll) {
+      this._versionPoll=window.setInterval(()=>this._checkServerVersion(),90000);
+      document.addEventListener("visibilitychange",this._visibilityCheck);
+      window.addEventListener("focus",this._visibilityCheck);
+    }
+  }
+  disconnectedCallback() {
+    if (this._versionPoll) window.clearInterval(this._versionPoll);
+    this._versionPoll=null;
+    document.removeEventListener("visibilitychange",this._visibilityCheck);
+    window.removeEventListener("focus",this._visibilityCheck);
+  }
+  async _checkServerVersion() {
+    if (this._versionCheckBusy || this._loading || !this._hass || !this.isConnected ||
+        document.visibilityState!=="visible" || !this._data?.version) return;
+    this._versionCheckBusy=true;
+    try {
+      // Read-only snapshot: no change to Recorder, Energy, tariffs or vendor data.
+      const snapshot=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      if (typeof snapshot?.version==="string" && snapshot.version!==this._data.version) {
+        this._serverVersionPending=snapshot.version;
+        if (!this._unsavedInput && !this._isEditingForm()) {
+          window.location.reload();
+        } else {
+          this._renderVersionNotice();
+        }
+      }
+    } catch (_) {
+      // Never reload a page when server-side compatibility cannot be confirmed.
+    } finally {
+      this._versionCheckBusy=false;
+    }
+  }
+  _isEditingForm() {
+    const current=this.shadowRoot.activeElement;
+    return Boolean(current && this._isEditableInput(current));
+  }
+  _renderVersionNotice() {
+    const slot=this.shadowRoot.querySelector("[data-version-notice]");
+    if (!slot) return;
+    slot.textContent="";
+    slot.hidden=!this._serverVersionPending;
+    slot.style.display=this._serverVersionPending?"":"none";
+    if (!this._serverVersionPending) return;
+    const message=document.createElement("span");
+    message.textContent="Nouvelle version Trybatec disponible : "+this._serverVersionPending+
+      ". Saisie en cours conservée ; actualisation reportée.";
+    const button=document.createElement("button");
+    button.type="button";
+    button.dataset.reloadPanel="";
+    button.textContent="Actualiser la page";
+    slot.append(message,button);
+  }
   get _current() { return this._data && this._data.accounts ? this._data.accounts[this._account] : null; }
   async _fetch() {
     if (!this._hass || this._loading) return;
@@ -577,6 +664,29 @@ class TrybatecPanel extends HTMLElement {
     } finally {
       this._loading = false;
       this._render();
+      if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
+    }
+  }
+  async _loadTariffYearCoverage(force=false) {
+    if (!this._current || !this._hass) return;
+    const id=this._current.entry_id;
+    const prior=this._tariffCoverage.get(id);
+    if (!force && prior && (prior.status==="loading" || prior.status==="complete")) return;
+    this._tariffCoverage.set(id,{status:"loading"});
+    this._render();
+    try {
+      const coverage=await this._hass.callWS({
+        type:"trybatec/panel_tariff_years",entry_id:id,
+      });
+      if (coverage?.status!=="complete" || coverage?.recorder_writes!==false ||
+          coverage?.energy_writes!==false) throw new Error("Incomplete history");
+      const account=(this._data?.accounts||[]).find(item=>item.entry_id===id);
+      if (account) trybatecMergeHistoricalObservationDates(account,coverage);
+      this._tariffCoverage.set(id,{status:"complete"});
+    } catch (_) {
+      this._tariffCoverage.set(id,{status:"error"});
+    } finally {
+      this._render();
     }
   }
   _confirm(message) {
@@ -585,19 +695,27 @@ class TrybatecPanel extends HTMLElement {
   _click(event) {
     const btn = event.target.closest("button");
     if (!btn) return;
-    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();return;}
+    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
     if (btn.dataset.account !== undefined) {
       this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
       this._costPreview=null;this._costYear=null;this._costError="";
-      this._render();return;
+      this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
+    }
+    if (btn.dataset.reloadPanel !== undefined) {
+      if (this._unsavedInput && !this._confirm(
+        "Les saisies non enregistrées seront perdues. Actualiser le panneau ?"
+      )) return;
+      window.location.reload();
+      return;
     }
     if (btn.dataset.refresh !== undefined) {this._fetch();return;}
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
+    if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
@@ -656,12 +774,41 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.versionEnergyPreview !== undefined) {this._previewRecorderEnergy();return;}
     if (btn.dataset.versionEnergyApply !== undefined) {this._activateRecorderEnergy();return;}
   }
+  _isEditableInput(target) {
+    return Boolean(target?.matches?.(
+      'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea'
+    ));
+  }
+  _input(event) {
+    // Native date/time inputs emit intermediate events while a segment is edited.
+    // Updating the state without rebuilding their DOM node preserves all segments.
+    if (this._isEditableInput(event.target)) this._change(event);
+  }
+  _finishFieldChange(event) {
+    this._unsavedInput=true;
+    if (this._isEditableInput(event.target)) {
+      this._unsavedInput=true;
+      // Invalidate stale previews *and* their visible confirmation controls
+      // immediately, without replacing a focused date/number/text input.
+      for (const [selector, stale] of [
+        ["[data-version-import]", !this._versionPlan],
+        ["[data-version-energy-apply]", !this._versionEnergyPlan],
+        ["[data-origin-save]", !this._originPreview],
+        ["[data-history-approve]", !this._historyPreview],
+        ["[data-reading-approve]", !this._historyPreview],
+      ]) {
+        if (stale) this.shadowRoot.querySelectorAll(selector).forEach(b=>b.disabled=true);
+      }
+      return;
+    }
+    this._render();
+  }
   _change(event) {
     if (event.target.dataset.query !== undefined) {
       this._query=event.target.value.trim().toLowerCase();this._render();return;
     }
     if (event.target.dataset.energyBackup!==undefined) {
-      this._energyBackup=event.target.checked;this._render();return;
+      this._energyBackup=event.target.checked;this._finishFieldChange(event);return;
     }
     const readingField=event.target.dataset.readingField;
     if (readingField) {
@@ -671,7 +818,7 @@ class TrybatecPanel extends HTMLElement {
         time:"_readingTime",reason:"_readingReason",outside:"_readingOutside"
       };
       if (fields[readingField]) this[fields[readingField]]=value;
-      this._render();return;
+      this._finishFieldChange(event);return;
     }
     const versionField=event.target.dataset.versionField;
     if (versionField) {
@@ -685,14 +832,17 @@ class TrybatecPanel extends HTMLElement {
       if (fields[versionField]) this[fields[versionField]]=
         event.target.type==="checkbox"?Boolean(event.target.checked):event.target.value;
       if (["old","new"].includes(versionField)) this._versionEnergyPlan=null;
-      if (["start","end","heating"].includes(versionField)) this._versionPlan=null;
-      this._render();return;
+      if (["start","end","heating"].includes(versionField)) {
+        this._versionPlan=null;
+        this._versionVerify=null;
+      }
+      this._finishFieldChange(event);return;
     }
     const settingsField=event.target.dataset.settingsField;
     if (settingsField) {
       if (!this._settingsInput) this._settingsInput={...this._current.settings};
       this._settingsInput[settingsField]=event.target.value;
-      this._render();return;
+      this._finishFieldChange(event);return;
     }
     const originField=event.target.dataset.originField;
     if (originField) {
@@ -702,15 +852,20 @@ class TrybatecPanel extends HTMLElement {
       if (originField==="reason") this._originReason=event.target.value;
       if (originField==="revision") this._originRevision=Boolean(event.target.checked);
       if (["meter","date","index"].includes(originField)) this._originPreview=null;
-      this._originSaved="";this._render();return;
+      this._originSaved="";this._finishFieldChange(event);return;
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
       if (historyField==="start_date") this._historyStart=event.target.value;
       if (historyField==="end_date") this._historyEnd=event.target.value;
+      if (["start_date","end_date"].includes(historyField)) {
+        this._historyPreview=null;
+        this._historySelected="";
+        this._readingSelected="";
+      }
       if (historyField==="mode") this._historyMode=event.target.value;
       if (historyField==="reason") this._historyReason=event.target.value;
-      this._render();return;
+      this._finishFieldChange(event);return;
     }
     const field=event.target.dataset.tariffField;
     if (field) {
@@ -721,7 +876,10 @@ class TrybatecPanel extends HTMLElement {
         this._tariffInput.rate=item?String(item.rate):"";
         this._tariffInput.status=item?item.status:"provisional";
       }
-      this._render();
+      if (["year","rate","fluid","physical_key","status"].includes(field)) {
+        this._costPreview=null;this._costYear=null;
+      }
+      this._finishFieldChange(event);
     }
   }
   _existingTariff() {
@@ -1331,7 +1489,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
       '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
-      '>Analyser les relevés</button><button class="secondary" type="button" data-openOptions>Ancienne IHM de révision</button></div>'+
+      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button></div>'+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
       '</section><div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
@@ -1469,6 +1627,15 @@ class TrybatecPanel extends HTMLElement {
           '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
+    const coverage=this._tariffCoverage.get(a.entry_id);
+    const coverageNotice=coverage?.status==="loading" ?
+      '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques…</p>' :
+      coverage?.status==="error" ?
+      '<p class="notice warning" role="alert">Années historiques non vérifiées : la liste peut être incomplète. '+
+      '<button type="button" data-tariff-years-retry>Réessayer</button></p>' :
+      coverage?.status==="complete" ?
+      '<p class="notice" role="status">Exercices fondés sur les relevés historiques datés du compte.</p>' :
+      '<p class="notice" role="status">Vérification des années historiques non encore lancée.</p>';
     if (!range.years.includes(Number(f.year))) {
       f.year=range.years.includes(new Date().getFullYear())?
         new Date().getFullYear():range.years[0];
@@ -1483,6 +1650,7 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
+      coverageNotice+
       (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
       (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
       (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
@@ -1677,7 +1845,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="grid-two"><section class="card"><h3>Sources Trybatec dans Énergie</h3>'+
       (data.sources.length?data.sources.map(x=>'<div class="line"><strong>'+safe(x.type)+'</strong> · <span class="mono">'+safe(x.statistic_id)+'</span></div>').join(""):
         '<div class="empty">Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.</div>')+
-      '<div class="actions"><button class="secondary" type="button" data-openEnergy>Ouvrir Énergie</button></div></section>'+
+      '<div class="actions"><button class="secondary" type="button" data-open-energy>Ouvrir Énergie</button></div></section>'+
       '<section class="card"><h3>Séries historiques versionnées</h3><p class="muted">Registre Recorder b15 : '+safe(a.ledger.status)+
       ', imports à vérifier : '+safe(a.ledger.pending)+'</p>'+
       (rows.length?rows.map(row=>'<div class="line"><span class="mono">'+safe(row.logical_id)+'</span>'+
@@ -1704,7 +1872,17 @@ class TrybatecPanel extends HTMLElement {
       '<div class="scroll">'+(a.entities.length?a.entities.map(e=>{
       const candidate=e.technical_role==="legacy_same_device_candidate";
       const refs=Array.isArray(e.energy_references)?e.energy_references:[];
-      const label=candidate?"Ancienne génération technique à auditer":"Entité technique non classée";
+      const roles={
+        active_physical_index:"Index d’un compteur physique en service",
+        retired_physical_index:"Index historique d’un compteur déposé",
+        physical_index_status_unknown:"Index physique · statut du compteur à vérifier",
+        account_ytd_usage_estimate:"Indicateur annuel · consommation estimée",
+        account_ytd_cost_estimate:"Indicateur annuel · coût estimé",
+        account_annual_unit_price:"Indicateur annuel · tarif unitaire",
+        legacy_same_device_candidate:"Ancienne génération technique à auditer",
+        unclassified:"Entité technique non classée"
+      };
+      const label=roles[e.technical_role]||roles.unclassified;
       const successors=Array.isArray(e.same_device_successors)?e.same_device_successors:[];
       return '<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span>'+
       '<div class="muted">'+safe(label)+' · État : '+safe(e.state)+' · Unité : '+safe(e.unit||"N/A")+'</div>'+
@@ -1783,7 +1961,7 @@ class TrybatecPanel extends HTMLElement {
       '</section>'+
       '<section class="card" style="margin-top:16px"><h3>Autres options Trybatec</h3>'+
       '<p>Les unités, les options de diagnostic et les parcours historiques sont conservés dans l’interface Home Assistant actuelle.</p>'+
-      '<div class="actions"><button class="secondary" type="button" data-openOptions>Ouvrir Options Trybatec</button></div></section>';
+      '<div class="actions"><button class="secondary" type="button" data-open-options>Ouvrir Options Trybatec</button></div></section>';
   }
   _content() {
     if (this._loading) return '<div class="card empty">Chargement des données Trybatec…</div>';
@@ -1797,10 +1975,23 @@ class TrybatecPanel extends HTMLElement {
     return selector+tabs[this._tab]();
   }
   _render() {
+    // Search is the only text input that requires an immediate list redraw.
+    // For dates/times/numbers _change deliberately avoids this DOM replacement.
+    const active=this.shadowRoot.activeElement;
+    const searchFocused=active?.hasAttribute?.("data-query");
+    const start=searchFocused ? active.selectionStart : null;
+    const end=searchFocused ? active.selectionEnd : null;
     this.shadowRoot.innerHTML='<style>'+style+'</style><div class="wrap">'+this._header()+
+      '<div data-version-notice class="notice warning" role="status" aria-live="polite" hidden style="display:none"></div>'+
       '<div class="shell">'+this._nav()+'<main class="main" id="main">'+this._content()+'</main></div>'+
       '<footer class="footer">Trybatec — Interface expérimentale · Aucune suppression ni écriture Recorder ou Énergie automatique.</footer></div>';
     localizeTrybatecPanel(this.shadowRoot,this._hass?.language);
+    if (searchFocused) {
+      const search=this.shadowRoot.querySelector("[data-query]");
+      search?.focus();
+      if (search && start!==null && end!==null) search.setSelectionRange(start,end);
+    }
+    this._renderVersionNotice();
   }
 }
 if (!customElements.get("trybatec-panel")) customElements.define("trybatec-panel", TrybatecPanel);
