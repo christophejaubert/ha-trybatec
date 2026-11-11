@@ -16,7 +16,17 @@ Cette préversion corrective fait suite aux vérifications après installation d
 - Diagnostics : préparer l'inventaire en lecture seule des limites techniques
   effectives, la traçabilité expurgée et les budgets candidats validés sous
   réserve de tests représentatifs ; ne pas les afficher comme actifs prématurément.
-- Progression historique : ne jamais présenter comme progression de la tâche\n  demandée les mesures d'une autre opération concurrente du même compte.\n- Tests : flux HTTP fragmenté, caractères UTF-8 répartis, taille bornée, JSON
+- Progression historique : ne jamais présenter comme progression de la tâche\n  demandée les mesures d'une autre opération concurrente du même compte.\n- Plafonds de secours effectivement appliqués : 1 800 secondes et
+  512 tentatives HTTP par opération suivie ; arrêt avec rejet explicite de
+  tous les résultats partiels. Ils sont distincts des budgets candidats
+  standard 120 s / 24 appels et exhaustif 600 s / 80 appels, non activés :
+  un test synthétique valide nécessite plus de 80 appels.
+- Reprise après interruption : une nouvelle demande relit intégralement
+  l'intervalle initial. Aucun corps fournisseur ni checkpoint incomplet
+  n'est repris, faute de preuve de cohérence instantanée de l'API source.
+  Le redémarrage intégral est sûr vis-à-vis des fragments partiels, mais
+  n'est pas une reprise incrémentale des périodes déjà lues.
+- Tests : flux HTTP fragmenté, caractères UTF-8 répartis, taille bornée, JSON
   invalide, annulation, échecs d'historique, audit Recorder et CI complète.
 
 Les autres évolutions fonctionnelles et visuelles de 0.3.2b1 restent sur la PR #75.

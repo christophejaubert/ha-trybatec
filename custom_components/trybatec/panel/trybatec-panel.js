@@ -1241,8 +1241,8 @@ class TrybatecPanel extends HTMLElement {
       this._unsavedInput=false;
     } catch (_) {
       this._historyError=this._t(
-        "Analyse interrompue ou indisponible : aucun historique partiel n’est validé. Consultez Diagnostics.",
-        "History interrupted or unavailable: no partial history accepted. See Diagnostics.");
+        "Analyse interrompue : aucun historique partiel n’est validé. Relancer « Analyser les relevés » recommence la lecture complète depuis le début. Consultez Diagnostics.",
+        "History interrupted: no partial history accepted. Selecting Analyze readings again restarts the entire read from the beginning. See Diagnostics.");
     } finally {
       this._historyBusy=false;this._historyJobId=null;this._historyJobStatus=null;
       if (!this._isEditingForm()) this._render();

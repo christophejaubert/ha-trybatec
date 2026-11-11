@@ -80,7 +80,7 @@ const snapshot = {
     transient_max_attempts:3,max_index_iterations_with_reauth:5,
     transient_backoff_base_ms:250,transient_backoff_max_ms:30000,
     history_pause_ms:200,history_serialized_per_account:true,
-    max_global_duration_seconds:null,max_global_http_requests:null,
+    max_global_duration_seconds:1800,max_global_http_requests:512,
   },proposed:{enforced:false,standard:{duration_seconds:120,http_requests:24},
     exhaustive:{duration_seconds:600,http_requests:80},proposed_pause_ms:500,
     max_concurrent_historical_scans_per_account:1}},
