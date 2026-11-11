@@ -52,21 +52,30 @@ class TrybatecWindowError(TrybatecDataError):
 
 
 async def _bounded_json(response: Any, limit: int) -> Any:
-    """Read at most limit + 1 bytes from real aiohttp responses.
+    """Read the complete decompressed response with a strict byte ceiling.
 
-    The .json fallback is exclusively for minimal mocked test responses.
+    StreamReader.read(n) may return fewer bytes before EOF. Never decode
+    a partial body, mistake a partial read for malformed vendor JSON, or
+    exceed the size limit even when Content-Length is missing/inaccurate.
+    Test fakes without a content stream retain the old response.json fallback.
     """
     content_length = getattr(response, "content_length", None)
     if isinstance(content_length, int) and content_length > limit:
         raise TrybatecDataError("Trybatec response exceeds permitted size")
+    stream = getattr(response, "content", None)
     try:
-        stream = getattr(response, "content", None)
-        if stream is not None and hasattr(stream, "read"):
-            raw = await stream.read(limit + 1)
-            if len(raw) > limit:
+        if stream is None or not hasattr(stream, "read"):
+            # Pure test adapters only; actual aiohttp always exposes .content.
+            return await response.json(content_type=None)
+        body = bytearray()
+        while True:
+            chunk = await stream.read(min(65536, limit + 1 - len(body)))
+            if not chunk:
+                break
+            body.extend(chunk)
+            if len(body) > limit:
                 raise TrybatecDataError("Trybatec response exceeds permitted size")
-            return json.loads(raw)
-        return await response.json(content_type=None)
+        return json.loads(body)
     except (ValueError, UnicodeDecodeError, TypeError) as exc:
         raise TrybatecDataError("Trybatec returned malformed JSON") from exc
 
