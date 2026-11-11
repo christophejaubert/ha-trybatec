@@ -670,6 +670,14 @@ class TrybatecPanel extends HTMLElement {
     this._energyResult="";
     this._navScrollLeft=0;
     this._durationInput=null;
+    this._loggingInput=null;
+    this._loggingBusy=false;
+    this._loggingError="";
+    this._loggingMessage="";
+    this._meterOptionDraft=null;
+    this._meterOptionBusy=false;
+    this._meterOptionError="";
+    this._meterOptionMessage="";
     this.shadowRoot.addEventListener("click", (event) => this._click(event));
     this.shadowRoot.addEventListener("change", (event) => this._change(event));
     this.shadowRoot.addEventListener("submit", (event) => this._submit(event));
@@ -772,9 +780,15 @@ class TrybatecPanel extends HTMLElement {
     }
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
-    if (btn.dataset.meter !== undefined) {this._meter=Number(btn.dataset.meter);this._meterAudit=null;this._energyHandoffPreview=null;this._render();return;}
+    if (btn.dataset.meter !== undefined) {
+      this._meter=Number(btn.dataset.meter);this._meterAudit=null;
+      this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
+      this._energyHandoffPreview=null;this._render();return;
+    }
     if (btn.dataset.account !== undefined) {
       this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._durationInput=null;
+      this._loggingInput=null;this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
+      this._historyPreview=null;this._historySelected="";
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
       this._costPreview=null;this._costYear=null;this._costError="";
       this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
@@ -787,6 +801,14 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
+    if (btn.dataset.meterOptionsSave !== undefined) {this._saveMeterOptions();return;}
+    if (btn.dataset.meterOptionsReset !== undefined) {
+      this._meterOptionDraft=null;this._meterOptionError="";this._render();return;
+    }
+    if (btn.dataset.logSave !== undefined) {this._saveLogLevel();return;}
+    if (btn.dataset.logReset !== undefined) {
+      this._loggingInput=null;this._loggingError="";this._render();return;
+    }
     if (btn.dataset.settingsSave !== undefined) {this._saveSettings();return;}
     if (btn.dataset.settingsReset !== undefined) {this._settingsInput=null;this._durationInput=null;this._settingsError="";this._render();return;}
     if (btn.dataset.historyPreview !== undefined) {this._fetchHistory();return;}
@@ -884,6 +906,19 @@ class TrybatecPanel extends HTMLElement {
       const converted=trybatecDurationMinutes(this._durationInput);
       this._settingsInput.poll_minutes=converted;
       this._render();return;
+    }
+    const meterOptionField=event.target.dataset.meterOptionField;
+    if (meterOptionField) {
+      const meter=this._meters()[this._meter];
+      const row=(this._current?.meter_options||[]).find(x=>x.physical_key===meter?.physical_key);
+      if (!row || !["unit","device_uuid"].includes(meterOptionField)) return;
+      if (!this._meterOptionDraft || this._meterOptionDraft.physical_key!==row.physical_key)
+        this._meterOptionDraft={physical_key:row.physical_key,unit:row.selected_unit,device_uuid:row.device_uuid};
+      this._meterOptionDraft[meterOptionField]=event.target.value;
+      this._meterOptionError="";this._render();return;
+    }
+    if (event.target.dataset.logLevel!==undefined) {
+      this._loggingInput=event.target.value;this._loggingError="";this._render();return;
     }
     const settingsField=event.target.dataset.settingsField;
     if (settingsField) {
@@ -1207,6 +1242,82 @@ class TrybatecPanel extends HTMLElement {
         '>Confirmer et vérifier le basculement</button></div></div>':"")+
       '</div>';
   }
+  _meterOptionsEditor(m) {
+    const option=(this._current?.meter_options||[]).find(row=>
+      row.physical_key===m.physical_key);
+    if (!option) return '<section class="line" style="margin-top:16px">'+
+      '<h3>Unité et identifiant du compteur</h3>'+
+      '<p class="muted">Ce compteur ne dispose pas encore d’une identité source éligible à une modification. Lancez une analyse historique ou utilisez le menu natif de secours.</p>'+
+      '<div class="actions"><button type="button" class="secondary" data-tab="history">Analyser l’historique</button>'+
+      '<button type="button" class="secondary" data-open-options>Options natives de secours</button></div></section>';
+    const draft=this._meterOptionDraft?.physical_key===option.physical_key?
+      this._meterOptionDraft:option;
+    const source=option.source_unit;
+    const conflicting=source==="conflict"||source==="unverified";
+    const origin={
+      manual:"Unité enregistrée manuellement",
+      api:"Unité déterminée par l’API",
+      chart_proposal:"Proposition issue du graphique, à confirmer",
+      unverified:"Unité non vérifiée"
+    }[option.selection_origin]||"Origine à vérifier";
+    return '<section class="line" style="margin-top:16px" aria-label="Unité et identifiant du compteur">'+
+      '<h3>Unité et identifiant du compteur</h3>'+
+      '<p class="muted">Paramètres propres à ce compteur physique. Le graphique ne prouve pas l’unité des index sources.</p>'+
+      '<div class="detail-grid">'+
+      '<div><span class="smallhead">Unité explicitement fournie par l’API</span><strong>'+safe(source||"Non détectée")+'</strong></div>'+
+      '<div><span class="smallhead">Unité de référence du graphique</span><strong>'+safe(option.chart_unit||"Non disponible")+'</strong></div>'+
+      '<div><span class="smallhead">Origine de la présélection</span><strong>'+safe(origin)+'</strong></div></div>'+
+      '<div class="form-grid">'+
+      '<div style="grid-column:span 2"><label for="meter-unit-choice">Unité source du compteur</label>'+
+      '<select id="meter-unit-choice" data-meter-option-field="unit">'+
+      '<option value="unverified" '+(draft.unit==="unverified"?"selected":"")+'>Inconnue / non vérifiée</option>'+
+      (option.allowed_units||[]).map(unit=>
+        '<option value="'+safe(unit)+'" '+(draft.unit===unit?"selected":"")+
+        (conflicting?" disabled":"")+'>'+safe(unit)+'</option>').join("")+'</select></div>'+
+      '<div style="grid-column:span 2"><label for="meter-device-uuid">UUID du dispositif Trybatec (facultatif)</label>'+
+      '<input id="meter-device-uuid" type="text" maxlength="36" spellcheck="false" data-meter-option-field="device_uuid" value="'+
+      safe(draft.device_uuid||"")+'" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div></div>'+
+      (conflicting?'<div class="notice warning">L’API signale une unité conflictuelle ou inconnue : seule la sélection « Inconnue » est autorisée tant que la source n’est pas clarifiée.</div>':"")+
+      (this._meterOptionError?'<div role="alert" class="notice warning">'+safe(this._meterOptionError)+'</div>':"")+
+      (this._meterOptionMessage?'<div role="status" class="notice">'+safe(this._meterOptionMessage)+'</div>':"")+
+      '<div class="actions"><button type="button" class="primary" data-meter-options-save '+
+      (this._meterOptionBusy?"disabled":"")+'>Enregistrer ce compteur</button>'+
+      '<button type="button" class="secondary" data-meter-options-reset>Annuler les modifications</button></div>'+
+      '<p class="muted">Aucun index source, historique Recorder ou tableau Énergie n’est modifié. Un choix confirmé est associé uniquement à ce compteur.</p></section>';
+  }
+  async _saveMeterOptions() {
+    if (!this._current || this._meterOptionBusy) return;
+    const meter=this._meters()[this._meter];
+    const option=(this._current.meter_options||[]).find(x=>
+      x.physical_key===meter?.physical_key);
+    if (!option) return;
+    const draft=this._meterOptionDraft?.physical_key===option.physical_key?
+      this._meterOptionDraft:option;
+    if (!this._confirm(
+      "Enregistrer l’unité et l’UUID pour ce compteur physique uniquement ?"+
+      "\n\n"+meter.fluid+" · "+meter.serial+
+      "\nUnité choisie : "+draft.unit+
+      "\n\nUne unité proposée d’après un graphique ne prouve pas l’échelle des index."+
+      "\nNi les relevés source, ni Recorder, ni Énergie ne seront modifiés."
+    )) return;
+    this._meterOptionBusy=true;this._meterOptionError="";this._meterOptionMessage="";this._render();
+    try {
+      const response=await this._hass.callWS({
+        type:"trybatec/panel_meter_options_save",
+        entry_id:this._current.entry_id,
+        physical_key:option.physical_key,
+        unit:draft.unit,device_uuid:draft.device_uuid||"",
+        expected_fingerprint:this._current.tariff_fingerprint,confirm:true
+      });
+      if (response.source_indices_unchanged!==true || response.recorder_writes!==false ||
+          response.energy_writes!==false) throw new Error("Unverified save result");
+      this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      this._meterOptionDraft=null;
+      this._meterOptionMessage="Unité et UUID enregistrés dans les options Home Assistant existantes.";
+    } catch (_) {
+      this._meterOptionError="Enregistrement refusé ou recharge en cours. Actualisez les données et vérifiez l’unité source et l’UUID.";
+    } finally {this._meterOptionBusy=false;this._render();}
+  }
   _meterDetail(m) {
     if(!m) return '<div class="card empty">Sélectionnez un compteur pour consulter ses informations.</div>';
     const account=this._current;
@@ -1240,7 +1351,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="empty">Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.</div>')+
       '<div class="actions"><button type="button" class="secondary" data-tab="history">Historique & lissage</button>'+
       '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
-      this._auditDetails(m)+'</div>';
+      this._auditDetails(m)+this._meterOptionsEditor(m)+'</div>';
   }
   _meterTimeline() {
     const groups=this._current?.physical_meter_timeline||[];
