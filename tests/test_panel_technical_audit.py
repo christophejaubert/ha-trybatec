@@ -71,7 +71,7 @@ def test_unavailable_does_not_mean_obsolete_without_exact_technical_identity():
     assert result["potential_legacy_entries"] == 0
     assert {x["entity_id"]:x["technical_role"] for x in result["entities"]} == {
         "sensor.orphan": "unclassified",
-        "sensor.other": "physical_index_status_unknown",
+        "sensor.other": "active_physical_index",
         "sensor.metric": "unclassified",
     }
     assert all(x["can_delete"] is False for x in result["entities"])
