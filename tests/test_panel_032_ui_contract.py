@@ -49,7 +49,7 @@ const assert=require("node:assert/strict");
 const js=fs.readFileSync(process.argv[1],"utf8");
 const ctx={HTMLElement:class {},customElements:{get:()=>false,define:()=>{}}};
 vm.runInNewContext(js+
-  "\n globalThis.__check={format:trybatecDisplayNumber,date:trybatecDisplayDate,parts:trybatecDurationParts,minutes:trybatecDurationMinutes};",
+  "\n globalThis.__check={format:trybatecDisplayNumber,date:trybatecDisplayDate,parts:trybatecDurationParts,minutes:trybatecDurationMinutes,Panel:TrybatecPanel};",
   ctx,{timeout:2000});
 const {format,date,parts,minutes}=ctx.__check;
 assert.equal(format("1234567.8900","fr-FR"),"1\u202f234\u202f567,8900");
@@ -65,6 +65,26 @@ assert.equal(minutes({days:"7",hours:"0",minutes:"0"}),10080);
 assert.equal(minutes({days:"0",hours:"0",minutes:"59"}),NaN);
 assert.equal(minutes({days:"0",hours:"1",minutes:"60"}),NaN);
 assert.equal(minutes({days:"8",hours:"0",minutes:"0"}),NaN);
+function versionPanel(hasNew,hasOld) {
+  const fixture={
+    _current:{ledger:{status:"no_import",pending:0,series:hasNew?
+      [{logical_id:"synthetic",versions:[{state:"verified",number:1,statistic_id:"trybatec:synthetic_new"}]}]:[]}},
+    _data:{energy:{sources:hasOld?[{type:"water",statistic_id:"trybatec:synthetic_old"}]:[]}},
+    _t:(fr,en)=>fr,_date:x=>x,_historyStart:"2025-01-01",_historyEnd:"2025-12-31",
+    _versionBusy:false,_versionImportBackup:false,_versionRevision:false,
+    _versionRetry:false,_versionVerify:null,_versionEnergyPlan:null,
+    _versionEnergyBackup:false,_versionRollback:false
+  };
+  return ctx.__check.Panel.prototype._recorderVersionWorkflow.call(fixture);
+}
+const noPreconditions=versionPanel(false,false);
+assert.match(noPreconditions,/disabled aria-disabled="true"/);
+assert.match(noPreconditions,/Parcours indisponible/);
+assert.match(noPreconditions,/data-openEnergy/);
+const ready=versionPanel(true,true);
+assert.doesNotMatch(ready,/disabled aria-disabled="true"/);
+assert.match(ready,/trybatec:synthetic_new/);
+assert.match(ready,/trybatec:synthetic_old/);
 '''
     outcome = subprocess.run(
         [node, "-e", script, str(PANEL)],
