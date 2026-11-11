@@ -42,7 +42,23 @@ def _fixture(monkeypatch, *, blocked=False):
         "qualified_zero_times": [],
     }
     def build(*args, **kwargs):
-        return {"__physical_meters__": {KEY: meter}, "__review_candidates__": []}
+        # Synthetic fixture must preserve the public build_history shape,
+        # including the summaries consumed by the UI-003 panel.
+        historical = {
+            **{fluid: {"meters": 0, "gaps": 0, "conflicts": 0}
+               for fluid in ("EF", "ECS", "CET")},
+            "__physical_meters__": {KEY: {
+                **meter,
+                "first": meter["reviewed_readings"][0][0],
+                "last": meter["reviewed_readings"][-1][0],
+                "gaps": 1,
+                "decreases": 0,
+                "conflicts": 0,
+            }},
+            "__review_candidates__": [],
+        }
+        historical["EF"].update({"meters": 1, "gaps": 1})
+        return historical
     monkeypatch.setattr(panel_history,"build_history",build)
     monkeypatch.setattr(panel_history,"load_decisions",AsyncMock(return_value={}))
     monkeypatch.setattr(panel_history,"load_choices",AsyncMock(return_value={}))
