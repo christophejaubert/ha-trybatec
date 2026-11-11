@@ -9,7 +9,8 @@ from .api import (
     TRANSIENT_BACKOFF_MAX_SECONDS,
 )
 from .history_guardrails import (
-    DIAGNOSTIC_LIMIT, DIAGNOSTIC_TTL_SECONDS, technical_budget_snapshot,
+    DIAGNOSTIC_LIMIT, DIAGNOSTIC_TTL_SECONDS, EMERGENCY_MAX_SECONDS,
+    EMERGENCY_MAX_REQUESTS, technical_budget_snapshot,
 )
 from .history_services import (
     HISTORY_WINDOW_PAUSE_SECONDS, MAX_HISTORY_RECEIVED_BYTES,
@@ -40,8 +41,8 @@ def technical_limits_snapshot() -> dict:
             "retry_after_honored": True,
             "history_pause_ms": round(HISTORY_WINDOW_PAUSE_SECONDS * 1000),
             "history_serialized_per_account": True,
-            "max_global_duration_seconds": None,
-            "max_global_http_requests": None,
+            "max_global_duration_seconds": EMERGENCY_MAX_SECONDS,
+            "max_global_http_requests": EMERGENCY_MAX_REQUESTS,
         },
         "proposed": technical_budget_snapshot(),
         "diagnostics": {

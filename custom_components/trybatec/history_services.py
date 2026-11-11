@@ -27,7 +27,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .api import TrybatecDataError
-from .history_guardrails import active_history_operation, tracked_history
+from .history_guardrails import (
+    EMERGENCY_MAX_REQUESTS, active_history_operation, tracked_history,
+)
 from .const import (
     CONF_DEAL_ID, CONF_METER_UNITS, CONF_TARIFFS, DOMAIN, FLUIDS, TIMEZONE,
     CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
@@ -61,7 +63,8 @@ DIAGNOSTICS_SERVICE = "diagnose_history"
 # Recorder write is committed until every requested date is retrieved.
 # Retrieval is paced and bounded by the *finite requested date interval*:
 # a failed range is recursively halved until a single day cannot be read.
-# No fixed total-request cap can truncate an otherwise complete long history.
+# Emergency ceilings abort closed, without returning partial data. A new
+# explicit request restarts the full interval; no unverified partial cache.
 HISTORY_WINDOW_PAUSE_SECONDS = 0.2
 _SAFE_DATA_FAILURES = {
     "Trybatec response exceeds permitted size": "response_too_large",
@@ -102,6 +105,11 @@ async def _fetch_history_payloads(client, deal_id: str, windows):
     payloads = []
     requests = 0
     while pending:
+        if requests >= EMERGENCY_MAX_REQUESTS:
+            raise ServiceValidationError(
+                "Trybatec history emergency request ceiling reached; "
+                "no partial history accepted. Retry a smaller date range."
+            )
         begin, finish = pending.pop()
         if requests:
             await asyncio.sleep(HISTORY_WINDOW_PAUSE_SECONDS)

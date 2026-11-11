@@ -26,6 +26,10 @@ PROPOSED_PAUSE_SECONDS = 0.5
 PROGRESS_AFTER_SECONDS = 3
 SLOW_NOTICE_AFTER_SECONDS = 30
 BUDGETS_ENFORCED = False
+# Independent, fail-closed emergency ceilings; candidate 120/24 and 600/80
+# profiles remain disabled pending representative supplier load measurements.
+EMERGENCY_MAX_SECONDS = 1800
+EMERGENCY_MAX_REQUESTS = 512
 
 _ACTIVE: ContextVar[HistoryOperation | None] = ContextVar("trybatec_history_operation", default=None)
 
@@ -65,8 +69,11 @@ class HistoryOperation:
         self.task: asyncio.Task | None = None
 
     def before_request(self, *, retry: bool = False) -> None:
+        elapsed = monotonic() - self.started_mono
+        if self.calls >= EMERGENCY_MAX_REQUESTS or elapsed >= EMERGENCY_MAX_SECONDS:
+            raise HistoryBudgetExceeded("history_emergency_ceiling_exceeded")
         if BUDGETS_ENFORCED:
-            if self.calls >= self.budget_requests or monotonic() - self.started_mono >= self.budget_seconds:
+            if self.calls >= self.budget_requests or elapsed >= self.budget_seconds:
                 raise HistoryBudgetExceeded("history_operation_budget_exceeded")
         self.calls += 1
         if retry:
@@ -110,6 +117,10 @@ class HistoryOperation:
             "largest_response_bytes": self.largest_response_bytes,
             "http_codes": dict(self.codes),
             "error_type": self.error_type,
+            "emergency_ceiling": {
+                "duration_seconds": EMERGENCY_MAX_SECONDS,
+                "http_requests": EMERGENCY_MAX_REQUESTS,
+            },
             "budget": {
                 "enforced": BUDGETS_ENFORCED,
                 "duration_seconds": self.budget_seconds,
@@ -172,10 +183,11 @@ async def tracked_history(coordinator: Any, *, kind: str, start: Any, end: Any):
     operation.task = asyncio.current_task()
     token = _ACTIVE.set(operation)
     try:
-        if BUDGETS_ENFORCED:
-            async with asyncio.timeout(operation.budget_seconds):
-                yield operation
-        else:
+        duration = (
+            min(EMERGENCY_MAX_SECONDS, operation.budget_seconds)
+            if BUDGETS_ENFORCED else EMERGENCY_MAX_SECONDS
+        )
+        async with asyncio.timeout(duration):
             yield operation
     except asyncio.CancelledError:
         operation.finish("cancelled", "cancelled")
