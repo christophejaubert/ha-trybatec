@@ -817,7 +817,7 @@ def test_adaptive_history_recovers_october_length_window_without_dropping_days(
     asyncio.run(verify())
 
 
-def test_adaptive_history_rejects_one_bad_day_with_safe_date_diagnostic(
+def test_malformed_json_fails_fast_without_exponential_date_split(
     services, monkeypatch, caplog,
 ):
     """Never present partial data as a complete or importable history."""
@@ -838,12 +838,11 @@ def test_adaptive_history_rejects_one_bad_day_with_safe_date_diagnostic(
                 [(date(2026, 10, 1), date(2026, 11, 9))],
             )
         result = str(caught.value)
-        assert "2026-10-18" in result
+        assert "2026-10-01" in result && "2026-11-09" in result
         assert "malformed_json" in result
         assert "No partial history" in result
-        assert max((b - a).days for a, b in calls) == 39
-        assert min((b - a).days for a, b in calls) == 1
-        assert "2026-10-18" in caplog.text
+        assert calls == [(date(2026, 10, 1), date(2026, 11, 9))]
+        assert "malformed_json" in caplog.text
 
     asyncio.run(verify())
 
@@ -1080,7 +1079,7 @@ def test_failed_long_history_never_overwrites_previous_preview_cache(
     )
 
     async def verify():
-        with pytest.raises(services.ServiceValidationError, match="2026-10-18"):
+        with pytest.raises(services.ServiceValidationError, match="2026-10-01"):
             await services._load(hass, call)
         assert coordinator._history_review_cache == "previous-verified-preview"
         assert coordinator._history_review_candidates == ["previous-verified-choice"]
