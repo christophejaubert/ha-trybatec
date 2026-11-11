@@ -8,9 +8,44 @@ Recorder statistics must be audited separately and the user must approve.
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 from typing import Any, Mapping, Sequence
 
 _MAX_ENTITIES = 1500
+
+_ACCOUNT_METRIC_RE = re.compile(
+    r"_(EF|ECS|CET)_(volume|cost|price)_b6_verified$"
+)
+_VERIFIED_PHYSICAL_INDEX_RE = re.compile(r"_b6_[^_]+_index$")
+_ARCHIVED_PHYSICAL_INDEX_RE = re.compile(r"_b15_retired_[a-f0-9]{24}$")
+
+
+def _technical_role(
+    unique_id: str, deposed: Any, has_legacy_successor: bool,
+) -> str:
+    """Classify only exact, known Trybatec unique-ID shapes, not entity names.
+
+    Entity-ID suffixes, unknown state and unit-of-measurement alone do not
+    establish ownership, physical status, or permission to clean.
+    """
+    if has_legacy_successor:
+        return "legacy_same_device_candidate"
+    metric = _ACCOUNT_METRIC_RE.search(unique_id)
+    if metric:
+        return {
+            "volume": "account_ytd_usage_estimate",
+            "cost": "account_ytd_cost_estimate",
+            "price": "account_annual_unit_price",
+        }[metric.group(2)]
+    if _ARCHIVED_PHYSICAL_INDEX_RE.search(unique_id):
+        return "retired_physical_index"
+    if _VERIFIED_PHYSICAL_INDEX_RE.search(unique_id):
+        if deposed is True:
+            return "retired_physical_index"
+        if deposed is False:
+            return "active_physical_index"
+        return "physical_index_status_unknown"
+    return "unclassified"
 
 
 def audited_entity_inventory(
@@ -74,7 +109,7 @@ def audited_entity_inventory(
             and item["unique_id"].startswith(unique_id[:-len("_index")] + "_b6_")
             and item["unique_id"].endswith("_index")
         })
-        technical_role = "legacy_same_device_candidate" if successors else "unclassified"
+        technical_role = _technical_role(unique_id, entity.get("deposed"), bool(successors))
         result.append({
             **dict(entity),
             "technical_role": technical_role,
