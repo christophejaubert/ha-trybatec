@@ -176,6 +176,45 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
+  # FR/EN: temporary read-only dependency inventory for reviewed lock regeneration.
+  # The job does not alter the tested runtime or publish any artifact to users.
+  ci-fixture-lock-inventory:
+    name: ha-fixture-lock-inventory (temporary)
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Resolve official Home Assistant fixtures without old constraints
+        run: |
+          python -m pip install --only-binary=:all: -r .github/ci/requirements-ha-runtime.txt
+          python -m pip check
+      - name: Report exact installed CI fixture inventory for reviewed locks
+        run: |
+          python - <<'PY'
+          from importlib import metadata
+          import re
+          snapshot = {}
+          for item in metadata.distributions():
+              name = item.metadata.get("Name")
+              if not name:
+                  raise ValueError("Unnamed distribution")
+              name = re.sub(r"[-_.]+", "-", name).lower()
+              if name not in {"pip", "setuptools", "wheel"}:
+                  if name in snapshot:
+                      raise ValueError("Duplicate distribution: " + name)
+                  snapshot[name] = item.version
+          print("CI_PIN_SNAPSHOT_BEGIN")
+          for name, version in sorted(snapshot.items()):
+              print(f"{name}=={version}")
+          print("CI_PIN_SNAPSHOT_END")
+          PY
+
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
     runs-on: ubuntu-24.04
