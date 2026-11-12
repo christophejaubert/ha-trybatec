@@ -709,6 +709,9 @@ const style = [
   "th{font-size:12px;color:var(--secondary-text-color,#667085)}",
   ".empty{padding:18px;color:var(--secondary-text-color,#68758b);font-size:13px;line-height:1.55}",
   ".grid-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}",
+  // FR/EN: a native select's intrinsic min-content width must not widen a 320 CSS px page.
+  // Preserve keyboard selection and readable labels; do not hide overflow on the page.
+  ".grid-two>div{min-width:0}.grid-two select,.grid-two input{box-sizing:border-box;min-width:0;max-width:100%;width:100%}",
   ".form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}",
   "label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--secondary-text-color,#606e82)}",
   ".form-grid input,.form-grid select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px;color:inherit;background:var(--card-background-color,#fff)}",
