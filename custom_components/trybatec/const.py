@@ -1,6 +1,10 @@
 """Constants for the unofficial Trybatec Home Assistant integration."""
 
 DOMAIN = "trybatec"
+# Temporary transition gate: new entries use canonical IDs immediately.
+# Existing entries switch after an explicitly reviewed one-time migration;
+# this is not a permanent b6 compatibility contract.
+CONF_STABLE_METER_IDENTITIES = "stable_meter_identities"
 API_ORIGIN = "https://portail.trybatec.fr"
 API_BASE = f"{API_ORIGIN}/api/v1"
 CONF_DEAL_ID = "deal_id"

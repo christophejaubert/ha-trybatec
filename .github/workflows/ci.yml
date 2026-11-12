@@ -207,6 +207,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+      # FR : contrôle de l'historique accessible pour reproduire la portée du schedule.
+      # EN: on PRs and pushes, also scan reachable history like the scheduled run.
+      # The pinned action above installs the same Gitleaks CLI into GITHUB_PATH.
+      - name: Recheck reachable Git history (schedule parity)
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitleaks detect --redact --exit-code=2 --log-level=warn
 
   # FR/EN: four verified SHA256 locks are consumed by the test jobs below.
   homeassistant-runtime-tests:

@@ -49,12 +49,25 @@ class TrybatecAuthError(TrybatecError):
     """Invalid credentials or expired bearer token."""
 
 
+class TrybatecAccessDeniedError(TrybatecAuthError):
+    """Authenticated access to this resource was forbidden (HTTP 403).
+
+    Subclass the existing authentication error for callers outside setup and
+    polling that still catch TrybatecAuthError. The specialized flows handle
+    this type first and never mislabel it as incorrect login credentials.
+    """
+
+
 class TrybatecConnectionError(TrybatecError):
     """Transient or permanent request failure."""
 
 
 class TrybatecDataError(TrybatecError):
     """Invalid or excessively large vendor response."""
+
+
+class TrybatecDiscoveryAmbiguousError(TrybatecDataError):
+    """Housing discovery did not identify exactly one safe candidate."""
 
 
 class TrybatecWindowError(TrybatecDataError):
@@ -229,9 +242,11 @@ class TrybatecClient:
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
-                    if response.status in (401, 403):
+                    if response.status == 403:
+                        raise TrybatecAccessDeniedError("Housing discovery access denied")
+                    if response.status == 401:
                         if auth_retried:
-                            raise TrybatecAuthError("Housing discovery authorization rejected")
+                            raise TrybatecAuthError("Housing discovery authentication rejected")
                         auth_retried = True
                         self._token = None
                         await self.authenticate()
@@ -246,8 +261,12 @@ class TrybatecClient:
                     payload = await _bounded_json(response, MAX_AUTH_BYTES)
             except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                 raise TrybatecConnectionError("Housing discovery request failed") from exc
-            if not isinstance(payload, list) or len(payload) != 1:
-                raise TrybatecDataError("Housing discovery ambiguous or unavailable")
+            if not isinstance(payload, list):
+                raise TrybatecDataError("Invalid housing discovery response")
+            if len(payload) != 1:
+                raise TrybatecDiscoveryAmbiguousError(
+                    "Housing discovery ambiguous or unavailable"
+                )
             housing = payload[0]
             if not isinstance(housing, dict):
                 raise TrybatecDataError("Invalid housing discovery payload")
@@ -285,9 +304,11 @@ class TrybatecClient:
                 ) as response:
                     if operation is not None:
                         operation.observe(status=response.status)
-                    if response.status in (401, 403):
+                    if response.status == 403:
+                        raise TrybatecAccessDeniedError("Trybatec indexes access denied")
+                    if response.status == 401:
                         if auth_retried:
-                            raise TrybatecAuthError("Authorization failed")
+                            raise TrybatecAuthError("Trybatec indexes authentication rejected")
                         auth_retried = True
                         self._token = None
                         await self.authenticate()

@@ -17,11 +17,11 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_METER_TARIFFS, CONF_TARIFFS, DOMAIN, FLUIDS
-from .parsing import numeric, validate_tariffs
+from .parsing import validate_tariffs
 from .units import meter_key
 from .tariff_validation import (
     effective_rate as effective_rate,  # Compatibility re-export, intentionally public.
-    tariff_fingerprint, validate_meter_tariffs,
+    tariff_fingerprint, validate_meter_tariffs, validate_edit_rate,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,13 +56,8 @@ async def change_tariff(
             or not isinstance(expected_fingerprint, str)
             or len(expected_fingerprint) != 64 or not set(expected_fingerprint) <= _HEX):
         raise ValueError("Invalid tariff edit scope")
-    if not remove:
-        amount = numeric(rate)
-        if amount is None or amount > 1000000:
-            raise ValueError("Tariff must be a finite non-negative number")
-        amount = round(amount, 6)
-    else:
-        amount = None
+    # Reject excessive precision rather than silently changing the user's rate.
+    amount = None if remove else validate_edit_rate(rate)
     if physical_key is not None:
         if (not isinstance(physical_key, str)
                 or len(physical_key) != 24 or not set(physical_key) <= _HEX):
@@ -83,9 +78,13 @@ async def change_tariff(
         before = dict(coordinator.entry.options)
         if tariff_fingerprint(before) != expected_fingerprint:
             raise ValueError("Stale tariff form: reload before saving")
-        table = validate_tariffs(before.get(CONF_TARIFFS, "{}"))
+        # Validate the legacy payload, but edit its original representation.
+        # Bare numeric tariffs and unrelated metadata must not be silently
+        # converted to a canonical dict by a change to another year or meter.
+        legacy_raw = before.get(CONF_TARIFFS, "{}")
+        validate_tariffs(legacy_raw)
+        new_table = json.loads(legacy_raw)
         meters = validate_meter_tariffs(before.get(CONF_METER_TARIFFS))
-        new_table = {key: dict(value) for key, value in table.items()}
         new_meters = {key: dict(value) for key, value in meters.items()}
         selected = new_table if physical_key is None else new_meters
         exercise = dict(selected.get(str(year), {}))
@@ -95,18 +94,27 @@ async def change_tariff(
                 raise ValueError("Cannot delete a tariff that does not exist")
             exercise.pop(key)
         else:
-            exercise[key] = {"rate": amount, "status": status}
+            # Preserve ancillary fields of a pre-existing legacy common record.
+            # Only the explicitly edited rate/status may change; bare numbers
+            # become structured records only when the user edits that rate.
+            previous_record = exercise.get(key) if physical_key is None else None
+            retained = previous_record if isinstance(previous_record, dict) else {}
+            exercise[key] = {**retained, "rate": amount, "status": status}
         if exercise:
             selected[str(year)] = exercise
         else:
             selected.pop(str(year), None)
         validate_meter_tariffs(new_meters)
-        new_table = validate_tariffs(json.dumps(new_table, allow_nan=False))
+        validate_tariffs(json.dumps(new_table, allow_nan=False))
         updated = dict(before)
-        updated[CONF_TARIFFS] = json.dumps(
-            new_table, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
-            allow_nan=False,
-        )
+        if physical_key is None:
+            # Only a common-rate edit requires serializing the legacy table.
+            # All unrelated years and records remain structurally intact.
+            updated[CONF_TARIFFS] = json.dumps(
+                new_table, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            )
+        # A meter-only edit preserves the legacy JSON string byte-for-byte.
         updated[CONF_METER_TARIFFS] = new_meters
         hass.config_entries.async_update_entry(coordinator.entry, options=updated)
         # The config-entry listener updates the affected YTD sensors in memory;

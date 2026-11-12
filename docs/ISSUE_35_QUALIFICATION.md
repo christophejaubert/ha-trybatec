@@ -1,5 +1,8 @@
 # Issue #35 — Qualification installation et accès / Setup & access qualification
 
+**Baseline / Référence historique :** merged PR #119, prior to subsequent #35 fixes.  
+**Superseded for current behavior / État actuel à lire :** [ISSUE_35_FUNCTIONAL_FIXES.md](ISSUE_35_FUNCTIONAL_FIXES.md). The two strict xfails below describe the *historical #119 baseline*, not this corrective branch's acceptance result. CI on the corrective SHA is required.
+
 **Date / Date:** 2026-11-12  
 **Scope:** synthetic testing and documentation only; production portal and Home Assistant are excluded.  
 **Coordination:** PR #82 reserves `custom_components/trybatec/config_flow.py`, `coordinator.py`, and `__init__.py`.
@@ -33,12 +36,12 @@ Cette PR ne redéveloppe pas les parcours déjà présents sur main. Le code exi
 | Confidentialité | Exceptions assainies | Vérifications synthétiques partielles | Audit logs restant |
 | FR/EN | Champs localisés | Documentation FR/EN | Notifications FR seulement |
 
-### Défauts matérialisés par des tests strictement xfail
+### Écarts historiques de la PR #119 — corrigés dans la branche candidate, à qualifier par CI
 
 1. **Notification après recréation du coordinateur :** une notification produite avant un redémarrage peut ne pas être clôturée après la première actualisation réussie. L'indicateur `_access_notification_active` est initialisé à False sur le nouvel objet. Correction à coordonner dans `coordinator.py` (PR #82).
 2. **Refus spécifique du deal découvert :** `TrybatecAuthError` issu de `/indexes` ramène au formulaire `invalid_auth` sans repli URL. Distinguer le refus de l'identité et l'absence d'accès à cette copropriété avant de modifier le comportement. Correction et arbitrage avec PR #82.
 
-**Important :** les xfail sont des lacunes documentées, pas des critères d'acceptation satisfaits. Si un xfail devient XPASS en mode strict, il faut qualifier le changement puis retirer le marqueur.
+**Historique :** ces marqueurs ont été retirés de la branche corrective et remplacés par des scénarios normaux. Une CI réussie sur le SHA correctif est nécessaire ; l'issue reste ouverte sans recette réelle.
 
 ### Exécution demandée
 
@@ -62,7 +65,7 @@ Les fichiers source sont synthétiques, utilisent un compte inventé en `example
 
 The existing integration already implements credentials-only setup for an unambiguous housing, authenticated housing discovery, verified Indexes access, controlled Indexes-page URL fallback, HA reauthentication, limited retries and persistent notifications. This PR adds independent synthetic tests and corrects the bilingual installation documentation.
 
-Two intentionally strict expected failures remain: clearing an old persistent notification after coordinator recreation, and offering a controlled URL fallback after deal-specific Indexes authorization failure. They are not passing product acceptance tests; do not silently remove their markers.
+At the PR #119 baseline, two intentionally strict expected failures remained: clearing an old persistent notification after coordinator recreation, and offering a controlled URL fallback after deal-specific Indexes authorization failure. The corrective branch replaces them with explicit assertions; confirm its exact-sha CI before claiming technical qualification.
 
 No real Trybatec credentials or network requests, Home Assistant production changes, Recorder writes, Energy preference changes, merge or release are authorized by this work. Functional fixes in the three reserved files require separate coordination with PR #82.
 

@@ -379,8 +379,28 @@ async function runCase(browser, locale, device, dark=false) {
       await page.locator("trybatec-panel button[data-tariff-years-retry]").click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
-        return root?.querySelector('select#tariff-year option[value="2020"]');
+        return root?.querySelector('datalist#tariff-year-options option[value="2020"]');
       });
+      const year=page.locator("trybatec-panel input#tariff-year");
+      assert.equal(await year.count(),1,"Annual year must be a native numeric field");
+      if(await year.inputValue()==="2026") {
+        assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+          "The initial year must prefill a stored rate");
+      }
+      await year.fill("2040");
+      assert.equal(await year.inputValue(),"2040",
+        "Users must be able to enter an exercise outside observed years");
+      const empty=await page.locator("trybatec-panel [data-tariff-effective]").innerText();
+      assert.match(empty,locale==="FR"?/Aucun tarif enregistré/:/No rate saved/);
+      await year.fill("2026");
+      assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+        "Changing the exercise must prefill the saved rate without losing focus");
+      const shown=await page.locator("trybatec-panel [data-tariff-effective]").innerText();
+      assert.match(shown,locale==="FR"?/Tarif effectif enregistré/:/Saved effective rate/);
+      await page.locator("trybatec-panel input#tariff-rate").fill("9");
+      await page.locator("trybatec-panel button[data-tariff-reset]").click();
+      assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+        "Discarding a draft must restore the persisted rate without writing");
       const content=await page.locator("trybatec-panel main").innerText();
       assert.match(content,/2[.,]25/);
       assert.match(content,/EUR\/m³/);
@@ -391,10 +411,10 @@ async function runCase(browser, locale, device, dark=false) {
       animations:"disabled",
     });
   }
-  // Narrow-width check: ensure the relevant screens reflow at 320 CSS px.
-  // This is synthetic Chromium coverage, not a real HA theme/zoom audit.
+  // FR/EN: cover all seven screens at 320 CSS px, not just first three.
+  // Synthetic Chromium only: no claim of live HA/mobile WCAG acceptance.
   await page.setViewportSize({width:320,height:760});
-  for (const narrowTab of ["overview","meters","history"]) {
+  for (const narrowTab of tabs) {
     await page.locator('trybatec-panel nav button[data-tab="'+narrowTab+'"]').click();
     const layout=await page.evaluate(()=>{
       const root=document.documentElement,host=document.querySelector("trybatec-panel");
@@ -403,6 +423,28 @@ async function runCase(browser, locale, device, dark=false) {
     });
     assert.ok(layout.documentWidth<=layout.viewport+2,
       "320 CSS px reflow failed for "+locale+"/"+narrowTab+": "+JSON.stringify(layout));
+    if(narrowTab==="energy") {
+      // A checkbox's native 13px square is not its whole clickable label.
+      const labels=await page.evaluate(()=>{
+        const root=document.querySelector("trybatec-panel").shadowRoot;
+        return [...root.querySelectorAll(".actions>label")]
+          .filter(el=>el.querySelector('input[type="checkbox"]:not(:disabled)') &&
+            el.getClientRects().length)
+          .map(el=>({text:el.textContent.trim(),
+            height:el.getBoundingClientRect().height,
+            width:el.getBoundingClientRect().width}));
+      });
+      assert.ok(labels.length>=3,"Energy must expose labeled native confirmations");
+      assert.ok(labels.every(x=>x.height>=24 && x.width>=24),
+        "Under-24px clickable confirmation label: "+JSON.stringify(labels));
+      const content=labels.map(x=>x.text).join(" | ");
+      if(locale==="EN") {
+        assert.match(content,/I approve a new version/);
+        assert.match(content,/Resume a pending import/);
+        assert.match(content,/A recoverable HA\/Recorder backup is available/);
+        assert.doesNotMatch(content,/J’approuve|Reprendre une importation/);
+      }
+    }
   }
   // Keyboard focus must have a visible, nonzero outline independent of color.
   const focusTarget=page.locator('trybatec-panel nav button[data-tab="meters"]');

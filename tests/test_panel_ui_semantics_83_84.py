@@ -52,7 +52,7 @@ const tr=(fr,en)=>fr;
 const meter={physical_key:"a".repeat(24),status:"depose",source:"archived_verified_inventory",
   serial:"SYNTH-OLD",lot:"SYNTH-LOT",fluid:"CET",unit:"kWh",unit_verified:true,
   last_index:null,first_observed_at:null,last_source_observed_at:null,last_observed_at:null};
-const account={entry_id:"SYNTH-ENTRY",meters:[meter],entities:[],meter_options:[{
+const account={entry_id:"SYNTH-ENTRY",data_loaded:true,meters:[meter],entities:[],meter_options:[{
   physical_key:meter.physical_key,selection_origin:"manual",source_unit:"kWh"}],
   tariffs:{},meter_tariffs:{},ledger:{pending:0,series:[]}};
 const fixture={
@@ -96,6 +96,13 @@ assert.match(overview,/Tarifs annuels \(facultatifs\)/);
 assert.match(overview,/Parcours disponibles selon vos besoins/);
 assert.doesNotMatch(overview,/readiness-row issue/);
 assert.doesNotMatch(overview,/mdi:alert-circle-outline/);
+// No source snapshot must never be misreported as not applicable or completed.
+account.data_loaded=false;
+const unloaded=p._readinessView.call(fixture,account);
+assert.match(unloaded,/Inventaire non chargé/);
+assert.match(unloaded,/readiness-row pending/);
+assert.doesNotMatch(unloaded,/Aucun compteur en service dans cet inventaire/);
+account.data_loaded=true;
 account.meters.push({...meter,status:"en_service",unit_verified:false,
   physical_key:"b".repeat(24),serial:"SYNTH-NEW"});
 account.meter_options.push({physical_key:"b".repeat(24),source_unit:"conflict"});

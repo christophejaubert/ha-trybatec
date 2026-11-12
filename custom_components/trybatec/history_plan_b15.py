@@ -18,6 +18,8 @@ from .history_reconstruction import (
     consolidate_consumptions, logical_series_id,
 )
 from .history_variants_b15 import variants_preview
+from .history_coverage_l2 import build_coverage_evidence
+from .units import meter_key
 
 ZONE = ZoneInfo(TIMEZONE)
 
@@ -94,6 +96,44 @@ def make_b15_plan(
         history, verified_units, decisions, sparse_hours=sparse_hours,
         approved_origins=approved_origins,
     )
+    # Preserve the established B15 failure contract before consulting the
+    # ancillary provenance evidence; unverified meters cannot be imported.
+    if any(meter["status"] != "preview_only" for meter in variants["meters"]):
+        raise ValueError(
+            "Unverified or conflicted physical meter blocks whole dwelling import"
+        )
+    # Preserve source readings. An approved origin extends the period
+    # but is not reclassified as a measured physical index.
+    physical_bounds = {}
+    for key, meter in history.get("__physical_meters__", {}).items():
+        readings = meter.get("reviewed_readings") or []
+        if not readings:
+            continue
+        first, last = readings[0][0], readings[-1][0]
+        if (not isinstance(first, datetime) or first.tzinfo is None
+                or not isinstance(last, datetime) or last.tzinfo is None):
+            raise ValueError("Unverified physical source date bounds")
+        # B15's raw consumption is placed at history._bucket(reading),
+        # i.e. in the UTC hour immediately before its observation. A
+        # 00:20 local reading may therefore belong to the prior civil day.
+        # Bound the statistic buckets, not the physical index timestamps;
+        # the latter remain immutable in the reviewed source history.
+        first_day = (first.astimezone(timezone.utc) -
+                     timedelta(hours=1)).astimezone(ZONE).date()
+        last_day = (last.astimezone(timezone.utc) -
+                    timedelta(hours=1)).astimezone(ZONE).date()
+        origin = (approved_origins or {}).get(meter_key(*key))
+        if origin is not None:
+            first_day = date.fromisoformat(origin["estimated_start_date"])
+            # An approved initial estimate ends at the real first
+            # observation's civil day, including readings near midnight.
+            last_day = max(last_day, first.astimezone(ZONE).date())
+        physical_bounds[key] = (first_day, last_day)
+    coverage = build_coverage_evidence(
+        variants["meters"], source_bounds=physical_bounds,
+        explicitly_parallel=explicitly_parallel,
+    )
+    coverage_groups = {(x["lot"], x["fluid"]): x for x in coverage["groups"]}
     series = []
     groups: dict[tuple[str, str], list[dict]] = {}
     source_digests: dict[tuple[str, str], list] = {}
@@ -144,6 +184,14 @@ def make_b15_plan(
             account_key, lot, fluid, sources, selection,
             explicitly_parallel=explicitly_parallel,
         )
+        # Independently compare selected physical consumption and provenance.
+        evidence = coverage_groups[(lot, fluid)]
+        by_day = {row["date"]: row for row in evidence["rows"]}
+        if ({record["date"] for record in result["rows"]} != set(by_day)
+                or any(abs(Decimal(str(record["consumption"])) -
+                           Decimal(str(by_day[record["date"]]["consumption"])))
+                       > Decimal("0.000001") for record in result["rows"])):
+            raise ValueError("Consolidated history and provenance do not agree")
         daily = {date.fromisoformat(record["date"]): record["consumption"]
                  for record in result["rows"]}
         rows = statistic_rows(daily)
@@ -157,6 +205,8 @@ def make_b15_plan(
             "source_fingerprint": _digest(source_digests[(lot, fluid)]),
             "rows": rows, "count": len(rows),
             "selected_meters": result["selected_meters"],
+            "coverage_fingerprint": evidence["fingerprint"],
+            "coverage_status": evidence["coverage"],
         })
     if not series:
         raise ValueError("No verified nonempty b15 historical consumption series")
@@ -170,10 +220,14 @@ def make_b15_plan(
         "logical_groups": len(groups),
         "physical_meters": len(variants["meters"]),
         "approved_estimated_origins": variants["approved_estimated_origins"],
+        "coverage_evidence": coverage,
         "fingerprint": _digest([{
             "logical": item["logical_id"],
             "source": item["source_fingerprint"],
             "unit": item["unit"],
+            # Bind approval to audited provenance, not just quantity totals.
+            # This does not alter the stable logical Recorder statistic ID.
+            "coverage": item.get("coverage_fingerprint"),
             "rows": [[row["start"].isoformat(), row["sum"]] for row in item["rows"]],
         } for item in sorted(series, key=lambda item: item["logical_id"])]),
     }

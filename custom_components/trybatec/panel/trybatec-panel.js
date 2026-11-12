@@ -53,7 +53,11 @@ function trybatecEnergySetupGuidance(account, energy) {
       "Historical continuity for "+retired.length+" retired meter(s) is not proven by this view.",
       retired.length===1?retired[0].physical_key:null);
   const hasSources=Array.isArray(energy?.sources)&&energy.sources.length>0;
-  const mode=energy?.status==="not_loaded"?"technical_unavailable":
+  // FR/EN: unknown/missing status is not proof of missing implementation.
+  // The snapshot backend currently exposes only not_loaded/unconfigured/available.
+  const energyState=energy?.status;
+  const mode=!["not_loaded","unconfigured","available"].includes(energyState)?"status_unknown":
+    energyState==="not_loaded"?"technical_unavailable":
     reasons.some(r=>r.level==="required")?"configuration_incomplete":
     reasons.length?"verification_needed":
     hasSources?"coverage_unverified":"not_implemented";
@@ -91,6 +95,21 @@ function trybatecTariffYears(account, currentYear) {
     }
   }
   return {years:[...years].sort((a,b)=>b-a), fallback};
+}
+
+/** Resolve only the tariff saved for the exact exercise, fluid and physical meter. */
+function trybatecSavedEffectiveTariff(account, year, fluid, physicalKey="") {
+  const y=String(year);
+  if (physicalKey) {
+    const meter=(account?.meters||[]).find(m=>m.physical_key===physicalKey);
+    if (!meter || meter.fluid!==fluid) return null;
+  }
+  const specific=physicalKey ? account?.meter_tariffs?.[y]?.[physicalKey] : null;
+  const common=account?.tariffs?.[y]?.[fluid];
+  const record=specific ?? common;
+  if (!record) return null;
+  return {rate:record.rate,status:record.status,
+    origin:specific ? "meter_override" : "fluid_default", source_year:Number(y)};
 }
 
 /** Merge dated historical supplier observations by exact physical meter key only. */
@@ -491,6 +510,19 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Période incomplète","Incomplete period"],
   ["Lecture des relevés et calcul en cours.","Reading source data and calculating."],
   ["Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.","Choose the year, utility and optionally a meter. Existing rates are preserved."],
+  ["Tarifs annuels","Annual rates"],
+  ["Montants en EUR par exercice, fluide et, facultativement, compteur physique.","Rates in EUR by year, utility and optionally physical meter."],
+  ["Compteur non identifié","Unidentified meter"],
+  ["(déposé)","(retired)"],
+  ["Annuler la saisie","Discard edits"],
+  ["Modifier","Edit"],
+  ["Action","Action"],
+  ["Exercice invalide : choisissez une année entre 2000 et 2100.","Invalid year: choose a year between 2000 and 2100."],
+  ["Le tarif doit être compris entre 0 et 1 000 000, avec six décimales au maximum.","Enter a rate between 0 and 1,000,000 with no more than six decimal places."],
+  ["Tarif enregistré, mais actualisation impossible : actualisez le panneau pour vérifier la valeur.","Rate saved, but the panel could not refresh: reload to verify the value."],
+  ["Aucun tarif enregistré pour cet exercice.","No rate saved for this year."],
+  ["Tarif effectif enregistré","Saved effective rate"],
+  ["Exercices suggérés ci-dessous ; toute année entre 2000 et 2100 peut être saisie.","Suggested years are shown; you can enter any year from 2000 to 2100."],
   ["Portée","Scope"],
   ["Préparer une version historique Recorder","Prepare a Recorder history version"],
   ["Plan non importé","Plan not imported"],
@@ -662,6 +694,8 @@ const style = [
   ".meter-name{font-weight:650;font-size:14px;display:block;margin-bottom:3px;overflow-wrap:anywhere}",
   ".meter-sub{font-size:12px;color:var(--secondary-text-color,#738091);display:block;overflow-wrap:anywhere}",
   ".actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}",
+  // A wrapped checkbox label is the full accessible hit target, not only its 13px native box.
+  ".actions>label{display:inline-flex;align-items:center;gap:8px;min-height:32px;max-width:100%}",
   ".primary,.secondary{border:1px solid #b5c9e8;border-radius:11px;padding:10px 14px;background:#e9f1ff;color:#174b95;font-weight:650}",
   ".primary{background:var(--primary-color,#2977c4);color:#fff;border-color:var(--primary-color,#2977c4)}",
   ".link{color:var(--primary-color,#1976bd);text-decoration:none;font-weight:650;font-size:13px}",
@@ -681,6 +715,9 @@ const style = [
   "th{font-size:12px;color:var(--secondary-text-color,#667085)}",
   ".empty{padding:18px;color:var(--secondary-text-color,#68758b);font-size:13px;line-height:1.55}",
   ".grid-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}",
+  // FR/EN: a native select's intrinsic min-content width must not widen a 320 CSS px page.
+  // Preserve keyboard selection and readable labels; do not hide overflow on the page.
+  ".grid-two>div{min-width:0}.grid-two select,.grid-two input{box-sizing:border-box;min-width:0;max-width:100%;width:100%}",
   ".form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}",
   "label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--secondary-text-color,#606e82)}",
   ".form-grid input,.form-grid select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px;color:inherit;background:var(--card-background-color,#fff)}",
@@ -747,7 +784,10 @@ class TrybatecPanel extends HTMLElement {
     this._message = "";
     this._started = false;
     this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+    this._tariffHydrated = false;
     this._tariffBusy = false;
+    this._tariffError = "";
+    this._tariffMessage = "";
     this._tariffCoverage = new Map();
     this._costPreview=null;
     this._costBusy=false;
@@ -912,8 +952,28 @@ class TrybatecPanel extends HTMLElement {
     this._error = "";
     this._render();
     try {
-      this._data = await this._hass.callWS({type:"trybatec/panel_snapshot"});
-      this._account = Math.min(this._account, Math.max(0,this._data.accounts.length-1));
+      // FR/EN: preserve the physical meter across inventory reordering.
+      // Never silently show a different meter if the previous one disappeared.
+      const priorEntryId=this._current?.entry_id;
+      const previousMeter=this._current?.meters?.[this._meter];
+      const priorPhysicalKey=previousMeter?.physical_key;
+      const snapshot=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      if (!Array.isArray(snapshot?.accounts)) throw new Error("Invalid panel snapshot");
+      this._data=snapshot;
+      const accountIndex=priorEntryId?
+        snapshot.accounts.findIndex(a=>a.entry_id===priorEntryId):-1;
+      this._account=accountIndex>=0?accountIndex:
+        Math.min(this._account,Math.max(0,snapshot.accounts.length-1));
+      if (previousMeter) {
+        // FR/EN: keyless or duplicate physical identities cannot select a
+        // unique device. Fail closed without changing any stored identity.
+        const matches=priorPhysicalKey && accountIndex>=0?
+          (this._current?.meters||[]).flatMap((m,i)=>
+            m.physical_key===priorPhysicalKey?[i]:[]):[];
+        this._meter=matches.length===1?matches[0]:-1;
+      } else if (this._meter<0) {
+        this._meter=-1;
+      }
       this._message = "";
     } catch (err) {
       this._error = "Impossible de charger les informations Trybatec. Consultez les journaux et réessayez.";
@@ -1022,6 +1082,8 @@ class TrybatecPanel extends HTMLElement {
       this._loggingInput=null;this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
       this._historyPreview=null;this._historySelected="";
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+      this._tariffHydrated=false;
+      this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
       this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
     }
@@ -1038,6 +1100,25 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
     if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
+    if (btn.dataset.tariffReset !== undefined) {
+      const saved=this._existingTariff();
+      this._tariffInput.rate=saved?String(saved.rate):"";
+      this._tariffInput.status=saved?saved.status:"provisional";
+      this._tariffError="";this._tariffMessage="";
+      this._unsavedInput=false;
+      this._render();return;
+    }
+    if (btn.dataset.tariffEditYear !== undefined) {
+      const year=Number(btn.dataset.tariffEditYear);
+      const fluid=btn.dataset.tariffEditFluid;
+      const physical_key=btn.dataset.tariffEditMeter||"";
+      if (!Number.isInteger(year)||year<2000||year>2100||!["EF","ECS","CET"].includes(fluid)) return;
+      this._tariffInput={year,fluid,physical_key,rate:"",status:"provisional"};
+      const saved=this._existingTariff();
+      if (saved) {this._tariffInput.rate=String(saved.rate);this._tariffInput.status=saved.status;}
+      this._tariffError="";this._tariffMessage="";
+      this._render();this.shadowRoot.querySelector("#tariff-rate")?.focus();return;
+    }
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
     if (btn.dataset.meterOptionsSave !== undefined) {this._saveMeterOptions();return;}
@@ -1226,6 +1307,8 @@ class TrybatecPanel extends HTMLElement {
     const field=event.target.dataset.tariffField;
     if (field) {
       this._tariffInput[field]=event.target.value;
+      this._tariffError="";this._tariffMessage="";
+      if (field==="fluid") this._tariffInput.physical_key="";
       if (field==="year") {this._costPreview=null;this._costYear=null;this._costError="";}
       if (["year","fluid","physical_key"].includes(field)) {
         const item=this._existingTariff();
@@ -1235,6 +1318,9 @@ class TrybatecPanel extends HTMLElement {
       if (["year","rate","fluid","physical_key","status"].includes(field)) {
         this._costPreview=null;this._costYear=null;
       }
+      // A typed year must refresh saved values and hints without replacing
+      // the focused native number element (keyboard and mobile safety).
+      if (field==="year") this._syncTariffSelection();
       this._finishFieldChange(event);
     }
   }
@@ -1246,6 +1332,31 @@ class TrybatecPanel extends HTMLElement {
       ((a.meter_tariffs||{})[year]||{})[f.physical_key]||null :
       ((a.tariffs||{})[year]||{})[f.fluid]||null;
   }
+  _tariffEffectiveText() {
+    const a=this._current, f=this._tariffInput;
+    if (!a) return "";
+    const effective=trybatecSavedEffectiveTariff(a,f.year,f.fluid,f.physical_key);
+    const unit=f.fluid==="CET"?"EUR/kWh":"EUR/m³";
+    return effective ?
+      this._t("Tarif effectif enregistré","Saved effective rate")+": "+
+        this._number(effective.rate)+" "+unit+" · "+
+        this._t(effective.origin==="meter_override"?"Spécifique au compteur":"Commun au fluide",
+          effective.origin==="meter_override"?"Meter-specific":"Default fluid rate")+" · "+
+        this._t(effective.status==="approved"?"Approuvé":"Provisoire",
+          effective.status==="approved"?"Approved":"Provisional"):
+      this._t("Aucun tarif enregistré pour cet exercice.","No rate saved for this year.");
+  }
+  _syncTariffSelection() {
+    const root=this.shadowRoot;
+    const rate=root.querySelector("#tariff-rate");
+    if (rate) rate.value=this._tariffInput.rate;
+    const status=root.querySelector("#tariff-status");
+    if (status) status.value=this._tariffInput.status;
+    const deletion=root.querySelector("[data-tariff-delete]");
+    if (deletion) deletion.disabled=!this._existingTariff()||this._tariffBusy;
+    const effective=root.querySelector("[data-tariff-effective]");
+    if (effective) effective.textContent=this._tariffEffectiveText();
+  }
   _submit(event) {
     if (event.target.dataset.tariffForm !== undefined) {
       event.preventDefault();this._sendTariff(false);
@@ -1254,28 +1365,39 @@ class TrybatecPanel extends HTMLElement {
   async _sendTariff(remove) {
     if (this._tariffBusy || !this._current) return;
     const f=this._tariffInput;
-    const rate=Number(f.rate);
-    if (!remove && (f.rate==="" || !Number.isFinite(rate) || rate<0)) {
-      this._error="Le tarif doit être un montant non négatif et valide.";this._render();return;
+    const year=Number(f.year);
+    if (!Number.isInteger(year) || year<2000 || year>2100) {
+      this._tariffError="Exercice invalide : choisissez une année entre 2000 et 2100.";
+      this._render();return;
+    }
+    const raw=String(f.rate).trim();
+    const rate=Number(raw);
+    if (!remove && (!/^[0-9]+(?:\.[0-9]{1,6})?$/.test(raw) ||
+        !Number.isFinite(rate) || rate<0 || rate>1000000)) {
+      this._tariffError="Le tarif doit être compris entre 0 et 1 000 000, avec six décimales au maximum.";
+      this._render();return;
     }
     const message=remove?
       "Supprimer ce tarif ? Le tarif commun sera de nouveau applicable à ce compteur, si défini.":
       "Enregistrer ce tarif annuel ? Les historiques Recorder et les préférences Énergie resteront inchangés.";
     if (!this._confirm(message)) return;
-    this._tariffBusy=true;this._error="";this._render();
+    this._tariffBusy=true;this._tariffError="";this._tariffMessage="";this._render();
+    let confirmedSaved=false;
     try {
       const request={
         type:"trybatec/panel_tariff_change",
         entry_id:this._current.entry_id,
-        year:Number(f.year),fluid:f.fluid,status:f.status,
+        year,fluid:f.fluid,status:f.status,
         remove:Boolean(remove),confirmed:true,
         expected_fingerprint:this._current.tariff_fingerprint,
       };
       if (f.physical_key) request.physical_key=f.physical_key;
       if (!remove) request.rate=rate;
-      await this._hass.callWS(request);
+      const result=await this._hass.callWS(request);
+      if (result?.status!=="saved") throw new Error("Tariff write not confirmed");
+      confirmedSaved=true;
       this._data=await this._hass.callWS({type:"trybatec/panel_snapshot"});
-      this._message=remove?"Tarif retiré.":"Tarif enregistré.";
+      this._tariffMessage=remove?"Tarif retiré.":"Tarif enregistré.";
       this._costPreview=null;this._costYear=null;
       this._tariffInput.rate="";
       this._tariffInput.status="provisional";
@@ -1284,8 +1406,15 @@ class TrybatecPanel extends HTMLElement {
         this._tariffInput.rate=String(existing.rate);
         this._tariffInput.status=existing.status;
       }
+      this._unsavedInput=false;
     } catch (_) {
-      this._error="Modification refusée : vérifiez les données et actualisez les tarifs avant de réessayer.";
+      if (confirmedSaved) {
+        this._tariffMessage="Tarif enregistré, mais actualisation impossible : actualisez le panneau pour vérifier la valeur.";
+        this._costPreview=null;this._costYear=null;
+        this._unsavedInput=false;
+      } else {
+        this._tariffError="Modification refusée : vérifiez les données et actualisez les tarifs avant de réessayer.";
+      }
     } finally {
       this._tariffBusy=false;this._render();
     }
@@ -1379,7 +1508,9 @@ class TrybatecPanel extends HTMLElement {
       '<div><strong>'+safe(title)+'</strong><p>'+safe(description)+'</p>'+
       '<div class="actions"><button type="button" class="secondary" data-tab="'+
       safe(tab)+'">'+safe(action)+'</button></div></div></div>';
-    const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
+    // An unloaded inventory is unverified, not proof that no meter applies.
+    const sourceStatus=a.data_loaded!==true?"unverified":
+      active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
     const retiredCoverage=this._tariffCoverage?.get(a.entry_id);
     // An account-wide scan does not prove a particular retired meter was observed.
     // Require exact physical identity and two verified supplier bounds for each.
@@ -1389,9 +1520,13 @@ class TrybatecPanel extends HTMLElement {
           row.physical_key===m.physical_key);
         return Boolean(bound?.first_observed_at && bound?.last_source_observed_at);
       });
-    const retiredStatus=retired.length===0?"na":
+    const retiredStatus=a.data_loaded!==true?"unverified":
+      retired.length===0?"na":
       retiredBoundsVerified && missingDates.length===0?"passed":"unverified";
-    const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
+    const sourceText=a.data_loaded!==true?t(
+      "Inventaire non chargé : l’état des compteurs ne peut pas être vérifié.",
+      "Inventory not loaded: meter status cannot be verified."):
+      active.length===0?t("Aucun compteur en service dans cet inventaire.",
       "No active meters in this inventory."):
       conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
       "A source-unit contradiction was reported for an active meter."):
@@ -1399,7 +1534,10 @@ class TrybatecPanel extends HTMLElement {
       "Current readings and units are present; this is not an exhaustive audit."):
       t("Un ou plusieurs relevés courants ou unités restent à vérifier.",
       "One or more current readings or units require verification.");
-    const retiredText=retired.length===0?t("Aucun compteur déposé connu.",
+    const retiredText=a.data_loaded!==true?t(
+      "Inventaire non chargé : les compteurs déposés ne sont pas vérifiables.",
+      "Inventory not loaded: retired meters cannot be verified."):
+      retired.length===0?t("Aucun compteur déposé connu.",
       "No known retired meter."):missingDates.length===0?
       (retiredStatus==="passed"?t(
         "Bornes vérifiées par une analyse historique complète ; la continuité des relevés demeure un contrôle distinct.",
@@ -2441,16 +2579,31 @@ class TrybatecPanel extends HTMLElement {
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
-    const rows=Object.entries(a.tariffs).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
+    // Initial navigation must show the persisted rate, not a blank draft.
+    // Hydration happens once per account, never over unsaved user input.
+    if (!this._tariffHydrated) {
+      const saved=this._existingTariff();
+      f.rate=saved?String(saved.rate):"";
+      f.status=saved?saved.status:"provisional";
+      this._tariffHydrated=true;
+    }
+    const editButton=(year,fluid,physicalKey="")=>
+      '<button type="button" class="secondary" data-tariff-edit-year="'+safe(year)+
+      '" data-tariff-edit-fluid="'+safe(fluid)+'" data-tariff-edit-meter="'+safe(physicalKey)+
+      '">'+safe(this._t("Modifier","Edit"))+'</button>';
+    const rows=Object.entries(a.tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
       Object.entries(fluids).map(([fluid,t])=>'<tr><td>'+safe(year)+'</td><td>'+safe(FLUID[fluid]||fluid)+
       '</td><td>'+safe(this._number(t.rate))+' '+safe(fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
-      '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>'));
+      '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td><td>'+
+      editButton(year,fluid)+'</td></tr>'));
     const overrides=Object.entries(a.meter_tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,values])=>
       Object.entries(values).map(([key,t])=>{
         const m=a.meters.find(m=>m.physical_key===key);
         return '<tr><td>'+safe(year)+'</td><td>'+safe(m?(FLUID[m.fluid]+" · "+m.serial):"Compteur non identifié")+
           '</td><td>'+safe(this._number(t.rate))+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
-          '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
+          '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td><td>'+
+          (m?editButton(year,m.fluid,key):'<span class="muted">'+safe(this._t("Non vérifié","Not verified"))+'</span>')+
+          '</td></tr>';
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
     const coverage=this._tariffCoverage.get(a.entry_id);
@@ -2470,45 +2623,48 @@ class TrybatecPanel extends HTMLElement {
       'elle peut solliciter plusieurs années de relevés fournisseur. '+
       '<button type="button" data-tariff-years-retry>'+
       'Rechercher les exercices historiques</button></p>';
-    if (!range.years.includes(Number(f.year))) {
-      f.year=range.years.includes(new Date().getFullYear())?
-        new Date().getFullYear():range.years[0];
-      f.rate="";f.status="provisional";f.physical_key="";
-    }
+    // Historical years are suggestions, never a restriction on new exercises.
     const yearOptions=range.years.map(year=>
-      '<option value="'+year+'" '+(Number(f.year)===year?"selected":"")+'>'+year+'</option>').join("");
+      '<option value="'+year+'"></option>').join("");
     const current=a.meters.filter(m=>m.fluid===f.fluid);
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
       current.map(m=>'<option value="'+safe(m.physical_key)+'" '+(f.physical_key===m.physical_key?"selected":"")+'>'+
-      safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?" (déposé)":""))+'</option>').join("");
+      safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?this._t(" (déposé)"," (retired)"):""))+'</option>').join("");
+    const unit=f.fluid==="CET"?"EUR/kWh":"EUR/m³";
+    const effectiveText=this._tariffEffectiveText();
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
       coverageNotice+
       (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
-      (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
-      (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
+      (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
+      (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
-      '<div><label for="tariff-year">Exercice annuel</label><select id="tariff-year" data-tariff-field="year">'+yearOptions+'</select></div>'+
+      '<div><label for="tariff-year">Exercice annuel</label>'+
+      '<input id="tariff-year" type="number" min="2000" max="2100" step="1" required data-tariff-field="year" list="tariff-year-options" value="'+safe(f.year)+'">'+
+      '<datalist id="tariff-year-options">'+yearOptions+'</datalist>'+
+      '<div class="muted">Exercices suggérés ci-dessous ; toute année entre 2000 et 2100 peut être saisie.</div></div>'+
       '<div><label for="tariff-fluid">Fluide</label><select id="tariff-fluid" data-tariff-field="fluid">'+
       Object.entries(FLUID).filter(([key])=>key!=="unknown").map(([key,label])=>
         '<option value="'+key+'" '+(f.fluid===key?"selected":"")+'>'+safe(label)+'</option>').join("")+'</select></div>'+
       '<div><label for="tariff-scope">Portée</label><select id="tariff-scope" data-tariff-field="physical_key">'+meterOptions+'</select></div>'+
-      '<div><label for="tariff-rate">Tarif ('+safe(f.fluid==="CET"?"EUR/kWh":"EUR/m³")+')</label>'+
-      '<input id="tariff-rate" type="number" min="0" max="1000000" step="any" value="'+safe(f.rate)+
-      '" data-tariff-field="rate" placeholder="0,000000" required></div>'+
+      '<div><label for="tariff-rate">'+safe(this._t("Tarif","Rate"))+' ('+safe(unit)+')</label>'+
+      '<input id="tariff-rate" type="number" min="0" max="1000000" step="0.000001" value="'+safe(f.rate)+
+      '" data-tariff-field="rate" placeholder="0.000000" required></div>'+
       '<div><label for="tariff-status">État</label><select id="tariff-status" data-tariff-field="status">'+
       '<option value="provisional" '+(f.status==="provisional"?"selected":"")+'>Provisoire</option>'+
       '<option value="approved" '+(f.status==="approved"?"selected":"")+'>Approuvé</option></select></div>'+
-      '</div><div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
+      '</div><p class="muted" role="status" data-tariff-effective>'+safe(effectiveText)+'</p>'+
+      '<div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
+      '<button class="secondary" type="button" data-tariff-reset '+(this._tariffBusy?"disabled":"")+'>Annuler la saisie</button>'+
       '<button class="secondary" type="button" data-tariff-delete '+(!this._existingTariff()||this._tariffBusy?"disabled":"")+
       '>Retirer ce tarif</button></div></form>'+
       '<div class="notice">L’état « Approuvé » qualifie le tarif saisi, pas une facture validée. Modifier un tarif ne démarre aucun import Recorder et ne modifie pas Énergie.</div></div>'+
       '<div class="grid-two" style="margin-top:16px"><section class="card"><h3>Tarifs communs</h3>'+
-      (rows.length?'<table><thead><tr><th>Année</th><th>Fluide</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+rows.join("")+'</tbody></table>':
+      (rows.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Fluide</th><th>Tarif</th><th>État</th><th>Action</th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':
       '<div class="empty">Aucun tarif commun enregistré.</div>')+'</section>'+
       '<section class="card"><h3>Tarifs spécifiques aux compteurs</h3>'+
-      (overrides.length?'<table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table>':
+      (overrides.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th><th>Action</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table></div>':
       '<div class="empty">Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.</div>')+
       '</section></div>'+this._annualCostsView();
   }
@@ -2652,9 +2808,9 @@ class TrybatecPanel extends HTMLElement {
         '<div class="scroll">'+rows.slice(0,20).map(x=>'<div class="line">'+
         safe(x.fluid+" · "+x.variant+" · "+x.rows+" points · "+x.unit)+'</div>').join("")+'</div>':"")+
       '<div class="actions"><label><input type="checkbox" data-version-field="importBackup" '+
-      (this._versionImportBackup?"checked":"")+'> Une sauvegarde récupérable de HA/Recorder existe</label>'+
-      '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'> J’approuve une nouvelle version</label>'+
-      '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'> Reprendre une importation en attente</label></div>'+
+      (this._versionImportBackup?"checked":"")+'>'+safe(this._t("Une sauvegarde récupérable de HA/Recorder existe","A recoverable HA/Recorder backup is available"))+'</label>'+
+      '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'>'+safe(this._t("J’approuve une nouvelle version","I approve a new version"))+'</label>'+
+      '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'>'+safe(this._t("Reprendre une importation en attente","Resume a pending import"))+'</label></div>'+
       '<div class="actions"><button class="primary" type="button" data-version-import '+
       (!plan||!this._versionImportBackup||this._versionBusy?"disabled":"")+'>2. Confirmer l’import Recorder</button>'+
       '<button class="secondary" type="button" data-version-verify '+(this._versionBusy?"disabled":"")+'>3. Vérifier la persistance Recorder</button></div>'+
@@ -2686,9 +2842,9 @@ class TrybatecPanel extends HTMLElement {
       safe(this._versionEnergyPlan.old_statistic_id)+" → "+safe(this._versionEnergyPlan.new_statistic_id)+
       '. Une seule source sera remplacée.</div>':"")+
       '<div class="actions"><label><input type="checkbox" data-version-field="energyBackup" '+
-      (this._versionEnergyBackup?"checked":"")+'> Sauvegarde Énergie confirmée</label>'+
+      (this._versionEnergyBackup?"checked":"")+'>'+safe(this._t("Sauvegarde Énergie confirmée","Energy backup confirmed"))+'</label>'+
       '<label><input type="checkbox" data-version-field="rollback" '+
-      (this._versionRollback?"checked":"")+'> J’approuve le retour vers une version archivée</label></div>'+
+      (this._versionRollback?"checked":"")+'>'+safe(this._t("J’approuve le retour vers une version archivée","I approve rollback to an archived version"))+'</label></div>'+
       '<div class="actions"><button type="button" class="primary" data-version-energy-apply '+
       (!this._versionEnergyPlan||!this._versionEnergyBackup||this._versionBusy?"disabled":"")+
       '>5. Confirmer le basculement Énergie</button></div></fieldset></section>'+
@@ -2699,6 +2855,9 @@ class TrybatecPanel extends HTMLElement {
     const t=(fr,en)=>this._t(fr,en);
     const guidance=trybatecEnergySetupGuidance(this._current,this._data?.energy);
     const explanation={
+      status_unknown:t(
+        "État du module Énergie inconnu : aucune configuration terminée n’est démontrée par cet aperçu.",
+        "Energy module status is unknown: this view cannot establish completed configuration."),
       technical_unavailable:t(
         "Le module Énergie n’est pas chargé : l’intégration automatique ne peut pas être vérifiée.",
         "The Energy module is not loaded: automatic enrollment cannot be verified."),

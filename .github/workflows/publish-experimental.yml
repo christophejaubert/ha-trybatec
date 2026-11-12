@@ -76,6 +76,9 @@ jobs:
               raise SystemExit("Release notes do not describe exactly this prerelease")
           (Path(os.environ["RUNNER_TEMP"]) / "release-notes.md").write_text(notes + "\n", encoding="utf-8")
           PY
+          # FR : refuser les notes non bilingues avant toute publication.
+          # EN: reject incomplete bilingual notes before any release side effect.
+          python3 -I scripts/ci_experimental_notes_check.py "$VERSION" "$RUNNER_TEMP/release-notes.md"
           [[ "$(git rev-parse HEAD)" == "$APPROVED_SHA" ]] || exit 1
           [[ "$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')" == "$APPROVED_SHA" ]] || {
             echo "main moved after approval" >&2
@@ -150,7 +153,7 @@ jobs:
             echo "Tag now exists; refusing to overwrite" >&2
             exit 1
           fi
-          gh release create "$VERSION" --repo "$REPO" --target "$APPROVED_SHA" --prerelease --title "Trybatec $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create "$VERSION" --repo "$REPO" --target "$APPROVED_SHA" --prerelease --title "🤖 Trybatec $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
           gh api "repos/$REPO/releases/tags/$VERSION" > "$RUNNER_TEMP/published.json"
           gh api "repos/$REPO/git/ref/tags/$VERSION" > "$RUNNER_TEMP/tag.json"
           python3 - <<'PY'

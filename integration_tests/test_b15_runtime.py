@@ -47,11 +47,14 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
             confirm_revision=False, retry_pending=False,
         )
 
-    retried = await recorder.queue_b15_plan(
-        hass, "synthetic-entry", plan,
-        confirm_revision=False, retry_pending=True,
-    )
-    assert len(retried["queued"]) == 1
+    # The old blind replay would enqueue the same pending version twice
+    # while its first Recorder writer might still be running.
+    with pytest.raises(ValueError, match="readback unavailable"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-entry", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert len(queued) == 1
 
     async def fake_recorder_service(call):
         assert call.data["statistic_ids"] == [identity + "_v1"]
@@ -68,6 +71,10 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
     verified = await recorder.verify_b15_recorder(hass, "synthetic-entry")
     assert verified["status"] == "recorder_verified"
     assert verified["verified"][0]["verified_rows"] == 2
+    assert verified["read_only_recovery"]["all_persisted"] is True
+    assert verified["read_only_recovery"]["safe_to_offer_retry"] is False
+    assert verified["read_only_recovery"]["recorder_writes"] is False
+    assert verified["read_only_recovery"]["energy_writes"] is False
     ledger = await recorder.ledger_store(hass, "synthetic-entry").async_load()
     assert ledger["series"][identity]["versions"][0]["state"] == "verified"
     again = await recorder.queue_b15_plan(
@@ -75,7 +82,174 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
         confirm_revision=False, retry_pending=False,
     )
     assert again["status"] == "unchanged_all_series_previously_verified"
+    assert len(queued) == 1
+
+
+@pytest.mark.asyncio
+async def test_b15_extra_persisted_bucket_blocks_verification_and_retry(hass, monkeypatch):
+    """Unexpected rows must never validate a version or permit blind replay."""
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, metadata, rows: queued.append(metadata["statistic_id"]),
+    )
+    logical = "trybatec:logical_meter_ef_raw_extra_synthetic"
+    first = datetime(2026, 2, 1, 12, tzinfo=timezone.utc)
+    rows = [
+        {"start": first, "state": 0.0, "sum": 0.0},
+        {"start": first.replace(day=2), "state": 2.0, "sum": 2.0},
+    ]
+    plan = {
+        "fingerprint": "d" * 64,
+        "series": [{
+            "logical_id": logical, "kind": "physical", "fluid": "EF",
+            "unit": "m³", "rows": rows, "source_fingerprint": "e" * 64,
+        }],
+    }
+    await recorder.queue_b15_plan(
+        hass, "synthetic-extra-row", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def extra_statistics(_call):
+        return {"statistics": {logical + "_v1": [
+            {"start": rows[0]["start"].isoformat(), "sum": 0.0},
+            {"start": rows[1]["start"].isoformat(), "sum": 2.0},
+            {"start": first.replace(day=3).isoformat(), "sum": 3.0},
+        ]}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", extra_statistics,
+        supports_response=SupportsResponse.ONLY,
+    )
+    result = await recorder.verify_b15_recorder(hass, "synthetic-extra-row")
+    assert result["status"] == "pending_recorder_readback"
+    assert result["verified"] == []
+    assert result["pending"][0]["missing_or_mismatched_rows"] >= 1
+    assert (result["read_only_recovery"]["decisions"][0]["outcome"]
+            == "partial_or_mismatched_no_retry")
+    with pytest.raises(ValueError, match="writer-quiescence proof"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-extra-row", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert queued == [logical + "_v1"]
+
+
+@pytest.mark.asyncio
+async def test_b15_retry_of_already_persisted_batch_is_idempotent(hass, monkeypatch):
+    """Replaying a crash-surviving journal never re-enqueues durable rows."""
+    enqueued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, meta, _rows: enqueued.append(meta["statistic_id"]),
+    )
+    logical = "trybatec:logical_meter_ef_raw_replay_synthetic"
+    rows = [
+        {"start": datetime(2026, 3, 1, tzinfo=timezone.utc), "state": 0.0, "sum": 0.0},
+        {"start": datetime(2026, 3, 2, tzinfo=timezone.utc), "state": 1.0, "sum": 1.0},
+    ]
+    plan = {
+        "fingerprint": "c" * 64,
+        "series": [{
+            "logical_id": logical, "kind": "physical", "fluid": "EF",
+            "unit": "m³", "rows": rows, "source_fingerprint": "d" * 64,
+        }],
+    }
+    await recorder.queue_b15_plan(
+        hass, "synthetic-replay", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def recorder_persisted(_call):
+        return {"statistics": {logical + "_v1": [
+            {"start": r["start"].isoformat(), "sum": r["sum"]} for r in rows
+        ]}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", recorder_persisted,
+        supports_response=SupportsResponse.ONLY,
+    )
+    retry = await recorder.queue_b15_plan(
+        hass, "synthetic-replay", plan,
+        confirm_revision=False, retry_pending=True,
+    )
+    assert retry["status"] == "unchanged_all_series_previously_verified"
+    assert retry["queued"] == []
+    assert retry["read_only_recovery"]["all_persisted"] is True
+    assert enqueued == [logical + "_v1"]
+    stored = await recorder.ledger_store(hass, "synthetic-replay").async_load()
+    assert stored["pending"] == {}
+    assert stored["series"][logical]["versions"][0]["state"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_b15_partial_two_meter_batch_verifies_independently(hass, monkeypatch):
+    """One fully persisted series is verified while the partial one stays pending."""
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, meta, _rows: queued.append(meta["statistic_id"]),
+    )
+    first = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    rows = [
+        {"start": first, "state": 0.0, "sum": 0.0},
+        {"start": first.replace(day=2), "state": 3.0, "sum": 3.0},
+    ]
+    series = [{
+        "logical_id": "trybatec:logical_meter_ef_raw_partial_" + suffix,
+        "kind": "physical", "fluid": "EF", "unit": "m³",
+        "rows": rows, "source_fingerprint": ("a" if suffix == "a" else "b") * 64,
+    } for suffix in ("a", "b")]
+    plan = {"fingerprint": "f" * 64, "series": series}
+    await recorder.queue_b15_plan(
+        hass, "synthetic-two-meter", plan,
+        confirm_revision=False, retry_pending=False,
+    )
     assert len(queued) == 2
+    is_complete = {"b": False}
+
+    async def staged_recorder(call):
+        requested = call.data["statistic_ids"][0]
+        observations = [
+            {"start": row["start"].isoformat(), "sum": row["sum"]}
+            for row in rows
+        ]
+        if requested.endswith("_b_v1") and not is_complete["b"]:
+            observations = observations[:1]
+        return {"statistics": {requested: observations}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", staged_recorder,
+        supports_response=SupportsResponse.ONLY,
+    )
+    first_verify = await recorder.verify_b15_recorder(hass, "synthetic-two-meter")
+    assert first_verify["status"] == "pending_recorder_readback"
+    assert len(first_verify["verified"]) == len(first_verify["pending"]) == 1
+    decisions = {
+        item["statistic_id"]: item["outcome"]
+        for item in first_verify["read_only_recovery"]["decisions"]
+    }
+    assert decisions[queued[0]] == "persisted_verified_no_requeue"
+    assert decisions[queued[1]] == "partial_or_mismatched_no_retry"
+    with pytest.raises(ValueError, match="writer-quiescence proof"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-two-meter", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert len(queued) == 2
+
+    is_complete["b"] = True
+    verified = await recorder.verify_b15_recorder(hass, "synthetic-two-meter")
+    assert verified["status"] == "recorder_verified"
+    assert len(verified["verified"]) == 1
+    ledger = await recorder.ledger_store(hass, "synthetic-two-meter").async_load()
+    assert ledger["pending"] == {}
+    assert all(
+        item["versions"][0]["state"] == "verified"
+        for item in ledger["series"].values()
+    )
+    assert len(queued) == 2  # Never re-enqueued either persisted version.
 
 
 @pytest.mark.asyncio
