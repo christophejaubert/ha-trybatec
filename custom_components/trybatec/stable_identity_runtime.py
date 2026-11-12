@@ -8,7 +8,7 @@ never writes Recorder, Energy or the HA entity registry.
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
+import json
 from hashlib import sha256
 from typing import Any
 
@@ -77,7 +77,6 @@ class StableUnitGuard:
         async with self._lock:
             registry = er.async_get(self.hass)
             pending: dict[str, str] = {}
-            serial_counts = Counter(meter["serial"] for meter in meters.values())
             for meter in meters.values():
                 stable = stable_meter_unique_id(
                     account, meter["lot"], meter["fluid"], meter["serial"])
@@ -97,15 +96,21 @@ class StableUnitGuard:
                 registered_without_baseline = (
                     registry_id is not None and stable not in self._units
                 )
-                # A reinstalled account may leave b6 entities in the registry.
-                # An empty current config-entry list is NOT proof that those
-                # physical references are safe to reclaim as new stable IDs.
+                # A reinstalled account may leave b6 or b15 entities behind.
+                # Unscoped b6 IDs are ambiguous for reused serials: detect
+                # them to REFUSE, never to infer a physical owner.
+                legacy_candidates = legacy_meter_unique_ids(
+                    account, meter["lot"], meter["fluid"], meter["serial"],
+                    allow_unscoped_serial=True,
+                )
+                retired_digest = sha256(json.dumps(
+                    [meter["lot"], meter["fluid"], meter["serial"]],
+                    separators=(",", ":"),
+                ).encode()).hexdigest()[:24]
+                archived_uid = f"{account}_b15_retired_{retired_digest}"
                 legacy_registered = any(
                     registry.async_get_entity_id("sensor", DOMAIN, candidate)
-                    for candidate in legacy_meter_unique_ids(
-                        account, meter["lot"], meter["fluid"], meter["serial"],
-                        allow_unscoped_serial=serial_counts[meter["serial"]] == 1,
-                    )
+                    for candidate in (*legacy_candidates, archived_uid)
                 )
                 if self._invalid:
                     status = "invalid_unit_baseline_requires_review"
