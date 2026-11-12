@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import CoreState
+from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers.translation import async_get_translations
 from pytest_homeassistant.common import MockConfigEntry
 
@@ -211,11 +212,13 @@ async def test_native_discard_bad_year_and_values_never_write(hass, monkeypatch)
         flow_id, {"next_step_id": "tariffs"}
     )
     assert selection["step_id"] == "tariffs"
-    invalid = await hass.config_entries.options.async_configure(
-        flow_id, {"year": 2026, "fluid": "EF", "meter": "a" * 24}
-    )
-    assert invalid["step_id"] == "tariffs"
-    assert invalid["errors"]["base"] == "invalid_tariff_scope"
+    # HA's native SelectSelector rejects unlisted physical IDs before the
+    # options step is invoked. Keep this guard at the framework boundary.
+    with pytest.raises(InvalidData, match="meter"):
+        await hass.config_entries.options.async_configure(
+            flow_id, {"year": 2026, "fluid": "EF", "meter": "a" * 24}
+        )
+    assert entry.options == baseline
     edit = await hass.config_entries.options.async_configure(
         flow_id, {"year": 2026, "fluid": "EF", "meter": "__common__"}
     )
