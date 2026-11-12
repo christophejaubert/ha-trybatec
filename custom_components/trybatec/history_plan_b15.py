@@ -18,6 +18,8 @@ from .history_reconstruction import (
     consolidate_consumptions, logical_series_id,
 )
 from .history_variants_b15 import variants_preview
+from .history_coverage_l2 import build_coverage_evidence
+from .units import meter_key
 
 ZONE = ZoneInfo(TIMEZONE)
 
@@ -94,6 +96,28 @@ def make_b15_plan(
         history, verified_units, decisions, sparse_hours=sparse_hours,
         approved_origins=approved_origins,
     )
+    # Preserve source readings. An approved origin extends the period
+    # but is not reclassified as a measured physical index.
+    physical_bounds = {}
+    for key, meter in history.get("__physical_meters__", {}).items():
+        readings = meter.get("reviewed_readings") or []
+        if not readings:
+            continue
+        first, last = readings[0][0], readings[-1][0]
+        if (not isinstance(first, datetime) or first.tzinfo is None
+                or not isinstance(last, datetime) or last.tzinfo is None):
+            raise ValueError("Unverified physical source date bounds")
+        first_day = first.astimezone(ZONE).date()
+        last_day = last.astimezone(ZONE).date()
+        origin = (approved_origins or {}).get(meter_key(*key))
+        if origin is not None:
+            first_day = date.fromisoformat(origin["estimated_start_date"])
+        physical_bounds[key] = (first_day, last_day)
+    coverage = build_coverage_evidence(
+        variants["meters"], source_bounds=physical_bounds,
+        explicitly_parallel=explicitly_parallel,
+    )
+    coverage_groups = {(x["lot"], x["fluid"]): x for x in coverage["groups"]}
     series = []
     groups: dict[tuple[str, str], list[dict]] = {}
     source_digests: dict[tuple[str, str], list] = {}
@@ -144,6 +168,14 @@ def make_b15_plan(
             account_key, lot, fluid, sources, selection,
             explicitly_parallel=explicitly_parallel,
         )
+        # Independently compare selected physical consumption and provenance.
+        evidence = coverage_groups[(lot, fluid)]
+        by_day = {row["date"]: row for row in evidence["rows"]}
+        if ({record["date"] for record in result["rows"]} != set(by_day)
+                or any(abs(Decimal(str(record["consumption"])) -
+                           Decimal(str(by_day[record["date"]]["consumption"])))
+                       > Decimal("0.000001") for record in result["rows"])):
+            raise ValueError("Consolidated history and provenance do not agree")
         daily = {date.fromisoformat(record["date"]): record["consumption"]
                  for record in result["rows"]}
         rows = statistic_rows(daily)
@@ -157,6 +189,8 @@ def make_b15_plan(
             "source_fingerprint": _digest(source_digests[(lot, fluid)]),
             "rows": rows, "count": len(rows),
             "selected_meters": result["selected_meters"],
+            "coverage_fingerprint": evidence["fingerprint"],
+            "coverage_status": evidence["coverage"],
         })
     if not series:
         raise ValueError("No verified nonempty b15 historical consumption series")
@@ -170,6 +204,7 @@ def make_b15_plan(
         "logical_groups": len(groups),
         "physical_meters": len(variants["meters"]),
         "approved_estimated_origins": variants["approved_estimated_origins"],
+        "coverage_evidence": coverage,
         "fingerprint": _digest([{
             "logical": item["logical_id"],
             "source": item["source_fingerprint"],
