@@ -949,7 +949,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {
-      this._meter=Number(btn.dataset.meter);this._meterAudit=null;
+      this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
       this._energyHandoffPreview=null;this._render();return;
     }
@@ -972,7 +972,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
@@ -1289,7 +1289,7 @@ class TrybatecPanel extends HTMLElement {
       typeof src.statistic_id==="string"&&src.statistic_id.startsWith("trybatec:"));
     const tariffsConfigured=Object.keys(a.tariffs||{}).length+
       Object.keys(a.meter_tariffs||{}).length>0;
-    const activeReady=active.length>0 && active.every(m=>
+    const activeReady=a.data_loaded===true && active.length>0 && active.every(m=>
       m.last_index!==null && m.last_index!==undefined && m.unit_verified);
     const conflict=(a.meter_options||[]).some(o=>
       o.source_unit==="conflict" &&
