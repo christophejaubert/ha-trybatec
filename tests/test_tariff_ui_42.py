@@ -20,14 +20,19 @@ const context={HTMLElement:class{},customElements:{get:()=>true}};
 vm.runInNewContext(source+"\nglobalThis.__tariffs42={Panel:TrybatecPanel,resolve:trybatecSavedEffectiveTariff,translate:localizeTrybatecText,years:trybatecTariffYears};",context,{timeout:5000});
 const {Panel,resolve,translate,years}=context.__tariffs42;
 const p=Panel.prototype;
-const key="a".repeat(24), other="b".repeat(24);
+const key="a".repeat(24), other="b".repeat(24), heat="c".repeat(24);
 const account={
   entry_id:"fake-entry",title:"Synthetic apartment",
   meters:[
     {physical_key:key,fluid:"EF",lot:"FAKE",serial:"M1",status:"en_service",first_observed_at:"2022-01-01",last_source_observed_at:"2026-01-01"},
-    {physical_key:other,fluid:"ECS",lot:"FAKE",serial:"M2",status:"depose",first_observed_at:"2020-01-01",last_source_observed_at:"2023-01-01"}
+    {physical_key:other,fluid:"ECS",lot:"FAKE",serial:"M2",status:"depose",first_observed_at:"2020-01-01",last_source_observed_at:"2023-01-01"},
+    {physical_key:heat,fluid:"CET",lot:"FAKE",serial:"M3",status:"en_service",first_observed_at:"2022-01-01",last_source_observed_at:"2024-01-01"}
   ],
-  tariffs:{"2024":{"EF":{rate:1.2345,status:"approved"}}},
+  tariffs:{"2024":{
+    "EF":{rate:1.2345,status:"approved"},
+    "ECS":{rate:3.5,status:"provisional"},
+    "CET":{rate:0.123456,status:"approved"}
+  }},
   meter_tariffs:{"2024":{[key]:{rate:2.5,status:"provisional"}}},
   tariff_fingerprint:"f".repeat(64)
 };
@@ -57,6 +62,9 @@ assert.equal(resolve(account,2024,"EF",other),null,"foreign-fluid physical key m
 assert.equal(resolve(account,2025,"EF",key),null,"no cross-year fallback");
 assert.equal(resolve(account,2024,"CET",key),null,"no cross-fluid fallback");
 assert.equal(resolve(account,2024,"EF").source_year,2024);
+assert.equal(resolve(account,2024,"ECS").rate,3.5);
+assert.equal(resolve(account,2024,"CET",heat).rate,0.123456);
+assert.equal(resolve(account,2024,"CET",heat).origin,"fluid_default");
 const suggestions=years(account,2026).years;
 assert.ok(suggestions.includes(2024));
 assert.ok(!suggestions.includes(2040),"future exercise must be selectable even without historical evidence");
@@ -84,6 +92,14 @@ assert.match(p._tariffs.call(fr),/Tarif effectif enregistré: 2.5 EUR\/m³/);
 assert.match(p._tariffs.call(fr),/Spécifique au compteur/);
 assert.match(p._tariffs.call(en),/Saved effective rate: 1.2345 EUR\/m³/);
 assert.match(p._tariffs.call(en),/Default fluid rate/);
+const cet=fixture("fr-FR");
+cet._tariffInput.fluid="CET";
+cet._tariffInput.rate="0.123456";
+assert.match(p._tariffs.call(cet),/EUR\/kWh/);
+assert.match(p._tariffs.call(cet),/0.123456/);
+const ecs=fixture("en-US");
+ecs._tariffInput.fluid="ECS";
+assert.match(p._tariffs.call(ecs),/EUR\/m³/);
 assert.equal(translate("Annuler la saisie","en-US"),"Discard edits");
 assert.equal(translate("Exercice invalide : choisissez une année entre 2000 et 2100.","en-US"),"Invalid year: choose a year between 2000 and 2100.");
 
@@ -136,6 +152,19 @@ async function run(){
   assert.equal(sent[0].expected_fingerprint,"f".repeat(64));
   assert.equal(f._tariffError,"");
   assert.equal(f._unsavedInput,false);
+  const deletion=fixture();
+  deletion._tariffInput.rate="";
+  const removed=[];
+  deletion._hass={callWS:async req=>{
+    removed.push(req);
+    return req.type==="trybatec/panel_tariff_change"
+      ? {status:"saved"} : {accounts:[account]};
+  }};
+  await p._sendTariff.call(deletion,true);
+  assert.equal(removed.length,2);
+  assert.equal(removed[0].remove,true);
+  assert.equal(removed[0].confirmed,true);
+  assert.equal(Object.prototype.hasOwnProperty.call(removed[0],"rate"),false);
   const g=fixture();
   g._hass={callWS:async(req)=>{
     if(req.type==="trybatec/panel_tariff_change")return {status:"saved"};
