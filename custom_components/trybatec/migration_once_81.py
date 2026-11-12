@@ -109,8 +109,18 @@ def preview_one_time_migration(
             blockers.append("retired_status_unverified")
         if retired:
             last = meter.get("last")
-            if not (isinstance(last, (tuple, list)) and len(last) == 2):
-                blockers.append("retired_missing_verified_source_reading")
+            if last is None:
+                # A deposited meter may have no recent source observations.
+                # Preserve its existing physical identity without inventing an
+                # index or service date. Unresolved source readings, however,
+                # must never be silently treated as an empty history.
+                if meter.get("indexes") or meter.get("has_decreasing_indexes") is True:
+                    blockers.append("retired_unresolved_source_readings")
+            elif not (
+                isinstance(last, (tuple, list)) and len(last) == 2
+                and isinstance(last[0], datetime) and last[0].tzinfo is not None
+            ):
+                blockers.append("retired_invalid_source_reading")
             else:
                 try:
                     if not isfinite(float(last[1])):
