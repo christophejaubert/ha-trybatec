@@ -44,13 +44,16 @@ function trybatecEnergySetupGuidance(account, energy) {
       "Des imports Recorder restent en attente de vérification.",
       "Recorder imports are pending verification.");
   const versioned=Array.isArray(ledger.series)?ledger.series:[];
-  const verified=versioned.some(row=>
-    Array.isArray(row.versions)&&row.versions.some(v=>
-      v.state==="verified"||v.state==="active"));
-  if (retired.length&&!verified)
+  // A verified physical or unrelated-fluid revision does NOT establish
+  // consolidated historical coverage for a retired meter of another scope.
+  const retiredWithoutConsolidation=retired.filter(m=>!versioned.some(row=>
+    row.scope?.kind==="consolidated"&&row.scope?.lot===m.lot&&
+    row.scope?.fluid===m.fluid&&Array.isArray(row.versions)&&
+    row.versions.some(v=>["verified","active","archived"].includes(v.state))));
+  if (retiredWithoutConsolidation.length)
     add("retired_history","unverified","history",
-      "La consolidation Recorder des compteurs déposés n’est pas confirmée dans cet aperçu.",
-      "Recorder consolidation for retired meters is not confirmed in this view.");
+      "La consolidation Recorder de "+retiredWithoutConsolidation.length+" compteur(s) déposé(s) n’est pas confirmée pour le bon lot et fluide.",
+      "Recorder consolidation for "+retiredWithoutConsolidation.length+" retired meter(s) is not confirmed for the matching dwelling and utility.");
   const hasSources=Array.isArray(energy?.sources)&&energy.sources.length>0;
   const mode=energy?.status==="not_loaded"?"technical_unavailable":
     reasons.some(r=>r.level==="required")?"configuration_incomplete":
