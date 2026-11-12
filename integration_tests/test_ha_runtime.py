@@ -17,7 +17,9 @@ from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.trybatec.api import TrybatecClient
-from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS
+from custom_components.trybatec.const import (
+    CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS, CONF_STABLE_METER_IDENTITIES,
+)
 from custom_components.trybatec.units import meter_key
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -39,7 +41,7 @@ def synthetic_indexes(unit: str | None):
     return {"lines": [meter]}
 
 
-async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None, deposed=False):
+async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None, deposed=False, stable=False):
     payload = synthetic_indexes(unit)
     payload["lines"][0]["depose"] = deposed
     calls = []
@@ -63,6 +65,7 @@ async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options
             CONF_USERNAME: "synthetic-ci-user",
             CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
             CONF_DEAL_ID: "synthetic-ci-deal",
+            **({CONF_STABLE_METER_IDENTITIES: True} if stable else {}),
         },
     )
     # Existing runtime tests install the entry after HA is already started.
@@ -511,3 +514,484 @@ async def test_deposed_meter_remains_visible_but_has_no_live_statistics(hass, mo
     assert "state_class" not in counter.attributes
     assert float(counter.state) == pytest.approx(15.0)
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_stable_meter_unit_verification_and_correction_do_not_duplicate_entity(
+    hass, monkeypatch,
+):
+    """Greenfield: UNKNOWN -> m³ -> L must keep one entity and prevent bad sums."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    entry, calls = await configure_fake_account(
+        hass, monkeypatch, None, stable=True,
+    )
+    account = entry.unique_id or entry.entry_id
+    uid = stable_meter_unique_id(account, "MOCK-LOT", "EF", "MOCK-WATER-01")
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("sensor", DOMAIN, uid)
+    assert entity_id is not None
+    assert registry.async_get(entity_id).config_entry_id == entry.entry_id
+    initial = hass.states.get(entity_id)
+    assert initial is not None
+    assert initial.state in ("unknown", "unavailable")
+    assert "state_class" not in initial.attributes
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is not None
+
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+    first_calls = len(calls)
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {key: "m³"}},
+    )
+    await hass.async_block_till_done()
+    confirmed = hass.states.get(entity_id)
+    assert confirmed is not None and float(confirmed.state) == pytest.approx(15)
+    assert confirmed.attributes["state_class"] == "total_increasing"
+    assert confirmed.attributes["unit_of_measurement"] == "m³"
+    assert confirmed.attributes["unit_guard_status"] == "approved"
+    assert len(calls) == first_calls
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+
+    # A scale correction without a Recorder migration must not silently turn
+    # a persisted index of 15 m³ into 0.015 m³ on the same statistic ID.
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {key: "L"}},
+    )
+    await hass.async_block_till_done()
+    blocked = hass.states.get(entity_id)
+    assert blocked.state in ("unknown", "unavailable")
+    assert "state_class" not in blocked.attributes
+    assert blocked.attributes["unit_guard_status"] == "source_unit_changed_requires_review"
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+    owned = [row for row in registry.entities.values()
+             if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+             and row.unique_id.startswith("meter_")]
+    assert len(owned) == 1
+    assert len(calls) == first_calls
+
+    # The lock must survive a real config-entry reload. A second sensor may
+    # never be created when the new raw scale is still unapproved.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    reread = hass.states.get(entity_id)
+    assert reread.state in ("unknown", "unavailable")
+    assert reread.attributes["unit_guard_status"] == "source_unit_changed_requires_review"
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+
+
+async def test_existing_account_keeps_legacy_meter_identity(hass, monkeypatch):
+    """The stable-mode flag is never enabled retroactively by an update."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    owned = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(owned) == 1
+    assert "_b6_m³_index" in owned[0].unique_id
+    assert not owned[0].unique_id.startswith("meter_")
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+    # Legacy unit transitions retain the pre-existing b6 behavior until an
+    # explicitly reviewed migration; no unexpected HA registry rewrite.
+
+
+async def test_legacy_account_reload_preserves_physical_registry_without_migration(
+    hass, monkeypatch,
+):
+    """R3: deploying/reloading a candidate cannot migrate an old HA account."""
+    from homeassistant.helpers import entity_registry as er
+    # Migration executor is intentionally absent from this staged build.
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    previous = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(previous) == 1
+    old = previous[0]
+    before = (old.entity_id, old.unique_id, old.device_id)
+    before_data = dict(entry.data)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = registry.async_get(before[0])
+    assert after is not None
+    assert (after.entity_id, after.unique_id, after.device_id) == before
+    assert "_b6_m³_index" in after.unique_id
+    assert dict(entry.data) == before_data
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+
+async def test_legacy_account_reload_on_vendor_outage_never_claims_stable_identity(
+    hass, monkeypatch,
+):
+    """R3: a failed source refresh must not reassign historical identities."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.api import TrybatecDataError
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    previous = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(previous) == 1
+    original = previous[0]
+    identity = (original.entity_id, original.unique_id, original.device_id)
+
+    async def broken_indexes(_self, _deal_id, *, start, end):
+        assert start <= end
+        raise TrybatecDataError("Synthetic supplier outage")
+
+    monkeypatch.setattr(TrybatecClient, "indexes", broken_indexes)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    current = registry.async_get(identity[0])
+    assert current is not None
+    assert (current.entity_id, current.unique_id, current.device_id) == identity
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+
+
+async def test_new_config_flow_enables_stable_ids_only_for_new_entry(
+    hass, monkeypatch,
+):
+    """New synthetic account has canonical mode; never change existing config."""
+    async def fake_discover(self):
+        return "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+
+    async def fake_indexes(self, deal_id, start, end):
+        assert start <= end
+        return deepcopy(synthetic_indexes("m3"))
+
+    async def fake_enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 1}
+
+    monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", fake_discover)
+    monkeypatch.setattr(TrybatecClient, "indexes", fake_indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", fake_enrich)
+    form = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        form["flow_id"],
+        {CONF_USERNAME: "synthetic-greenfield-user",
+         CONF_PASSWORD: "synthetic-not-a-real-password"},
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_STABLE_METER_IDENTITIES] is True
+    assert result["data"][CONF_DEAL_ID] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+
+
+async def test_legacy_successive_physical_meters_preserve_identities_on_reload(
+    hass, monkeypatch,
+):
+    """A retired predecessor and active successor remain distinct after update."""
+    from homeassistant.helpers import entity_registry as er
+
+    payload = synthetic_indexes("m3")
+    retired = deepcopy(payload["lines"][0])
+    retired["compteur"] = "MOCK-RETIRED-00"
+    retired["depose"] = True
+    payload["lines"].append(retired)
+
+    async def fake_indexes(self, deal_id, start, end):
+        return deepcopy(payload)
+
+    async def fake_enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 2}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", fake_indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", fake_enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic legacy successive meters",
+        unique_id="synthetic-successive-account",
+        data={
+            CONF_USERNAME: "synthetic-successive-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-successive-deal",
+        },
+    )
+    hass.set_state(CoreState.running)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    def meter_refs():
+        return {
+            row.unique_id: (row.entity_id, row.device_id)
+            for row in registry.entities.values()
+            if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+            and row.unique_id.endswith("_index")
+        }
+
+    before = meter_refs()
+    assert len(before) == 2
+    assert any("MOCK-RETIRED-00" in uid for uid in before)
+    assert any("MOCK-WATER-01" in uid for uid in before)
+    assert all("_b6_m³_index" in uid for uid in before)
+    assert all(device_id for _, device_id in before.values())
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert meter_refs() == before
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+
+async def test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate(
+    hass, monkeypatch,
+):
+    """Keep the existing stable registry ID but refuse unproven source scale."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers.storage import Store
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=True)
+    account = entry.unique_id or entry.entry_id
+    uid = stable_meter_unique_id(account, "MOCK-LOT", "EF", "MOCK-WATER-01")
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("sensor", DOMAIN, uid)
+    assert entity_id
+    original = registry.async_get(entity_id)
+    assert original is not None
+    expected = (original.entity_id, original.unique_id, original.device_id)
+
+    native_load = Store.async_load
+    async def missing_stable_ledger(self):
+        if self.key.startswith(f"{DOMAIN}.stable_meter_units_"):
+            return None
+        return await native_load(self)
+
+    # An orphaned entity with its unit ledger lost must not silently reuse
+    # its existing Recorder statistic ID after a reinstall / restored config.
+    monkeypatch.setattr(Store, "async_load", missing_stable_ledger)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    row = registry.async_get(entity_id)
+    assert row is not None
+    assert (row.entity_id, row.unique_id, row.device_id) == expected
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.stable_unit_guard is not None
+    assert coordinator.stable_unit_guard._units == {}
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_status"] == (
+        "missing_unit_baseline_requires_review"
+    )
+    rows = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.startswith("meter_")
+    ]
+    assert len(rows) == 1
+
+
+@pytest.mark.parametrize("legacy_variant", ["b6", "b15_retired"])
+async def test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication(
+    hass, monkeypatch, legacy_variant,
+):
+    """Former b6 and b15 meters must never become duplicate stable sensors."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    legacy_entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic former account",
+        unique_id="synthetic-previous-entry",
+        data={
+            CONF_USERNAME: "former-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "former-deal",
+        },
+    )
+    legacy_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    if legacy_variant == "b6":
+        old_unique_id = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    else:
+        from hashlib import sha256
+        import json
+
+        archive_key = json.dumps(
+            ["MOCK-LOT", "EF", "MOCK-WATER-01"], separators=(",", ":"),
+        )
+        archived_hash = sha256(archive_key.encode()).hexdigest()[:24]
+        old_unique_id = f"synthetic-ci-account_b15_retired_{archived_hash}"
+    prior = registry.async_get_or_create(
+        "sensor", DOMAIN, old_unique_id,
+        suggested_object_id="synthetic_preexisting_legacy_meter",
+        config_entry=legacy_entry,
+    )
+    old_registry_identity = (prior.entity_id, prior.unique_id, prior.device_id)
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=True)
+    current = registry.async_get(prior.entity_id)
+    assert current is not None
+    assert (current.entity_id, current.unique_id, current.device_id) == old_registry_identity
+    assert current.config_entry_id == legacy_entry.entry_id
+
+    stable = stable_meter_unique_id(
+        entry.unique_id or entry.entry_id, "MOCK-LOT", "EF", "MOCK-WATER-01",
+    )
+    assert registry.async_get_entity_id("sensor", DOMAIN, stable) is None
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_status"] == (
+        "legacy_identity_requires_review"
+    )
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_approved"] is False
+    assert coordinator.stable_unit_guard._units == {}
+    assert CONF_STABLE_METER_IDENTITIES not in legacy_entry.data
+
+
+@pytest.mark.parametrize("stable", [False, True])
+async def test_normal_setup_reload_never_imports_history_or_updates_energy(
+    hass, monkeypatch, stable,
+):
+    """Explicit history and Energy mutations are forbidden during normal setup."""
+    from homeassistant.components.energy.data import EnergyManager
+    from custom_components.trybatec import history_services
+
+    async def forbidden_history_import(*args, **kwargs):
+        pytest.fail("Historical Recorder import must be explicitly requested")
+
+    def forbidden_statistic_write(*args, **kwargs):
+        pytest.fail("No external statistics import during setup or reload")
+
+    async def forbidden_energy_update(*args, **kwargs):
+        pytest.fail("Energy preferences must never change implicitly")
+
+    monkeypatch.setattr(
+        history_services, "async_import_history", forbidden_history_import,
+    )
+    monkeypatch.setattr(
+        history_services, "async_add_external_statistics", forbidden_statistic_write,
+    )
+    monkeypatch.setattr(EnergyManager, "async_update", forbidden_energy_update)
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=stable)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (hass.data[DOMAIN][entry.entry_id].stable_unit_guard is not None) is stable
+
+
+async def test_reused_serial_with_unscoped_b6_id_blocks_both_new_stable_meters(
+    hass, monkeypatch,
+):
+    """An ambiguous historical serial cannot be assigned to either new lot."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    registry = er.async_get(hass)
+    prior_entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic preexisting ambiguous meter",
+        unique_id="synthetic-old-ambiguous-entry",
+        data={
+            CONF_USERNAME: "synthetic-old-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-old-deal",
+        },
+    )
+    prior_entry.add_to_hass(hass)
+    old_uid = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    legacy = registry.async_get_or_create(
+        "sensor", DOMAIN, old_uid,
+        config_entry=prior_entry, suggested_object_id="synthetic_ambiguous_legacy",
+    )
+    before = (legacy.entity_id, legacy.unique_id, legacy.device_id)
+
+    payload = synthetic_indexes("m3")
+    other = deepcopy(payload["lines"][0])
+    other["lot"] = "MOCK-LOT-2"
+    payload["lines"].append(other)
+
+    async def indexes(self, deal_id, start, end):
+        return deepcopy(payload)
+
+    async def enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 2}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic stable duplicate-serial account",
+        unique_id="synthetic-ci-account",
+        data={
+            CONF_USERNAME: "synthetic-ci-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-ci-deal",
+            CONF_STABLE_METER_IDENTITIES: True,
+        },
+    )
+    hass.set_state(CoreState.running)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    now = registry.async_get(legacy.entity_id)
+    assert now is not None
+    assert (now.entity_id, now.unique_id, now.device_id) == before
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert len(coordinator.data["meters"]) == 2
+    for meter in coordinator.data["meters"].values():
+        assert meter["stable_unit_status"] == "legacy_identity_requires_review"
+        assert meter["stable_unit_approved"] is False
+        stable_uid = stable_meter_unique_id(
+            "synthetic-ci-account", meter["lot"], meter["fluid"], meter["serial"],
+        )
+        assert registry.async_get_entity_id("sensor", DOMAIN, stable_uid) is None
+
+
+async def test_legacy_suffixed_entity_id_preserved_after_reload_and_re_setup(
+    hass, monkeypatch,
+):
+    """A user-renamed *_2 entity retains its registry identity and device."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    rows = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(rows) == 1
+    original = rows[0]
+    assert original.device_id is not None
+    suffix_id = "sensor.synthetic_water_2"
+    assert registry.async_get(suffix_id) is None
+    renamed = registry.async_update_entity(
+        original.entity_id, new_entity_id=suffix_id,
+    )
+    assert renamed.entity_id == suffix_id
+    before = (renamed.entity_id, renamed.unique_id, renamed.device_id)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = registry.async_get(suffix_id)
+    assert after is not None
+    assert (after.entity_id, after.unique_id, after.device_id) == before
+    assert registry.async_get(original.entity_id) is None
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+
+    # Unload/re-setup is a synthetic process-restart analogue, not proof
+    # of a physical HA host restart or Recorder recovery.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    rebooted = registry.async_get(suffix_id)
+    assert rebooted is not None
+    assert (rebooted.entity_id, rebooted.unique_id, rebooted.device_id) == before
+    owned = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(owned) == 1
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
