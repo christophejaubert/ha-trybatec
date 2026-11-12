@@ -651,7 +651,8 @@ async def test_legacy_account_reload_on_vendor_outage_never_claims_stable_identi
     original = previous[0]
     identity = (original.entity_id, original.unique_id, original.device_id)
 
-    async def broken_indexes(_self, _deal_id, _start, _end):
+    async def broken_indexes(_self, _deal_id, *, start, end):
+        assert start <= end
         raise TrybatecDataError("Synthetic supplier outage")
 
     monkeypatch.setattr(TrybatecClient, "indexes", broken_indexes)
