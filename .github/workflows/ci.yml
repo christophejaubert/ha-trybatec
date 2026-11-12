@@ -215,6 +215,35 @@ jobs:
           print("CI_PIN_SNAPSHOT_END")
           PY
 
+  # FR: hashes officiels des artefacts de la matrice, sans secrets ni écriture.
+  # EN: official artifact hashes for each tested interpreter, no secrets or writes.
+  ci-hash-lock-inventory:
+    name: official-hashes (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: pure313
+            python_version: "3.13.18"
+          - target: pure314
+            python_version: "3.14.10"
+          - target: ha314
+            python_version: "3.14.10"
+          - target: persistence314
+            python_version: "3.14.10"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: ${{ matrix.python_version }}
+      - name: Download and authenticate official PyPI archives without installation
+        run: python -I scripts/ci_hash_lock_generate.py ${{ matrix.target }}
+
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
     runs-on: ubuntu-24.04
