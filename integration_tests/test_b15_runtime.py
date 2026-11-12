@@ -137,6 +137,53 @@ async def test_b15_extra_persisted_bucket_blocks_verification_and_retry(hass, mo
 
 
 @pytest.mark.asyncio
+async def test_b15_retry_of_already_persisted_batch_is_idempotent(hass, monkeypatch):
+    """Replaying a crash-surviving journal never re-enqueues durable rows."""
+    enqueued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, meta, _rows: enqueued.append(meta["statistic_id"]),
+    )
+    logical = "trybatec:logical_meter_ef_raw_replay_synthetic"
+    rows = [
+        {"start": datetime(2026, 3, 1, tzinfo=timezone.utc), "state": 0.0, "sum": 0.0},
+        {"start": datetime(2026, 3, 2, tzinfo=timezone.utc), "state": 1.0, "sum": 1.0},
+    ]
+    plan = {
+        "fingerprint": "c" * 64,
+        "series": [{
+            "logical_id": logical, "kind": "physical", "fluid": "EF",
+            "unit": "m³", "rows": rows, "source_fingerprint": "d" * 64,
+        }],
+    }
+    await recorder.queue_b15_plan(
+        hass, "synthetic-replay", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def recorder_persisted(_call):
+        return {"statistics": {logical + "_v1": [
+            {"start": r["start"].isoformat(), "sum": r["sum"]} for r in rows
+        ]}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", recorder_persisted,
+        supports_response=SupportsResponse.ONLY,
+    )
+    retry = await recorder.queue_b15_plan(
+        hass, "synthetic-replay", plan,
+        confirm_revision=False, retry_pending=True,
+    )
+    assert retry["status"] == "unchanged_all_series_previously_verified"
+    assert retry["queued"] == []
+    assert retry["read_only_recovery"]["all_persisted"] is True
+    assert enqueued == [logical + "_v1"]
+    stored = await recorder.ledger_store(hass, "synthetic-replay").async_load()
+    assert stored["pending"] == {}
+    assert stored["series"][logical]["versions"][0]["state"] == "verified"
+
+
+@pytest.mark.asyncio
 async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeypatch):
     old = "trybatec:old_ef"
     new = "trybatec:logical_ef_synthetic_v1"
