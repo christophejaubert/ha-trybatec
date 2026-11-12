@@ -257,7 +257,7 @@ async def async_rollback_one_time_migration(
         await journal.async_save(record)
         return {
             "status": "rolled_back", "entity_ids_restored": [
-                item["entity_id"] for item in items,
+                item["entity_id"] for item in items
             ],
             "recorder_unchanged": True, "energy_unchanged": True,
         }
