@@ -148,6 +148,40 @@ assert.equal(localize("Consulter l’unité","en-US"),"View unit");
 assert.equal(localize("Rechercher les relevés","en-US"),"Search readings");
 assert.equal(localize("Date non établie dans les données consultées","en-US"),"Date not established from consulted data");
 assert.equal(localize("Non vérifié","en-US"),"Not verified");
+// A completed account-wide scan must not validate an unobserved physical meter.
+meter.first_observed_at=null;
+meter.last_source_observed_at=null;
+fixture._tariffCoverage.set(account.entry_id,{status:"complete",meters:[]});
+const missingEvidence=p._meterDetail.call(fixture,meter);
+assert.match(missingEvidence,/Analyse globale terminée, sans preuve attribuable à ce compteur physique/);
+assert.doesNotMatch(missingEvidence,/Date non établie dans les données consultées/);
+fixture._tariffCoverage.set(account.entry_id,{status:"complete",meters:[{
+  physical_key:meter.physical_key
+}]});
+const scopedEvidence=p._meterDetail.call(fixture,meter);
+assert.match(scopedEvidence,/Date non établie dans les données consultées/);
+
+// Context loss must fail closed rather than disclose the account's other meters.
+fixture._historyContextKey="x".repeat(24);
+const staleSummary=p._historySummary.call(fixture);
+assert.match(staleSummary,/Compteur introuvable/);
+assert.doesNotMatch(staleSummary,/SYNTH-OTHER/);
+fixture._heading=()=>"<header>History</header>";
+const staleView=p._history.call(fixture);
+assert.match(staleView,/Aucun résultat d’un autre compteur/);
+assert.doesNotMatch(staleView,/SYNTH-OTHER/);
+
+// Five meter fields and unit provenance must be available in English.
+fixture._t=(fr,en)=>en;
+fixture._historyContextKey=null;
+const english=p._meterDetail.call(fixture,meter);
+for (const label of ["Latest available index","First known observation",
+    "Last source observation","Date of latest usable index","Unit status",
+    "No current index","Source: manually recorded unit"]) {
+  assert.ok(english.includes(label),"Missing English label: "+label);
+}
+assert.doesNotMatch(english,/Première observation connue|Dernière observation source/);
+
 console.log("UI state and contextual navigation: PASS");
 '''
     run = subprocess.run(
