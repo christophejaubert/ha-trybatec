@@ -96,6 +96,12 @@ def make_b15_plan(
         history, verified_units, decisions, sparse_hours=sparse_hours,
         approved_origins=approved_origins,
     )
+    # Preserve the established B15 failure contract before consulting the
+    # ancillary provenance evidence; unverified meters cannot be imported.
+    if any(meter["status"] != "preview_only" for meter in variants["meters"]):
+        raise ValueError(
+            "Unverified or conflicted physical meter blocks whole dwelling import"
+        )
     # Preserve source readings. An approved origin extends the period
     # but is not reclassified as a measured physical index.
     physical_bounds = {}
