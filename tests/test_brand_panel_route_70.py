@@ -19,6 +19,6 @@ def test_logo_endpoint_targets_canonical_asset() -> None:
 def test_panel_uses_logo_endpoint_with_text_alternative() -> None:
     source = PANEL_JS.read_text(encoding="utf-8")
     assert '/api/trybatec_panel/logo.png' in source
-    assert 'alt=\\"Trybatec\\"' in source
+    assert 'alt="Trybatec"' in source
     assert "cache+" in source
     # No test claims the actual browser downloaded the correct bytes.
