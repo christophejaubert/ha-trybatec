@@ -33,7 +33,7 @@ const context={
   customElements:{get:()=>false,define:()=>{}},
 };
 vm.runInNewContext(source+
-  "\\n globalThis.__energy={guide:trybatecEnergySetupGuidance,Panel:TrybatecPanel};",
+  " ; globalThis.__energy={guide:trybatecEnergySetupGuidance,Panel:TrybatecPanel};",
   context,{timeout:3000});
 const {guide,Panel}=context.__energy;
 const meter={status:"en_service",unit_verified:true,last_index:16};
@@ -59,7 +59,7 @@ assert.equal(guide(retired,available).mode,"verification_needed");
 assert.equal(guide(retired,available).reasons[0].level,"unverified");
 const fixture={_current:incomplete,_data:{energy:available},_t:(fr,en)=>fr};
 const html=Panel.prototype._energySetupHelp.call(fixture);
-assert.match(html,/Assistant de configuration \\/ Vue d’ensemble/);
+assert.ok(html.includes("Assistant de configuration / Vue d’ensemble"));
 assert.match(html,/data-tab="overview"/);
 assert.match(html,/data-tab="meters"/);
 assert.match(html,/data-tab="tariffs"/);
@@ -67,7 +67,7 @@ assert.match(html,/data-open-energy/);
 assert.match(html,/À faire/);
 assert.match(html,/Tarifs annuels facultatifs/);
 const english=Panel.prototype._energySetupHelp.call({...fixture,_t:(fr,en)=>en});
-assert.match(english,/Setup assistant \\/ Overview/);
+assert.ok(english.includes("Setup assistant / Overview"));
 assert.match(english,/Action required/);
 assert.doesNotMatch(english,/Aucune source Trybatec/);
 let renders=0;
