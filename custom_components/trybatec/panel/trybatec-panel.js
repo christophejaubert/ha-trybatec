@@ -950,8 +950,24 @@ class TrybatecPanel extends HTMLElement {
     this._error = "";
     this._render();
     try {
-      this._data = await this._hass.callWS({type:"trybatec/panel_snapshot"});
-      this._account = Math.min(this._account, Math.max(0,this._data.accounts.length-1));
+      // FR/EN: preserve the physical meter across inventory reordering.
+      // Never silently show a different meter if the previous one disappeared.
+      const priorEntryId=this._current?.entry_id;
+      const priorPhysicalKey=this._current?.meters?.[this._meter]?.physical_key;
+      const snapshot=await this._hass.callWS({type:"trybatec/panel_snapshot"});
+      if (!Array.isArray(snapshot?.accounts)) throw new Error("Invalid panel snapshot");
+      this._data=snapshot;
+      const accountIndex=priorEntryId?
+        snapshot.accounts.findIndex(a=>a.entry_id===priorEntryId):-1;
+      this._account=accountIndex>=0?accountIndex:
+        Math.min(this._account,Math.max(0,snapshot.accounts.length-1));
+      if (priorPhysicalKey) {
+        const newIndex=(this._current?.meters||[]).findIndex(m=>
+          m.physical_key===priorPhysicalKey);
+        this._meter=newIndex; // -1 explicitly means not found; never select a neighbor.
+      } else if (this._meter<0) {
+        this._meter=-1;
+      }
       this._message = "";
     } catch (err) {
       this._error = "Impossible de charger les informations Trybatec. Consultez les journaux et réessayez.";
