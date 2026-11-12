@@ -775,6 +775,7 @@ class TrybatecPanel extends HTMLElement {
     this._message = "";
     this._started = false;
     this._tariffInput = {year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+    this._tariffHydrated = false;
     this._tariffBusy = false;
     this._tariffError = "";
     this._tariffMessage = "";
@@ -1052,6 +1053,7 @@ class TrybatecPanel extends HTMLElement {
       this._loggingInput=null;this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
       this._historyPreview=null;this._historySelected="";
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
+      this._tariffHydrated=false;
       this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
       this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
@@ -2539,6 +2541,14 @@ class TrybatecPanel extends HTMLElement {
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
+    // Initial navigation must show the persisted rate, not a blank draft.
+    // Hydration happens once per account, never over unsaved user input.
+    if (!this._tariffHydrated) {
+      const saved=this._existingTariff();
+      f.rate=saved?String(saved.rate):"";
+      f.status=saved?saved.status:"provisional";
+      this._tariffHydrated=true;
+    }
     const editButton=(year,fluid,physicalKey="")=>
       '<button type="button" class="secondary" data-tariff-edit-year="'+safe(year)+
       '" data-tariff-edit-fluid="'+safe(fluid)+'" data-tariff-edit-meter="'+safe(physicalKey)+
