@@ -148,7 +148,7 @@ def test_new_tariff_precision_contract_does_not_change_legacy_data() -> None:
 
 @pytest.mark.asyncio
 async def test_new_rate_precision_rejected_without_persisting() -> None:
-    hass, coord, key = _case()
+    hass, coord, _key = _case()
     fingerprint = tariff_fingerprint(coord.entry.options)
     original = deepcopy(coord.entry.options)
     for rate in (0.1234567, 1.23456789, 1e-7, 1000000.000001):
