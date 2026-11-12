@@ -2114,7 +2114,7 @@ class TrybatecPanel extends HTMLElement {
         '</h3><p class="muted">'+safe(
           this._t("Période analysée (compte) : ","Analyzed period (account): "))+
           this._date(this._historyPreview.start_date)+" → "+
-          this._date(this._historyPreview.end_date))+'</p>'+
+          this._date(this._historyPreview.end_date)+'</p>'+
         (rowsForMeter.length?'<div class="detail-grid">'+
           rowsForMeter.map(row=>[
             [this._t("Compteur","Meter"),row.serial],
@@ -2131,7 +2131,7 @@ class TrybatecPanel extends HTMLElement {
           "No results for this meter in the analyzed period."))+'</div>')+
         '</section>';
     }
-    return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur">'+
+    return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur</h3>'+
       '<p class="muted">Période : '+safe(this._date(this._historyPreview.start_date))+
       ' → '+safe(this._date(this._historyPreview.end_date))+
       '. '+safe(this._number(summary.meters))+' compteur(s) physique(s) et '+
