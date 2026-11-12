@@ -6,7 +6,6 @@ those operations require an independently approved user action.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
