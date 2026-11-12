@@ -10,7 +10,7 @@ Ce plan accepte une **unique série consolidée et vérifiée par compte, lot et
 
 | Fluide | Catégorie technique HA | Statistique attendue | Limites |
 | --- | --- | --- | --- |
-| EF | `water` | m³ | Aucun libellé `name` injecté : `WATER_SOURCE_SCHEMA` ne l'accepte pas |
+| EF | `water` | m³ | Champ `name` optionnel accepté ; aucun nom injecté automatiquement |
 | ECS | `water` | m³ | Même catégorie native que EF, série distincte |
 | Chauffage (CET) | `gas` | kWh | Sous réserve de validation réelle des statistiques thermiques par HA |
 
@@ -34,8 +34,29 @@ Références : [issue #88](https://github.com/christophejaubert/ha-trybatec/issu
 
 Exactly one verified consolidated consumption series per account/dwelling/fluid is allowed. Known competing selected versions block insertion, existing correct targets are idempotent, and unrelated sources/preferences are preserved. Retired-meter history requires independently confirmed consolidated coverage.
 
-For Home Assistant Core 2026.11.1, water utilities use separate `water` statistics in m³ (the `WATER_SOURCE_SCHEMA` does **not** accept an extra custom `name` field); heating may use the compatible `gas` category with verified kWh thermal energy, subject to real compatibility verification. No yearly rates or cost statistics are inserted. Home Assistant rejects direct dynamic/fixed prices for external statistics without a suitable cost statistic.
+For Home Assistant Core 2026.11.1, water utilities use separate `water` statistics in m³ (the `WATER_SOURCE_SCHEMA` supports an optional `name` field (not assigned by the planner)); heating may use the compatible `gas` category with verified kWh thermal energy, subject to real compatibility verification. No yearly rates or cost statistics are inserted. Home Assistant rejects direct dynamic/fixed prices for external statistics without a suitable cost statistic.
 
 **Before any real action:** trusted complete inventory, verified Recorder metadata and identities, conflict/overlap exclusions, exact-schema preview, concurrent-change fingerprinting, recoverable backup, explicit administrator confirmation, post-write readback, rollback and real production-like acceptance. Automated CI and real Home Assistant acceptance are separate.
 
 Sources: [#88](https://github.com/christophejaubert/ha-trybatec/issues/88), [#83](https://github.com/christophejaubert/ha-trybatec/issues/83), [HA Core 2026.11.1 Energy schema](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py).
+
+
+## FR — Diagnostic renforcé et garanties
+
+Le contrat exact du schéma doit être passé explicitement : `schema_version="2026.11.1"`. Cette valeur ne prouve PAS la version réellement installée ; un adaptateur serveur devra la vérifier indépendamment. Les preuves attendues concernent l'appartenance au compte/logement, les unités et classes, Recorder (`has_sum`, données persistées), la couverture historique y compris les compteurs déposés, les versions exclusives, l'inventaire exhaustif des variantes et le schéma. Une preuve absente ou `False` est bloquante. Des drapeaux fournis par un navigateur ne constituent jamais une preuve.
+
+La fonction `preview_bulk_energy_insertion` produit un diagnostic par série (statut, motif, contrôles nécessaires), des empreintes avant/après et une proposition **atomique**. En cas de refus ou conflit, `proposed` est strictement identique à `previous`. Même un résultat `prepared_under_assertions` est **non activable** : `activation_authorized=False` et `requires_trusted_backend_checks=True`. Les sources préexistantes, paramètres tiers et tarifs restent inchangés. Aucune proposition de coût historique n'est déduite des tarifs du présent.
+
+L'implémentation native HA 2026.11.1 accepte une statistique en kWh de classe `energy` dans la catégorie technique `gas` ; toutefois cette catégorie désigne le gaz, pas un chauffage distinct. Pour CET, exiger en plus une validation métier explicite du classement (`thermal_category_approved`). Ne jamais déduire cette autorisation de la seule unité kWh et ne jamais inventer une conversion kWh↔volume. L'activation éventuelle relève d'une phase distincte de #88.
+
+Le moteur contrôle aussi les références aux variantes dans les champs annexes (`included_in_stat` et extensions futures), sans les supprimer. Pour l'affichage des blocages et la navigation vers l'assistant, la PR #91 doit utiliser les diagnostics sans transformer ces assertions en validation de production. Aucune écriture n'est effectuée par ce module.
+
+## EN — Stronger diagnostics and guarantees
+
+The exact Energy contract requires `schema_version="2026.11.1"` explicitly; a trusted server adapter must check the **installed** HA version separately. Account/dwelling ownership, units and device classes, persisted Recorder sum/data, historical coverage including retired meters, version exclusivity, complete competing-series inventory, and matching preference schema must all have independent evidence. Missing or false checks block the candidate. **Browser flags are not evidence.**
+
+`preview_bulk_energy_insertion` returns per-series statuses, refusal reasons, additional checks, before/after fingerprints, and an **atomic** proposal. Any rejected entry or group conflict yields unchanged preferences. Even `prepared_under_assertions` has **`activation_authorized=False`** and still requires independent backend evidence. Unrelated sources, prices and historical cost statistics are untouched.
+
+The HA Core 2026.11.1 `gas` validator technically accepts `energy`-class kWh statistics; this is **not** a dedicated heating category. CET therefore needs separately proven thermal mapping approval (`thermal_category_approved`). Never infer this approval from units or invent a kWh-to-volume conversion. Source alternatives referenced in other fields, including `included_in_stat`, also block addition. PR #91 owns the UI fallback; a later #88 phase owns real activation.
+
+Verified sources: [Energy preference schema, HA Core 2026.11.1](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py); [Energy statistics validation, HA Core 2026.11.1](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/validate.py).
