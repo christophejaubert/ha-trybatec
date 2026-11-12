@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -31,6 +32,7 @@ from .const import (
     CONF_POLL_MINUTES,
     CONF_HEATING_UNIT, HEATING_UNITS, CONF_METER_UNITS, CONF_DEVICE_UUIDS,
     CONF_TARIFFS,
+    CONF_METER_TARIFFS, FLUIDS,
     CONF_LOG_LEVEL, DEFAULT_LOG_LEVEL, LOG_LEVELS,
     DEFAULT_POLL_MINUTES,
     CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
@@ -39,6 +41,9 @@ from .const import (
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
+from .panel_tariffs import change_tariff
+from .tariff_validation import tariff_fingerprint, validate_meter_tariffs
+from .history_devices_b15 import load_historical_inventory
 from .units import meter_key, portal_display_unit, resolve_meter_unit, validate_meter_units, _ALLOWED
 from .device_units import uuid_text
 from .history_store import save_decision
@@ -248,6 +253,8 @@ class TrybatecOptionsFlow(OptionsFlow):
     _correction_draft: dict | None = None
     _selected_sparse: dict | None = None
     _pending_sparse: dict | None = None
+    _native_tariff_scope: dict | None = None
+    _native_tariff_change: dict | None = None
 
     @staticmethod
     def _radio_choices(choices: dict[str, str]) -> SelectSelector:
@@ -370,6 +377,8 @@ class TrybatecOptionsFlow(OptionsFlow):
         self._correction_draft = None
         self._selected_sparse = None
         self._pending_sparse = None
+        self._native_tariff_scope = None
+        self._native_tariff_change = None
         # An explicit label mapping is supported by HA's native menu API.
         # Supply nonempty, localized labels directly so a stale/missing
         # frontend translation never creates an invisible clickable row.
@@ -408,6 +417,14 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ),
                 "history_smoothing": self._nav_text(
                     "Lissage des intervalles historiques", "Review sparse intervals"
+                ),
+                "tariffs": self._nav_text(
+                    "Tarifs annuels (éditeur graphique)",
+                    "Annual tariffs (visual editor)",
+                ),
+                "legacy_tariffs": self._nav_text(
+                    "Avancé : anciens tarifs JSON (compatibilité)",
+                    "Advanced: legacy JSON tariffs (compatibility)",
                 ),
             },
         )
@@ -450,9 +467,6 @@ class TrybatecOptionsFlow(OptionsFlow):
         if user_input is not None:
             route = user_input.get("after_submit", "menu")
             try:
-                tariffs = user_input.get(
-                    CONF_TARIFFS, self.config_entry.options.get(CONF_TARIFFS, "{}")
-                )
                 poll = int(user_input.get(
                     CONF_POLL_MINUTES,
                     self.config_entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES),
@@ -469,7 +483,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ))
                 if not 1 <= sparse <= 87600 or not 0 <= zeros <= 36500:
                     raise ValueError("Invalid review thresholds")
-                validate_tariffs(tariffs)
                 if route not in ("finish", "menu"):
                     raise ValueError("Invalid navigation")
             except (ValueError, TypeError, json.JSONDecodeError, OverflowError):
@@ -477,7 +490,7 @@ class TrybatecOptionsFlow(OptionsFlow):
             else:
                 return await self._save_options_and_navigate(
                     {
-                        CONF_POLL_MINUTES: poll, CONF_TARIFFS: tariffs,
+                        CONF_POLL_MINUTES: poll,
                         CONF_SPARSE_HOURS: sparse, CONF_ZERO_REVIEW_DAYS: zeros,
                     }, route
                 )
@@ -489,10 +502,6 @@ class TrybatecOptionsFlow(OptionsFlow):
                         CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_POLL_MINUTES, max=10080)),
-                vol.Required(
-                    CONF_TARIFFS,
-                    default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
-                ): str,
                 vol.Required(
                     CONF_SPARSE_HOURS,
                     default=self.config_entry.options.get(
