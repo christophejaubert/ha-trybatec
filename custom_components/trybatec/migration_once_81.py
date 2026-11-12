@@ -104,8 +104,19 @@ def preview_one_time_migration(
                         if key in registry_by_uid]
         state_candidates = []
         blockers: list[str] = []
-        if meter.get("deposed") is True:
-            blockers.append("retired_meter_requires_separate_archival_handling")
+        retired = meter.get("deposed") is True
+        if retired and meter.get("service_status_known") is not True:
+            blockers.append("retired_status_unverified")
+        if retired:
+            last = meter.get("last")
+            if not (isinstance(last, (tuple, list)) and len(last) == 2):
+                blockers.append("retired_missing_verified_source_reading")
+            else:
+                try:
+                    if not isfinite(float(last[1])):
+                        blockers.append("retired_invalid_source_reading")
+                except (TypeError, ValueError, OverflowError):
+                    blockers.append("retired_invalid_source_reading")
         unit = meter.get("verified_unit")
         if unit is None:
             blockers.append("source_unit_not_verified")
@@ -131,16 +142,24 @@ def preview_one_time_migration(
                     or attrs.get("lot") != lot
                     or attrs.get("source_unit") != unit
                     or attrs.get("unit_verified") is not True
-                    or attrs.get("deposed") is not False
-                    or attrs.get("unit_of_measurement") != normalized_unit(fluid)
-                    or attrs.get("state_class") != "total_increasing"):
+                    or attrs.get("deposed") is not retired
+                    or attrs.get("unit_of_measurement") != normalized_unit(fluid)):
                 continue
-            try:
-                value = float(state.get("state"))
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if not isfinite(value):
-                continue
+            if retired:
+                # Deposited meter state may be unknown. It is an archival
+                # reading, never a live TOTAL_INCREASING producer.
+                if (attrs.get("historical_reading_only") is not True
+                        or attrs.get("state_class") not in (None, "")):
+                    continue
+            else:
+                if attrs.get("state_class") != "total_increasing":
+                    continue
+                try:
+                    value = float(state.get("state"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not isfinite(value):
+                    continue
             # A numeric, verified state with exact scope and canonical unit
             # is the only candidate for preserving the live entity ID.
             state_candidates.append(item)
