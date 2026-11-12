@@ -1,57 +1,54 @@
-# Issue #81 — stable physical-meter identity: implementation gate
+# 🤖 Identités physiques stables / Stable physical-meter IDs (#81)
 
-**Status (2026-11-12):** phase A, review-only implementation on a dedicated branch. No registry migration, new runtime identity selection, Recorder import, Energy change or Home Assistant production write is implemented or authorized by this patch.
+## Français
 
-## Verified baseline
+**Statut : implémentation partielle sur PR #82, non fusionnée.** La CI doit être vérifiée sur le dernier SHA ; les tests automatisés ne valent pas recette sur un Home Assistant réel. Les migrations d'installations existantes ne sont pas encore implémentées, et aucune écriture sur Recorder, Énergie ou le registre des entités n'est déclenchée au démarrage.
 
-- In `sensor.py`, current b6 live meter `unique_id` includes the verified source unit (or `unverified`), which intentionally isolated historical statistics with assumed units.
-- `migration_runtime_b15.py` supports an existing separately confirmed b15 migration and b17 coexistence. Its checks must **not** be bypassed by changing the generator in `sensor.py`.
-- Physical meters, retired physical-meter snapshots and versioned Recorder statistics are distinct identities. A meter-unit change is not a physical meter replacement.
+### Architecture et compatibilité
 
-## Implemented in this PR (phase A)
+- `meter_identity.py` calcule un `unique_id` opaque stable à partir du compte, du lot/logement, du fluide et du numéro de série physique, sans inclure ni unité de mesure ni version logicielle.
+- **Nouveaux comptes uniquement** : le flux d'installation crée `stable_meter_identities: true`. Le capteur utilise cet identifiant stable. Un registre de contrôle local conserve la première unité de source vérifiée avant toute publication d'index cumulatif ; l'état « unité inconnue » est également mémorisé.
+- Si l'unité source change après validation (par exemple de L vers m³), le capteur **conserve le même identifiant**, mais son index et ses statistiques deviennent indisponibles jusqu'à revue. Il ne reconvertit ni n'écrase silencieusement les statistiques historiques.
+- **Comptes existants** : en l'absence de l'option, ils restent dans le mode b6. Si une génération b6 enregistrée est identifiable sans ambiguïté, son identifiant et son unité initiale sont conservés au rechargement, même après changement d'unité. Si plusieurs générations ne peuvent être départagées, aucun nouveau capteur n'est créé automatiquement.
+- Les appareils physiques déposés et les séries Recorder versionnées restent distincts ; aucune consolidation ni suppression n'est tentée dans ce correctif.
+- Le panneau administrateur expose uniquement une **prévisualisation en lecture seule** du passage aux identifiants canoniques. Les références Recorder/automatisations/tableaux de bord ne sont **pas** considérées comme exhaustivement vérifiées. L'absence de référence dans Énergie ne prouve pas qu'une entité est inutilisée.
 
-The pure `meter_identity.py` helper:
+### À terminer avant fusion/publication
 
-1. Derives a canonical SHA-256-based ID from the exact *account scope, lot, fluid and physical serial*, excluding source unit and release string.
-2. Recognizes known b6 legacy identity forms (including the collision suffix) without treating a suffix or friendly name as proof of ownership.
-3. Declines to attribute an unscoped serial-only legacy ID to any one lot when that serial is reused.
-4. Computes an immutable, read-only compatibility inventory and marks foreign owners, multiple legacy generations and coexistence as blockers.
-5. Never edits the entity registry, local settings, devices, statistics, Energy selections, dashboards or automations; absent registry entries do not prove absent historical statistics.
+1. **Migration des comptes existants :** audit complet de l'identité et des références ; sauvegarde récupérable ; aperçu signé par empreinte ; confirmation de chaque migration ; détection des collisions et des générations coexistantes ; reprise après interruption et rollback.
+2. **Recorder et Énergie :** vérifier les anciennes unités, le modèle statistique et les séries utilisées ; n'autoriser une bascule que lorsque la conservation des données et l'absence de double comptage sont démontrées. Ne jamais fusionner des index physiques différents.
+3. **Essais en intégration :** installations neuves et existantes, unités inconnues/vérifiées/corrigées, multi-logements et collisions, comptes multiples, compteurs déposés, perte de registre, restauration, redémarrage et migration partielle.
+4. **Validation :** CI obligatoire sur SHA exact, tests d'intégration Home Assistant, sauvegarde et recette métier réelle distincte ; aucune release si les contrôles sont incomplets.
+5. **Coordination :** #36 (séries Recorder et bascules Énergie), #37 (compteurs déposés et nettoyage), #45 (parcours du panneau), #83 (IHM guidée), #35 (réauthentification). Ne pas recopier ou modifier leurs contrats fonctionnels dans cette PR.
 
-The helper is intentionally **not yet wired into sensor creation**. Existing IDs and statistics retain their present behavior. This staging prevents a seemingly harmless code change from implicitly reusing Recorder history of another scale.
+**Attention :** une publication peut être suivie d'une mise à jour automatique de Home Assistant selon la configuration de l'utilisateur. Aucun changement de mode d'identité ne doit être publié sans revue d'impact.
 
-### Integration in the administrator snapshot (read-only)
+## English
 
-The existing `trybatec/panel_snapshot` WebSocket response now includes `stable_identity_preview` per selected config entry, derived from currently loaded meters and scoped registry metadata. It reports proposed opaque IDs, known b6 predecessors, ambiguous coexistence and explicit blockers. It marks the registry scope as partial and Recorder/dependency checks as incomplete. It provides **no migration button** and does not alter the active `sensor.py` constructor. The HA integration test verifies this preflight on synthetic input.
+**Status: partial implementation in draft PR #82; not merged.** CI success must be re-checked against the exact latest commit. Automated tests are not equivalent to acceptance testing on a real Home Assistant instance. Existing-installation migrations are **not** implemented; startup performs no entity-registry, Recorder or Energy writes.
 
-## Next implementation phases before enabling new IDs
+### Architecture and compatibility
 
-### Phase B — HA runtime preflight and greenfield selection
+- `meter_identity.py` derives an opaque, deterministic `unique_id` from account scope, dwelling/lot, fluid and physical serial; never from source units or release numbers.
+- **New accounts only:** the config flow enables `stable_meter_identities: true`. An internal, durable local scale guard stores the first verified source unit before permitting cumulative statistics, including a stored initial "unverified" marker.
+- After a correction (for example L to m³), the sensor **keeps its identity**, but its value and long-term statistic eligibility are withheld until separately reviewed. Existing cumulative statistics are never silently reinterpreted.
+- **Existing accounts:** absent the flag, the b6 identity remains. A uniquely proven registered b6 generation keeps its original ID and source scale across restarts; ambiguous old generations never cause an automatic replacement sensor.
+- Retired physical devices and versioned Recorder statistics stay separate. This change performs no historical merging or cleanup.
+- The administrator snapshot shows a **read-only** preview of future canonical IDs. Recorder, automation and dashboard references are explicitly **not** comprehensively audited; a missing Energy reference is not proof of an unused entity.
 
-- Verify account/config-entry scope and canonical physical identity against the HA device/registry entries.
-- Audit presence of existing Recorder statistics and Energy references, including unscoped legacy IDs, before deciding whether a genuinely **new** installation may register a stable ID.
-- Store durable evidence of the first verified source unit or an equivalent independent baseline: otherwise a subsequent unit correction across HA restart could reuse a stable statistic ID with incompatible historical scale.
-- Keep a meter with no verified unit visible without producing misleading long-term statistics. Updating unit metadata must not create a second entity.
-- Reject source-unit corrections whenever persisted statistics cannot be reconciled, rather than resetting or silently reinterpreting cumulative values.
-- Handle restoration and restart, temporary API errors, multiple lots/accounts, duplicate serials, physical replacements and truly unavailable data.
+### Remaining release gates
 
-### Phase C — explicit migration of existing identities
+1. **Existing-account migration:** full ownership/dependency audit, recoverable backup, fingerprinted preview, separate confirmation, collision/coexistence checks, interrupted-resume and rollback.
+2. **Recorder and Energy:** verify old scale and statistical metadata; prove zero data loss or duplicate counting before switching sources; never sum raw indexes of different physical meters.
+3. **Integration tests:** greenfield/legacy, unknown/verified/changed units, multi-account/lot, serial collisions, retired meters, lost baseline, restart, restore, partial migrations.
+4. **Validation:** mandatory CI on exact SHA, HA integration coverage and separate real-instance acceptance; do not release with missing checks.
+5. **Coordination:** #36 (Recorder/Energy), #37 (retired meters/cleanup), #45 (panel flow), #83 (guided UI), #35 (reauthentication).
 
-- Build a **read-only** source→target plan with exact registry ownership/device identity, all known references and raw vs canonical unit metadata.
-- Require a recoverable HA/Recorder backup, explicit confirmation and a before-state fingerprint; prohibit any implicit deletion or reassignment of occupied entity IDs.
-- Verify after write, support interrupted/resumed execution, and retain a rollback snapshot.
-- Preserve all b6/b15/b17 Recorder series and verify one consolidated source per fluid in Energy, in coordination with #36/#37.
-- An incomplete Recorder/automations/dashboard dependency inventory prohibits cleanup; a zero warning count is not proof of safety.
+**Release caution:** a published version may trigger a user's Home Assistant automatic updater. Never enable migration as a release side effect.
 
-### Phase D — CI and business acceptance
+## Références / References
 
-- Unit/identity/compatibility test matrix with synthetic fixtures; Python and HA integration tests on the *exact* PR commit; HACS/hassfest/security/CI.
-- Production **read-only** inventory before any migration, then independent authorization for any real write.
-- Manual Home Assistant acceptance (UI, restore, ID continuity, Recorder, Energy) is separate from successful CI.
-- Before publication, confirm that the new runtime path is actually integrated, not just previewed.
-
-## Deployment / migration rule
-
-**Do not merge or publish this as a completed #81 fix.** Phase A is an implementation foundation and does not change current generated IDs. Keep the PR in draft until remaining phases, validations and a deliberate migration strategy are complete.
-
-References: [#81](https://github.com/christophejaubert/ha-trybatec/issues/81), [#37](https://github.com/christophejaubert/ha-trybatec/issues/37), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36).
+- [#81 — architecture/architecture](https://github.com/christophejaubert/ha-trybatec/issues/81)
+- [#37 — entités/physical devices](https://github.com/christophejaubert/ha-trybatec/issues/37)
+- [#36 — Recorder/Énergie](https://github.com/christophejaubert/ha-trybatec/issues/36)
+- [#83 — IHM/UI](https://github.com/christophejaubert/ha-trybatec/issues/83)
