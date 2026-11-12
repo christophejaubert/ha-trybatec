@@ -15,9 +15,9 @@
 | Tarifs facultatifs #83 | Fusion #90/#91 ; éditeur annuel en cours sur #118 | CI #118 propre à son SHA, pas recette globale | **Non** | Attendre finalisation de #118 ; absence de tarifs ne doit pas être une anomalie |
 | Reflow mobile 320 CSS px #70 | [PR #138](https://github.com/christophejaubert/ha-trybatec/pull/138) empilée sur #118 : largeur min grille/champs + test 7 sections | Workflow navigateur synthétique **réussi** sur `ac1ce054fa23a97b55703cedd90d8bbe0c625f84` | **Non** | Rejouer après réconciliation #118 et valider sur vrai HA |
 | Contrast WCAG #70 | Audit source [PR #133](https://github.com/christophejaubert/ha-trybatec/pull/133) | Quatre ratios de tokens de boutons évalués, sonde sur 56 configurations | **Non** | Mesurer surfaces effectivement compositées, focus/contrôles/graphes |
-| Clavier / focus #70 | Focus CSS et navigation déclarés | Focus de navigation testé, 40 observations de focus hors viewport restent à examiner | **Non** | Tabulation complète, pièges, masquage, menu à défilement |
+| Clavier / focus #70 | Focus CSS et navigation déclarés | 56 cas synthétiques : 40 focus initialement hors fenêtre, **0 après défilement** ; 0 centre masqué, 0 contour manquant | **Non** | Parcours Tab/Shift+Tab complet et masquage réel, lecteurs d'écran |
 | Zoom 200 % / spacing / VoiceOver/TalkBack | Protocole publié en PR #133 | **Non vérifié** par le dispositif actuel | **Non** | Recette spécifique avec technologies d'assistance |
-| Cibles tactiles #70 | Règles documentées | 56 observations de petites cibles dans sonde, concentration dans Énergie | **Non** | Mesurer les véritables cibles, exceptions WCAG et tailles mobiles |
+| Cibles tactiles #70 | PR empilée #138 : min-height 32 px pour les libellés d'action | 24 observations initiales de cases à cocher natives 13 px dans leurs libellés ; deux libellés 19 px sur baseline | **Non** | Vérifier CI dernier SHA #138 et surfaces réelles, exceptions WCAG |
 | FR/EN × bureau/mobile × clair/sombre | Sondes et checklist 56 combinaisons | 56 **exécutions synthétiques**, aucun appel fournisseur | **0/56** | 56 scénarios HA réels restent non exécutés |
 
 ### Analyse des anomalies et dépendances

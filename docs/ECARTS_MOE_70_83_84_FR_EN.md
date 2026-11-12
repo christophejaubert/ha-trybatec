@@ -43,8 +43,8 @@ Deliver independently of tariff PR #118, with no changes to `trybatec-panel.js` 
 |---|---|---|
 | Reflow 320 CSS px | **4/56 observations de débordement** | **P1 :** toutes les variantes FR (bureau/mobile × clair/sombre) de la section **Énergie et versions**, largeur document `373 px` à viewport `320 px` |
 | Contour de focus | 0 observation de contour absent | Contrôle limité à la navigation synthétique, pas à tous les champs |
-| Focus hors viewport | 40/56 observations | Signal à examiner (barre d'onglets défilante, focus programmatique et véritable masquage WCAG sont à distinguer) |
-| Cibles <24 CSS px | 56 observations d'éléments dans les 8 vues Énergie, pas 56 boutons distincts | Analyser dimensions et exceptions applicables ; ne pas déclarer automatiquement une violation WCAG |
+| Focus hors viewport | **40/56 avant défilement ; 0/56 après scrollIntoView** | Barres d’onglets défilantes : anomalie de masquage non démontrée par cette sonde ; parcours clavier complet restant |
+| Cibles <24 CSS px | **24 observations / 8 variantes : trois cases à cocher natives 13×13 px**, chacune dans un libellé cliquable | Deux libellés à 19 px de haut : augmentation à min. 32 px dans PR empilée #138 ; vérifier nouveau SHA et exceptions WCAG |
 | VoiceOver/TalkBack, zoom texte 200 % | Non testés | Recette complémentaire nécessaire |
 
 Les **4 cas de débordement concernent le texte français d'Énergie et versions** ; aucun débordement n'est observé par cette sonde dans les 52 autres combinaisons. Ce résultat synthétique n'identifie pas encore à lui seul l'élément CSS responsable. Correctif de panneau à coordonner **après** stabilisation de la PR tarifaire #118 ; ne pas modifier ce fichier dans la présente PR de preuves.
@@ -53,6 +53,10 @@ Les **4 cas de débordement concernent le texte français d'Énergie et versions
 
 [Evidence run #43283214906](https://github.com/christophejaubert/ha-trybatec/actions/runs/43283214906), SHA `2d61e281e75c8949e736567e91c5150fef6c3fbe`: all **56 synthetic** configurations executed; zero live HA acceptance.
 
-**Four** 320 CSS px overflows occur only on French **Energy & versions**, across desktop/mobile and light/dark: measured document width **373 px** for a **320 px** viewport. The other 52 configurations show no document overflow in this probe. Zero missing focus-outline observations, 40 off-viewport focus observations, and 56 under-24px target observations remain diagnostic signals requiring inspection for scrolling, selection behavior and WCAG exceptions. They are not 40/56 automatically proven AA violations; screen readers and true 200% text resizing have **not** been tested.
+**Four** 320 CSS px overflows occur only on French **Energy & versions**, across desktop/mobile and light/dark: measured document width **373 px** for a **320 px** viewport on baseline main. A refined probe measured 40 navigation buttons initially offscreen, **zero after explicit scroll-to-view**, zero button centers obscured and zero missing focus outlines. It found **24 observations of three 13px native checkboxes**, all inside clickable labels, two of whose heights are 19px. The independent stacked draft #138 raises direct action-label min-height to 32px and fixes French Energy reflow; **those fixes are not yet in main**. These are synthetic observations, not live HA WCAG certification. Screen readers, true 200% text resizing, and full keyboard traversal remain untested.
 
 Coordinate any shared panel fix with tariff PR #118. Keep #70/#83/#84 open for complete real acceptance.
+
+### Preuve affinée / Refined probe evidence
+
+**FR/EN :** [Workflow #43307386560](https://github.com/christophejaubert/ha-trybatec/actions/runs/43307386560), SHA `b6a7b9ed3c18cc3c0d0d5e3efed6cfa0744b937f` : 56 cas synthétiques, reflow FR Énergie 4/56 sur baseline, focus visible et 0/56 hors fenêtre **après** défilement, petites cibles précisées en cases à cocher avec libellés. Les valeurs précédentes 40/56 et 56/56 provenaient de l'ancienne sonde, moins précise ; ne pas les réutiliser comme des échecs WCAG certifiés. Aucun test HA réel.
