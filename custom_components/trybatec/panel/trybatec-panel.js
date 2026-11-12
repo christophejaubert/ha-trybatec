@@ -962,9 +962,9 @@ class TrybatecPanel extends HTMLElement {
       this._account=accountIndex>=0?accountIndex:
         Math.min(this._account,Math.max(0,snapshot.accounts.length-1));
       if (priorPhysicalKey) {
-        const newIndex=(this._current?.meters||[]).findIndex(m=>
-          m.physical_key===priorPhysicalKey);
-        this._meter=newIndex; // -1 explicitly means not found; never select a neighbor.
+        const newIndex=accountIndex>=0?
+          (this._current?.meters||[]).findIndex(m=>m.physical_key===priorPhysicalKey):-1;
+        this._meter=newIndex; // -1 means missing; never select another account's meter.
       } else if (this._meter<0) {
         this._meter=-1;
       }
