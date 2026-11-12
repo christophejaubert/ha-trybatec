@@ -1,5 +1,45 @@
 # 🤖 Pilotage MOE / MOE release tracking
 
+## Réconciliation courante — 12 novembre 2026 / Current reconciliation — 12 November 2026
+
+**Version cible / Target:** `0.3.4b1` (D2–D6 validées dans [#45](https://github.com/christophejaubert/ha-trybatec/issues/45)); **version publiée / published:** [`0.3.3b1`](https://github.com/christophejaubert/ha-trybatec/releases/tag/0.3.3b1).
+
+**Dernier `main` vérifié / Verified main:** [`a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`](https://github.com/christophejaubert/ha-trybatec/commit/a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53) ; [CI post-fusion](https://github.com/christophejaubert/ha-trybatec/actions/runs/43273136693) **success**, 18 checks passed / 1 manual skipped. Aucune PR fusionnée depuis #122 / No merges since #122.
+
+**Règle de lecture / Reading rule:** développé ≠ testé CI ≠ recetté HA ≠ fusionné ≠ publié ≠ installé. Les 13 PR suivantes sont toutes **ouvertes en brouillon et non fusionnées** ; leur CI individuelle est réussie sur leurs SHA de tête du constat. Aucune autorisation de fusion n'est implicite. / All 13 PRs are **open drafts, not merged**, individually green on the observed exact head SHA; no merge is implied.
+
+| Issue / Workstream | PR | Développé et testé / Developed & tested | Bloquant restant / Outstanding gate |
+|---|---|---|---|
+| #35 Accès / Access | [#132](https://github.com/christophejaubert/ha-trybatec/pull/132) | HTTP 401/403, notifications, anciens xfail résolus sur PR / access and notification fixes | Réconcilier fichiers partagés avec #120 ; recette réelle / shared-file conflict and live acceptance |
+| #42 Tarifs / Tariffs | [#118](https://github.com/christophejaubert/ha-trybatec/pull/118) | Éditeur graphique et calculateur YTD isolé / UI and pure YTD calculator | JSON natif, branchement `sensor.py`, recette réelle / native JSON, sensor hookup, HA acceptance |
+| #81 Identités neuves / Greenfield IDs | [#120](https://github.com/christophejaubert/ha-trybatec/pull/120) | IDs stables nouveaux comptes ; historiques non migrés / new accounts only | Branche divergente, rétrogradation, conflits #132 / sync, downgrade safety, shared files |
+| #36 Historique / History | [#127](https://github.com/christophejaubert/ha-trybatec/pull/127), [#128](https://github.com/christophejaubert/ha-trybatec/pull/128) | Provenance et reprise Recorder isolées / provenance and pure recovery classification | Adaptateurs et raccordement au plan/Recorder, persistance et recette |
+| #37 Filiation / Retired meters | [#125](https://github.com/christophejaubert/ha-trybatec/pull/125) | Contrat filiation lecture seule / read-only lineage | Inventaire complet, liens #36/#88 et validation sans double comptage |
+| #88 Énergie / Energy | [#129](https://github.com/christophejaubert/ha-trybatec/pull/129), [#130](https://github.com/christophejaubert/ha-trybatec/pull/130) | Preuves L6 et automate L7 non activés / dormant L6/L7 | Aucune admissibilité prouvée, pas de port HA, sauvegarde/restauration ni recette réelle / not operational or merge-ready |
+| #70/#83/#84 UI | [#131](https://github.com/christophejaubert/ha-trybatec/pull/131), [#133](https://github.com/christophejaubert/ha-trybatec/pull/133) | Icônes/palette et tests WCAG synthétiques / brand and synthetic a11y | Parcours incomplets, revue workflow CI et 56 cas HA non recettés |
+| CI/CD | [#124](https://github.com/christophejaubert/ha-trybatec/pull/124), [#126](https://github.com/christophejaubert/ha-trybatec/pull/126) | Exception Gitleaks limitée, titre de release `🤖 ` / scoped scan correction, release title | CI post-fusion, prochain scan planifié, autorisations de fusion/release |
+| Hors périmètre / Excluded | [#82](https://github.com/christophejaubert/ha-trybatec/pull/82), #34, #39 | Migration identifiants historiques, pondération DJU, référencement externe | Ne pas intégrer à `0.3.4b1` / exclude from target |
+
+### FR — Ordre d'intégration et risques
+
+1. **Sécurité CI/CD :** revoir #124/#126 indépendamment. Leur fusion n'est pas autorisée par la seule réussite CI.
+2. **Accès et identités :** réconcilier précisément `config_flow.py` et `coordinator.py` entre #120 et #132 ; vérifier protection des anciens comptes, G01–G10, réauthentification/403 et risque de rétrogradation avant décisions de fusion séparées.
+3. **Tarifs :** intégrer #118 lorsque son périmètre est revu, puis lots coordonnés options natives sans JSON et YTD `sensor.py` après stabilité #120 ; préserver COMPAT-01 et TAR-01.
+4. **Historique :** raccorder #127/#128 et #125 à la chaîne #36/#37 validée, sans reprise Recorder aveugle ni fausse consommation.
+5. **Énergie :** ne pas qualifier #129 admissible sans preuves #36/#37/Recorder ; #130 demeure abstrait, sans opération HA ; compléter contrat natif, sauvegarde, restauration et parcours confirmés avant recette.
+6. **UI :** intégrer les corrections et instruments #131/#133 sous revue, mais les 56 scénarios sur HA réel et WCAG ne sont pas validés.
+7. **Candidate :** 12 issues restent ouvertes, aucune nouvelle fusion ni release, aucune suppression, migration ni opération sur HA. Publication exige périmètre D3/D4 entièrement intégré/qualifié, SHA final, contrôles obligatoires, recette et autorisation spécifique.
+
+### EN — Integration order and residual risks
+
+Review CI fixes #124/#126; coordinate nonmigrating #120 with overlapping #132 before native/YTD work. Finish tariff native no-JSON and sensor hookup, then connect #36 provenance/recovery and #37 lineage to independently trusted #88 L6 evidence. Keep #130 L7 dormant until native port, recovery, safety and real HA acceptance are proven. Review UI #131/#133 but do not infer accessibility certification from synthetic checks. Twelve issues remain open and no release, migration, cleanup or Home Assistant action is authorized. The complete D3/D4 scope must be qualified before publication or explicitly re-scoped by the user.
+
+---
+
+## Instantané documentaire antérieur (historique) / Earlier document snapshot (historical)
+
+> Les sections ci-dessous représentent l'état enregistré avant cette réconciliation et peuvent citer des PR encore en brouillon à l'époque. Ne pas les utiliser comme source courante sans vérifier GitHub. / The following sections document an earlier snapshot and may describe PRs as drafts before their later merges. Use the current section above and live GitHub state for decisions.
+
 > **État au 12 novembre 2026 / Snapshot on 12 November 2026.**
 > Dépôt / Repository: [christophejaubert/ha-trybatec](https://github.com/christophejaubert/ha-trybatec).
 > **Document de préparation, non autorisation de fusion, de publication ou de modification Home Assistant. / Preparation only; no merge, release or Home Assistant change is authorized.**
