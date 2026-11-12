@@ -4,7 +4,8 @@ import asyncio
 import pytest
 
 from custom_components.trybatec.api import (
-    TrybatecAuthError, TrybatecClient, TrybatecDataError,
+    TrybatecAccessDeniedError, TrybatecAuthError,
+    TrybatecClient, TrybatecDataError,
     TrybatecConnectionError,
 )
 
@@ -65,11 +66,22 @@ def test_fail_closed_on_missing_ambiguous_or_malformed_deal(payload):
 
 
 def test_authentication_denied_after_refresh():
-    session = Session([Reply(403, {}), Reply(403, {})])
+    # 401 means the Bearer may have expired, so refresh exactly once.
+    session = Session([Reply(401, {}), Reply(401, {})])
     client = TrybatecClient(session, "synthetic", "not-secret")
-    with pytest.raises(TrybatecAuthError):
+    with pytest.raises(TrybatecAuthError) as caught:
         asyncio.run(client.discover_single_deal_id())
+    assert not isinstance(caught.value, TrybatecAccessDeniedError)
     assert len([x for x in session.requests if x[0] == "POST"]) == 2
+
+
+def test_permission_denied_403_is_not_a_credential_refresh():
+    # A property-level 403 is not solved by resending credentials.
+    session = Session([Reply(403, {})])
+    client = TrybatecClient(session, "synthetic", "not-secret")
+    with pytest.raises(TrybatecAccessDeniedError):
+        asyncio.run(client.discover_single_deal_id())
+    assert len([x for x in session.requests if x[0] == "POST"]) == 1
 
 
 def test_http_denial_does_not_leak_vendor_payload():
