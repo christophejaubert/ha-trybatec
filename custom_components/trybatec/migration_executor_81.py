@@ -63,7 +63,7 @@ def _assert_mapping(registry: Any, devices: Any, row: dict[str, Any],
             or not isinstance(device.identifiers, (set, frozenset))):
         raise ValueError("Physical device ownership is not verified")
     canonical_device = (DOMAIN, "device_" + new_uid)
-    occupant = devices.async_get_device(identifiers={canonical_device})
+    occupant = devices.async_get_device_by_identifier(canonical_device, entry_id)
     if occupant is not None and occupant.id != record.device_id:
         raise ValueError("Canonical device identifier belongs to another device")
     if canonical_device in device.identifiers:
