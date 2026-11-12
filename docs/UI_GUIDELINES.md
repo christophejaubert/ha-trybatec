@@ -6,6 +6,14 @@
 
 **Références / References :** [Design system](DESIGN_SYSTEM.md), [#70](https://github.com/christophejaubert/ha-trybatec/issues/70), [#83](https://github.com/christophejaubert/ha-trybatec/issues/83), [#84](https://github.com/christophejaubert/ha-trybatec/issues/84), [WCAG 2.2](https://www.w3.org/TR/WCAG22/). Ces règles précisent les choix antérieurs sans annuler les protections métier de #36/#37/#81.
 
+## Autorité des décisions et portée / Decision precedence and scope
+
+**FR :** La palette canonique fixée par l'issue #70 le 10/11/2026 reste obligatoire. En revanche, sa consigne initiale de *simple recoloration sans changement de géométrie du logo* est remplacée, pour les travaux ultérieurs, par le **nouvel emblème approuvé** décrit dans [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) : symbole sans texte, trois formes circulaires entrelacées, séparation blanche, accents verts internes, aucun cercle vert extérieur. Cette clarification documentaire ne valide ni la génération des ressources graphiques, ni leur mise en production. Les anciennes spécifications restent consultables comme historique, pas comme normes concurrentes.
+
+**EN:** The canonical palette from issue #70 (November 10, 2026) remains mandatory. Its earlier *recolor-only, unchanged-logo-geometry* instruction is superseded for subsequent work by the **later approved emblem** described in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md): text-free symbol, three interlaced circular shapes, white separation, inner green accents and no outer green circle. This documentation does **not** prove that assets were updated, deployed or visually accepted. Older specifications remain historical records, not competing current rules.
+
+**FR / EN :** Une règle documentée n'est ni une fonction implémentée, ni un contrôle CI réussi, ni une recette Home Assistant réelle. / A documented requirement is not implemented functionality, a successful CI run or real Home Assistant acceptance.
+
 ## FR — Règles obligatoires
 
 ### UI-01 — Dimensions indépendantes
@@ -38,13 +46,13 @@ La criticité est **un attribut supplémentaire**, pas un cinquième état de v�
 Différencier visuellement et fonctionnellement : actif, survol, focus clavier, pressé/sélectionné (si pertinent), chargement, désactivé. Conserver une bordure, une surface et un texte suffisamment contrastés sur les boutons actifs neutres ; focus visible. Désactivation native/effective (pas un simple changement d'opacité ou de couleur), raison du blocage accessible dans un texte adjacent. Ne pas dépendre uniquement d'une infobulle impossible à atteindre au clavier. Une opération en chargement empêche les doubles déclenchements ; annoncer le résultat après vérification.
 
 ### UI-05 — Couleurs métier et marque
-Préserver la palette canonique et ses variantes de thème définies dans [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) : eau froide EF \`#0A84D8\`, eau chaude ECS \`#C73A5C\`, chauffage CET \`#E0A126\`, marque \`#4E9E4A\`. Le jaune/ambre CET n'est **pas une alerte** ; le vert du logo n'est **pas un statut de validation**. Les tokens succès/alerte/danger/neutre sont distincts des tokens marque/fluides. Vérifier **chaque couple texte/pictogramme et fond réellement rendu** en clair et sombre avant d'adopter de nouveaux hex.
+Préserver la palette canonique et ses variantes de thème définies dans [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) : eau froide EF `#0A84D8`, eau chaude ECS `#C73A5C`, chauffage CET `#E0A126`, marque `#4E9E4A`. Le jaune/ambre CET n'est **pas une alerte** ; le vert du logo n'est **pas un statut de validation**. Les tokens succès/alerte/danger/neutre sont distincts des tokens marque/fluides. Vérifier **chaque couple texte/pictogramme et fond réellement rendu** en clair et sombre avant d'adopter de nouveaux hex.
 
 ### UI-06 — Messages et diagnostic
 Distinguer succès confirmé, information, vérification requise, avertissement démontré, erreur confirmée et blocage de sécurité. Une donnée absente, non chargée, non encore analysée, non applicable ou un réglage facultatif absent ne justifient pas automatiquement un avertissement. Donner cause, périmètre vérifié, conséquence et suite accessible ; ne jamais annoncer un succès sur la seule acceptation d'une requête asynchrone. Pas de détail privé en journal ou dans la documentation.
 
 ### UI-07 — Parcours et navigation
-Organiser par objectif utilisateur, pas par organisation interne du code. Parcours contextuels, prérequis uniquement pertinents, navigation retour, sélection de compte/logement/compteur et saisies conservées lors des déplacements. Pas d'ordre obligatoire artificiel entre fonctions indépendantes. Diagnostics avancés accessibles séparément, sans étape imposée en permanence. Une ouverture de page ou un lien de navigation n'exécute aucune opération sensible.
+Organiser par objectif utilisateur, pas par organisation interne du code. Parcours contextuels, prérequis uniquement pertinents, navigation retour, sélection de compte/logement/compteur et saisies conservées lors des déplacements. Pas d'ordre obligatoire artificiel entre fonctions indépendantes. Diagnostics avancés accessibles séparément, sans étape imposée en permanence. Une ouverture de page ou un lien de navigation n'exécute aucune opération sensible. Les liens de résolution ne sont affichés comme actifs que si leur destination est réellement implémentée ; ils doivent préserver l'identité du compte, du logement et du compteur physique, avec un chemin de retour. Un scan fournisseur ou un import reste une action explicite distincte.
 
 ### UI-08 — Formulaires
 Libellés explicites, unités, caractère obligatoire/facultatif, validation locale et serveur adaptée. Messages à proximité du champ ; conserver les valeurs après erreur. Distinguer modifications non enregistrées et données sauvegardées. L'enregistrement ne modifie que les paramètres explicitement concernés, après vérification des états concurrents si nécessaire. Pas de formulaires imposant du JSON à un utilisateur ordinaire.
@@ -87,13 +95,13 @@ Use **high-contrast neutral enabled controls** for read, review, search, preview
 Provide distinct enabled, hover, focus, pressed/selected when relevant, busy and disabled states. Disable functionally, expose accessible adjacent reasons and clear focus; don't rely solely on tooltip or opacity. Prevent duplicate submissions and confirm persistence before displaying success.
 
 ### UI-05 — Brand and fluids
-Maintain the canonical EF \`#0A84D8\`, ECS \`#C73A5C\`, CET \`#E0A126\` and brand \`#4E9E4A\` colors. Fluid/brand colors are **not** semantic warning/success colors. Check actual foreground/background contrast across light/dark Home Assistant themes.
+Maintain the canonical EF `#0A84D8`, ECS `#C73A5C`, CET `#E0A126` and brand `#4E9E4A` colors. Fluid/brand colors are **not** semantic warning/success colors. Check actual foreground/background contrast across light/dark Home Assistant themes.
 
 ### UI-06 — Feedback and diagnostics
 Separate verified success, information, verification needed, demonstrated warning, confirmed error and safety blocker. Do not convert unconfigured, unloaded or unverified data into false warnings. Include verified scope and actionable next steps. Never report an asynchronous request as completed before persistence is checked.
 
 ### UI-07 — User journeys and navigation
-Group actions by user goal, show only relevant prerequisites, maintain account/dwelling/meter selection and return navigation, preserve edits. No artificial global step ordering. Keep advanced diagnostics available but not permanently mandatory. Opening a view is not an authorization for writes.
+Group actions by user goal, show only relevant prerequisites, maintain account/dwelling/meter selection and return navigation, preserve edits. No artificial global step ordering. Keep advanced diagnostics available but not permanently mandatory. Opening a view is not an authorization for writes. Only implemented contextual destinations may appear as active links; preserve account, dwelling and physical meter context with a working return path. Supplier scans and imports require separate explicit actions.
 
 ### UI-08 — Forms
 Explicit field labels, units, optional/required metadata, field-level errors, preserved draft values and separate persisted/unsaved states. Validate server-side and avoid requiring raw JSON from ordinary users.
