@@ -129,9 +129,19 @@ async function one(browser, config) {
           viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
           hostWidth:Math.ceil(host.getBoundingClientRect().width),
           hasHeading:Boolean(root.querySelector("main h2")),focusableCount:controls.length,
+          // WCAG 2.5.8 has spacing and label-equivalence exceptions.
+          // The input's box alone may not be the full click target.
           undersizedTargets:controls.filter(el=>{
             const r=el.getBoundingClientRect();return r.width<24||r.height<24;
-          }).map(el=>(el.getAttribute("aria-label")||el.innerText||el.tagName).slice(0,72)),
+          }).map(el=>{
+            const r=el.getBoundingClientRect(),label=el.closest("label");
+            const lr=label?.getBoundingClientRect();
+            return {element:el.tagName,kind:el.getAttribute("type")||"",
+              label:(el.getAttribute("aria-label")||label?.innerText||el.innerText||"").slice(0,72),
+              width:Math.round(r.width),height:Math.round(r.height),
+              wrappedLabel:!!label,labelWidth:lr?Math.round(lr.width):null,
+              labelHeight:lr?Math.round(lr.height):null};
+          }),
           buttons:[...root.querySelectorAll("button.primary,button.secondary")]
             .filter(el=>el.getClientRects().length&&!el.matches(":disabled")).slice(0,6)
             .map(el=>{
@@ -144,12 +154,28 @@ async function one(browser, config) {
       });
       await page.keyboard.press("Tab");
       const target=page.locator('trybatec-panel nav button[data-tab="'+tab+'"]');
+      // A scrollable nav can initially be offscreen without being inaccessible.
+      const before=await target.evaluate(el=>{
+        const r=el.getBoundingClientRect();
+        return r.top>=0&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;
+      });
       await target.focus();
+      await target.evaluate(el=>el.scrollIntoView({
+        block:"nearest",inline:"nearest",behavior:"instant"
+      }));
       const focus=await target.evaluate(el=>{
         const s=getComputedStyle(el),r=el.getBoundingClientRect();
+        const root=el.getRootNode();
+        const cx=Math.max(0,Math.min(innerWidth-1,r.left+r.width/2));
+        const cy=Math.max(0,Math.min(innerHeight-1,r.top+r.height/2));
+        const topmost=root.elementFromPoint?.(cx,cy);
         return {outlineStyle:s.outlineStyle,outlineWidth:s.outlineWidth,
-          inViewport:r.top>=0&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight};
+          inViewport:r.top>=0&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,
+          centerObscured:!topmost||!(el===topmost||el.contains(topmost)),
+          role:el.getAttribute("role")||"button",accessibleName:el.innerText.trim(),
+          ariaCurrent:el.getAttribute("aria-current")};
       });
+      focus.beforeScrollInViewport=before;
       results.push({
         tab, reflow320synthetic:observation.documentWidth<=322,
         ...observation,focus,
@@ -189,7 +215,10 @@ async function one(browser, config) {
       syntheticCases:viewed.length,
       reflowFailures:viewed.filter(x=>!x.reflow320synthetic).length,
       focusNotVisible:viewed.filter(x=>x.focus.outlineStyle==="none"||parseFloat(x.focus.outlineWidth)<2).length,
+      focusInitiallyOffscreen:viewed.filter(x=>!x.focus.beforeScrollInViewport).length,
       focusOutsideViewport:viewed.filter(x=>!x.focus.inViewport).length,
+      focusCenterObscured:viewed.filter(x=>x.focus.centerObscured).length,
+      navigationAccessibleNameMissing:viewed.filter(x=>!x.focus.accessibleName).length,
       undersizedTargetObservations:viewed.reduce((n,x)=>n+x.undersizedTargets.length,0),
       realHomeAssistantRecettes:0,
     };
@@ -198,7 +227,9 @@ async function one(browser, config) {
       theme:record.config.theme,tab:row.tab,
       scrollWidth:row.documentWidth,viewport:row.viewport,
       reflowFailure:!row.reflow320synthetic,
+      focusInitiallyOffscreen:!row.focus.beforeScrollInViewport,
       focusOutside:!row.focus.inViewport,
+      focusCenterObscured:row.focus.centerObscured,
       undersizedTargetSample:row.undersizedTargets.slice(0,5),
     })));
     const detailed={
