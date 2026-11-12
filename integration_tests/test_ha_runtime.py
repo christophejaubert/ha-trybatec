@@ -946,3 +946,52 @@ async def test_reused_serial_with_unscoped_b6_id_blocks_both_new_stable_meters(
             "synthetic-ci-account", meter["lot"], meter["fluid"], meter["serial"],
         )
         assert registry.async_get_entity_id("sensor", DOMAIN, stable_uid) is None
+
+
+async def test_legacy_suffixed_entity_id_preserved_after_reload_and_re_setup(
+    hass, monkeypatch,
+):
+    """A user-renamed *_2 entity retains its registry identity and device."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    rows = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(rows) == 1
+    original = rows[0]
+    assert original.device_id is not None
+    suffix_id = "sensor.synthetic_water_2"
+    assert registry.async_get(suffix_id) is None
+    renamed = registry.async_update_entity(
+        original.entity_id, new_entity_id=suffix_id,
+    )
+    assert renamed.entity_id == suffix_id
+    before = (renamed.entity_id, renamed.unique_id, renamed.device_id)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = registry.async_get(suffix_id)
+    assert after is not None
+    assert (after.entity_id, after.unique_id, after.device_id) == before
+    assert registry.async_get(original.entity_id) is None
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+
+    # Unload/re-setup is a synthetic process-restart analogue, not proof
+    # of a physical HA host restart or Recorder recovery.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    rebooted = registry.async_get(suffix_id)
+    assert rebooted is not None
+    assert (rebooted.entity_id, rebooted.unique_id, rebooted.device_id) == before
+    owned = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(owned) == 1
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
