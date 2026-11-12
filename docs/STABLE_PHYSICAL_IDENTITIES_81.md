@@ -13,6 +13,13 @@
 **Limites de déploiement :** l'exécuteur n'est pas exposé comme action Home Assistant ni appelé à l'installation ; les adaptateurs d'inventaire/recette et de vérification de sauvegarde doivent être raccordés à des données fiables, puis testés sur un environnement HA représentatif avant toute écriture sur l'instance réelle. Les nouvelles fonctions et tests constituent du code développé, non une recette métier validée. L'outil ne saurait garantir une restauration complète en cas de défaillance de l'hôte ou de la base : cette situation nécessite la sauvegarde HA.
 
 
+### Adaptateurs natifs Home Assistant (branche #81)
+
+- `migration_ha_adapters_81.py` se raccorde au registre des entités/appareils, au journal `Store` propre au compte et au **gestionnaire Backup natif** de Home Assistant 2026.11. Une sauvegarde doit être enregistrée sous son identifiant exact, inclure **configuration et base Recorder**, disposer d'au moins une copie de taille positive sans erreur et dater de moins de **24 h**. La présence de métadonnées ne prouve pas à elle seule qu'une restauration fonctionnerait.
+- `migration_ha_evidence_81.py` inventorie **en lecture seule** les entités de la plateforme, les associations aux appareils, les métadonnées des statistiques Recorder et les trois catégories de configuration Énergie. Il ne convertit jamais une absence de statistique en autorisation de destruction.
+- **Blocage volontaire :** aucun de ces adaptateurs ne peut déclarer le recensement des consommateurs externes exhaustif. Les tableaux de bord, automatisations et autres intégrations doivent être contrôlés indépendamment, y compris les références directes aux identifiants techniques. Le plan natif conserve donc `ready: false` tant que cette preuve manque. Aucune commande d'écriture n'est exposée dans l'IHM ni appelée au démarrage.
+- Les tests dédiés couvrent les sauvegardes trop anciennes, incomplètes ou absentes, les erreurs d'agents et le refus d'une recette automatique à partir du seul inventaire interne.
+
 ## Décision d'architecture : une migration unique (12/11/2026)
 
 **Cible : un unique mécanisme normal d'identité, sans compatibilité b6 permanente.** Le maintien des anciens identifiants par les comptes créés avant cette évolution constitue uniquement un **sas de sécurité transitoire**. La reconnaissance des identités historiques doit être limitée à un outil de migration ponctuelle, indépendant du chemin normal des capteurs.
@@ -59,6 +66,13 @@
 
 **Deployment restrictions:** the executor is not exposed as a HA action and is never invoked at setup. Trustworthy inventory, backup verification and post-migration acceptance adapters must be wired and tested on a representative HA runtime before any real-instance write. This is implemented code and synthetic testing, **not** completed real-world business acceptance. Catastrophic host/database failure still requires a complete HA backup restoration.
 
+
+### Native Home Assistant adapters (issue #81)
+
+- `migration_ha_adapters_81.py` binds the actual HA entity/device registries, entry-scoped persistent `Store` journal and **native BackupManager** (2026.11). An exact backup ID must have a configuration and Recorder database copy, a positive-sized destination without recorded failure, and a timestamp within **24 hours**. Metadata cannot prove actual archive restorability.
+- `migration_ha_evidence_81.py` inspects all Trybatec platform registry records, physical device owners, Recorder statistic metadata and the three Energy configuration categories **read-only**. Missing statistics are not interpreted as authorization to delete old history.
+- **Deliberate safety gate:** the native collector never claims all external consumers have been inspected. Dashboards, automations and custom integrations—including possible references to technical unique IDs—need independent coverage. It therefore returns `ready: false` until that verification exists. No write API is exposed in the panel or run during setup.
+- Dedicated tests reject stale, incomplete and unavailable backups and disallow promoting native-only evidence to full business acceptance.
 
 ## Architecture decision: one-time migration (2026-11-12)
 
