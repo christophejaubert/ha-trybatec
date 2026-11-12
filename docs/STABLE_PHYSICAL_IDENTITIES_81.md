@@ -2,6 +2,17 @@
 
 ## Français
 
+### Exécuteur ponctuel développé (non déployé)
+
+- `migration_executor_81.py` implémente un exécuteur journalisé, à appel **exclusivement explicite** : il régénère le plan, compare l'empreinte avec celle approuvée, consulte une sauvegarde **réellement répertoriée par Home Assistant** contenant sa configuration et Recorder, vérifie les propriétaires et bloque les identifiants déjà occupés.
+- L'exécution ajoute l'alias canonique **à l'appareil existant** via `new_identifiers` et modifie **uniquement** le `unique_id` de l'entité existante. Elle conserve `device_id`, `entity_id`, statistiques et préférences Énergie ; elle ne supprime aucune entité.
+- `migration_activation_81.py` pré-enregistre les unités sources vérifiées, active le mode stable pour **l'ensemble des compteurs** d'un même compte, puis contrôle le rechargement de l'intégration. Une migration partielle de compte est refusée.
+- Un journal persistant permet de refuser les exécutions concurrentes et de reprendre un **retour arrière explicite** après interruption : désactivation du mode stable, restauration des identifiants, retrait des seuls alias ajoutés, rechargement et vérification.
+- Une étape de clôture séparée exige les preuves de contrôle du runtime, des références, des unités, de Recorder et d'Énergie. Une CI verte seule ne suffit pas. Les historiques ne sont jamais réécrits et les anciennes générations ne sont pas supprimées.
+
+**Limites de déploiement :** l'exécuteur n'est pas exposé comme action Home Assistant ni appelé à l'installation ; les adaptateurs d'inventaire/recette et de vérification de sauvegarde doivent être raccordés à des données fiables, puis testés sur un environnement HA représentatif avant toute écriture sur l'instance réelle. Les nouvelles fonctions et tests constituent du code développé, non une recette métier validée. L'outil ne saurait garantir une restauration complète en cas de défaillance de l'hôte ou de la base : cette situation nécessite la sauvegarde HA.
+
+
 ## Décision d'architecture : une migration unique (12/11/2026)
 
 **Cible : un unique mécanisme normal d'identité, sans compatibilité b6 permanente.** Le maintien des anciens identifiants par les comptes créés avant cette évolution constitue uniquement un **sas de sécurité transitoire**. La reconnaissance des identités historiques doit être limitée à un outil de migration ponctuelle, indépendant du chemin normal des capteurs.
@@ -12,7 +23,7 @@
 - En cas d'unité inconnue, de statistiques incompatibles, de référence non vérifiée, de collision ou de migration interrompue : **bloquer**, ne pas improviser de valeur ni supprimer de donnée.
 - Après migration et recette, éliminer la branche d'exécution historique et ses anciennes conditions ; conserver uniquement l'utilitaire de récupération ponctuelle si nécessaire, jamais une logique de compatibilité ordinaire.
 
-**Avancement effectif :** `migration_once_81.py` fournit l'inventaire déterministe en lecture seule, les conditions de blocage et une empreinte d'état ; les tests associés utilisent uniquement des données synthétiques. L'application des modifications de registre, la sauvegarde/validation et le rollback restent **à implémenter et tester**. Le résultat « prêt pour confirmation » n'autorise aucune écriture et n'atteste pas à lui seul la complétude des dépendances.
+**Avancement effectif :** `migration_once_81.py` fournit l'inventaire déterministe en lecture seule, les conditions de blocage et une empreinte d'état ; les tests associés utilisent uniquement des données synthétiques. La transaction de registre et son rollback sont **codés avec des tests synthétiques**, mais leur raccordement aux inventaires complets et la recette réelle restent **à réaliser**. Le résultat « prêt pour confirmation » n'autorise aucune écriture et n'atteste pas à lui seul la complétude des dépendances.
 
 
 **Statut : implémentation partielle sur PR #82, non fusionnée.** La CI doit être vérifiée sur le dernier SHA ; les tests automatisés ne valent pas recette sur un Home Assistant réel. Les migrations d'installations existantes ne sont pas encore implémentées, et aucune écriture sur Recorder, Énergie ou le registre des entités n'est déclenchée au démarrage.
@@ -38,6 +49,17 @@
 
 ## English
 
+### One-time executor implemented (not deployed)
+
+- `migration_executor_81.py` provides an **explicit-only**, journaled transaction: refresh and compare the approved preflight fingerprint, independently look up a **real HA configuration + Recorder backup**, verify ownership and refuse occupied targets.
+- It adds the canonical identifier to the **same physical device** using `new_identifiers` and updates only the original entity's `unique_id`, preserving `device_id`, `entity_id`, Recorder and Energy preferences. No legacy rows are deleted.
+- `migration_activation_81.py` durably seeds source-unit baselines, changes the account to canonical mode only when **all its physical meters** are included, then checks the integration reload; partial-account activation is rejected.
+- A durable journal blocks concurrent attempts and supports **explicit interrupted-operation recovery**: disable canonical mode, restore old IDs, remove only aliases introduced by this migration, reload and verify.
+- Separate completion requires actual runtime, reference, unit, Recorder and Energy verification. CI success alone does not prove business acceptance. Historical series are never rewritten or silently removed.
+
+**Deployment restrictions:** the executor is not exposed as a HA action and is never invoked at setup. Trustworthy inventory, backup verification and post-migration acceptance adapters must be wired and tested on a representative HA runtime before any real-instance write. This is implemented code and synthetic testing, **not** completed real-world business acceptance. Catastrophic host/database failure still requires a complete HA backup restoration.
+
+
 ## Architecture decision: one-time migration (2026-11-12)
 
 **Target: a single normal stable-identity mechanism, not permanent b6 compatibility.** Keeping legacy IDs on already-installed accounts is merely a **temporary safety gate**. Recognition of obsolete IDs belongs in the separate, one-time migration tool, never the regular sensor lifecycle.
@@ -48,7 +70,7 @@
 - Unknown units, incompatible Recorder statistics, incomplete references, identity collisions or interrupted migrations: **fail closed**; do not invent measurements or delete data.
 - Once migration and acceptance finish, remove the old runtime branch. Any later recovery utility must remain explicitly invoked, not a permanent compatibility pathway.
 
-**Actual delivery:** `migration_once_81.py` contains a deterministic read-only inventory, blockers and a fingerprint, covered by synthetic tests. Registry application, backup/confirmation, verified rollback and real acceptance are **not yet implemented**. A "ready for separate confirmation" preview neither authorizes writes nor proves an exhaustive dependency audit.
+**Actual delivery:** `migration_once_81.py` contains a deterministic read-only inventory, blockers and a fingerprint, covered by synthetic tests. Registry application, verified-backup gating and rollback are **coded with synthetic tests**, but trusted live inventory wiring and real acceptance are **not yet completed**. A "ready for separate confirmation" preview neither authorizes writes nor proves an exhaustive dependency audit.
 
 
 **Status: partial implementation in draft PR #82; not merged.** CI success must be re-checked against the exact latest commit. Automated tests are not equivalent to acceptance testing on a real Home Assistant instance. Existing-installation migrations are **not** implemented; startup performs no entity-registry, Recorder or Energy writes.
