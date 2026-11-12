@@ -105,6 +105,28 @@ def _backup(identifier="test-backup", *, has_recorder=True):
     }
 
 
+class Activation:
+    def __init__(self):
+        self.enabled = False
+        self.prepared = False
+        self.restores = 0
+
+    async def async_prepare(self, items):
+        assert items
+        self.prepared = True
+
+    async def async_enable(self):
+        if not self.prepared:
+            raise ValueError("Not prepared")
+        self.enabled = True
+
+    async def async_disable(self):
+        self.enabled = False
+
+    async def async_restore_runtime(self):
+        self.restores += 1
+
+
 def _fixture():
     reg, devices, journal = Registry(), Devices(), Journal()
     plan = _plan()
@@ -116,12 +138,13 @@ def _fixture():
 
 
 async def _run(reg, devices, journal, supplier, lookup, *, fingerprint="a" * 64,
-               confirm=True):
+               confirm=True, activation=None):
     return await async_execute_one_time_migration(
         entry_id=ENTRY, expected_fingerprint=fingerprint,
         backup_id="test-backup", confirmed=confirm,
         plan_supplier=supplier, backup_lookup=lookup,
         registry=reg, devices=devices, journal=journal,
+        activation=activation or Activation(),
     )
 
 
@@ -146,14 +169,14 @@ async def test_journaled_migration_preserves_ids_device_history_and_has_explicit
     assert verified["requires_recorder_and_energy_acceptance"] is True
     restored = await async_rollback_one_time_migration(
         entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
-        journal=journal,
+        journal=journal, activation=Activation(),
     )
     assert restored["status"] == "rolled_back"
     assert reg.row.unique_id == OLD
     assert devices.device.identifiers == original_identifiers
     again = await async_rollback_one_time_migration(
         entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
-        journal=journal,
+        journal=journal, activation=Activation(),
     )
     assert again["status"] == "already_rolled_back"
 
@@ -238,7 +261,7 @@ async def test_interrupted_journal_is_recoverable_after_restart():
         await _run(reg, devices, journal, supplier, lookup)
     result = await async_rollback_one_time_migration(
         entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
-        journal=journal,
+        journal=journal, activation=Activation(),
     )
     assert result["status"] == "rolled_back"
     assert reg.row.unique_id == OLD
