@@ -7,6 +7,7 @@ on:
       - "scripts/browser-ci/**"
       - ".github/workflows/browser-acceptance.yml"
   push:
+    branches: [main]
     paths:
       - "custom_components/trybatec/panel/**"
       - "scripts/browser-ci/**"
@@ -15,6 +16,12 @@ on:
 
 # No repository write permissions, no secrets, no production HA credentials.
 permissions: {}
+
+# FR : annuler seulement les anciennes CI de la même PR ; préserver les autres déclenchements.
+# EN: cancel only superseded CI runs for the same PR; preserve all other triggers.
+concurrency:
+  group: trybatec-browser-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   trybatec-browser-synthetic:
