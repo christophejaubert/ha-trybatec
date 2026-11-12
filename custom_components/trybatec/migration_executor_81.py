@@ -59,7 +59,7 @@ def _assert_mapping(registry: Any, devices: Any, row: dict[str, Any],
         raise ValueError("Canonical identity already occupied")
     device = devices.async_get(record.device_id)
     if (device is None
-            or entry_id not in device.config_entries
+            or getattr(device, "config_entry_id", None) != entry_id
             or not isinstance(device.identifiers, (set, frozenset))):
         raise ValueError("Physical device ownership is not verified")
     canonical_device = (DOMAIN, "device_" + new_uid)
@@ -111,7 +111,8 @@ async def _reverse(registry: Any, devices: Any, item: dict[str, Any]) -> None:
         raise ValueError("Cannot roll back: physical device no longer exists")
     if _canonical_pair(item) in device.identifiers:
         devices.async_update_device(
-            item["device_id"], remove_identifiers={_canonical_pair(item)},
+            item["device_id"],
+            new_identifiers=set(device.identifiers) - {_canonical_pair(item)},
         )
     device = devices.async_get(item["device_id"])
     if device is None or _canonical_pair(item) in device.identifiers:
@@ -172,8 +173,12 @@ async def async_execute_one_time_migration(
             await activation.async_prepare(items)
             for item in items:
                 pair = _canonical_pair(item)
+                current_device = devices.async_get(item["device_id"])
+                if current_device is None:
+                    raise ValueError("Source device disappeared")
                 devices.async_update_device(
-                    item["device_id"], add_identifiers={pair},
+                    item["device_id"],
+                    new_identifiers=set(current_device.identifiers) | {pair},
                 )
                 item["step"] = "device_alias_added"
                 await journal.async_save(record)
