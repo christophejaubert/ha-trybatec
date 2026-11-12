@@ -100,7 +100,7 @@ assert.equal(routeRenders,2);
 const unknown={...route,_tab:"energy",_query:"old"};
 Panel.prototype._click.call(unknown,{target:{closest:()=>({dataset:{energyHistory:"missing-key"}})}});
 assert.equal(unknown._tab,"meters");
-assert.equal(unknown._historyContextKey,undefined);
+assert.equal(unknown._historyContextKey,null);
 
 const english=Panel.prototype._energySetupHelp.call({...fixture,_t:(fr,en)=>en});
 assert.ok(english.includes("Setup assistant / Overview"));
