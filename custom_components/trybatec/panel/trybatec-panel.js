@@ -1282,56 +1282,91 @@ class TrybatecPanel extends HTMLElement {
     const active=meters.filter(m=>m.status==="en_service");
     const retired=meters.filter(m=>m.status==="depose");
     const missingDates=retired.filter(m=>!m.first_observed_at||!m.last_source_observed_at);
-    const tariffsConfigured=Object.keys(a.tariffs||{}).length+
-      Object.keys(a.meter_tariffs||{}).length>0;
     const ledger=a.ledger||{};
     const verified=(ledger.series||[]).flatMap(row=>
       (row.versions||[]).filter(v=>v.state==="verified"||v.state==="archived"));
     const energySources=(this._data?.energy?.sources||[]).filter(src=>
-      typeof src.statistic_id==="string" && src.statistic_id.startsWith("trybatec:"));
+      typeof src.statistic_id==="string"&&src.statistic_id.startsWith("trybatec:"));
+    const tariffsConfigured=Object.keys(a.tariffs||{}).length+
+      Object.keys(a.meter_tariffs||{}).length>0;
     const activeReady=active.length>0 && active.every(m=>
       m.last_index!==null && m.last_index!==undefined && m.unit_verified);
-    const item=(ok,title,description,tab,action,optional=false)=>
-      '<div class="readiness-row '+(ok?"ok":"pending")+'">'+
-      '<ha-icon icon="'+(ok?"mdi:check-circle-outline":
-        optional?"mdi:information-outline":"mdi:alert-circle-outline")+
-      '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
-      '<p>'+safe(description)+'</p>'+
-      (!ok?'<div class="actions"><button type="button" class="secondary" data-tab="'+safe(tab)+'">'+
-        safe(action)+'</button></div>':"")+'</div></div>';
+    const conflict=(a.meter_options||[]).some(o=>
+      o.source_unit==="conflict" &&
+      active.some(m=>m.physical_key===o.physical_key));
+    const check=(kind,title,description,tab,action)=>{
+      const className=kind==="passed"?"ok":kind==="issue"?"issue":kind==="na"?"na":"pending";
+      const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
+        unverified:"mdi:help-circle-outline",na:"mdi:minus-circle-outline"}[kind];
+      const label={passed:t("Conforme","Passed"),issue:t("Anomalie détectée","Issue detected"),
+        unverified:t("Non vérifié","Not verified"),na:t("Non applicable","Not applicable")}[kind];
+      return '<div class="readiness-row '+className+'"><ha-icon icon="'+icon+
+        '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
+        '<p class="muted">'+safe(label)+'</p><p>'+safe(description)+'</p>'+
+        (action?'<div class="actions"><button type="button" class="secondary" data-tab="'+
+          safe(tab)+'">'+safe(action)+'</button></div>':"")+'</div></div>';
+    };
+    const feature=(title,description,tab,action)=>
+      '<div class="readiness-row"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
+      '<div><strong>'+safe(title)+'</strong><p>'+safe(description)+'</p>'+
+      '<div class="actions"><button type="button" class="secondary" data-tab="'+
+      safe(tab)+'">'+safe(action)+'</button></div></div></div>';
+    const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
+    const retiredStatus=retired.length===0?"na":
+      missingDates.length===0?"passed":"unverified";
+    const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
+      "No active meters in this inventory."):
+      conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
+      "A source-unit contradiction was reported for an active meter."):
+      activeReady?t("Relevés courants présents et unités renseignées ; ce contrôle n’est pas un audit exhaustif.",
+      "Current readings and units are present; this is not an exhaustive audit."):
+      t("Un ou plusieurs relevés courants ou unités restent à vérifier.",
+      "One or more current readings or units require verification.");
+    const retiredText=retired.length===0?t("Aucun compteur déposé connu.",
+      "No known retired meter."):missingDates.length===0?
+      t("Dates connues dans l’aperçu ; la couverture historique exhaustive reste distincte.",
+      "Dates are available in this snapshot; full historical coverage is a separate check."):
+      String(missingDates.length)+t(" compteur(s) déposé(s) sans bornes complètes dans cet aperçu. Cela ne prouve pas la perte de relevés.",
+        " retired meter(s) lack complete boundaries in this snapshot. This does not prove loss of readings.");
     return '<section class="card" style="margin-bottom:20px" aria-label="'+
       safe(t("État de la configuration","Configuration status"))+'">'+
       '<h3>'+safe(t("État de la configuration","Configuration status"))+'</h3>'+
-      '<p class="muted" style="margin-bottom:16px">'+
-      safe(t("Contrôles disponibles, prérequis et actions possibles. Une configuration facultative absente ne constitue pas une panne.",
-      "Available checks, prerequisites and actions. Missing optional settings are not system failures."))+'</p>'+
+      '<p class="muted" style="margin-bottom:16px">'+safe(t(
+        "Les contrôles constatés sont séparés des fonctionnalités facultatives et des diagnostics avancés.",
+        "Verified checks are separate from optional workflows and advanced diagnostics."))+'</p>'+
       '<div class="readiness-list">'+
-      item(activeReady,t("Synchronisation des compteurs","Meter synchronization"),
-        activeReady?t("Relevés courants présents, unités vérifiées.","Current readings available, units verified."):
-        t("Vérifier les derniers relevés et les unités des compteurs en service.","Check readings and units of active meters."),
-        "meters",t("Vérifier les compteurs","Review meters"))+
-      item(missingDates.length===0,t("Historique des compteurs déposés","Retired-meter history"),
-        missingDates.length===0?t("Bornes historiques disponibles pour les compteurs déposés.","Historical reading dates are available."):
-        String(missingDates.length)+t(" compteur(s) déposé(s) sans observations historiques complètes dans cet aperçu."," retired meter(s) without complete historical observations in this view."),
-        "meters",t("Vérifier les relevés historiques","Review historical readings"))+
-      item(verified.length>0 && !ledger.pending,t("Versions historiques Recorder","Recorder history versions"),
-        verified.length?String(verified.length)+t(" version(s) vérifiée(s) ; import(s) en attente : "," verified version(s); pending imports: ")+
-          String(ledger.pending||0)+".":t("Aucune version historique vérifiée. L’import nécessite une prévisualisation, une sauvegarde et une vérification.","No verified version. Import requires a preview, recoverable backup and persistence check."),
-        "energy",t("Préparer et vérifier Recorder","Prepare and verify Recorder"))+
-      item(energySources.length>0,t("Sources Trybatec dans Énergie","Trybatec Energy sources"),
-        energySources.length?String(energySources.length)+t(" source(s) Trybatec référencée(s)."," Trybatec source(s) configured."):
-        t("Aucune source Trybatec référencée. La première activation est distincte du remplacement d’une version.","No Trybatec source configured. First activation is separate from version replacement."),
-        "energy",t("Examiner les prérequis Énergie","Review Energy prerequisites"))+
-      item(tariffsConfigured,t("Tarifs annuels","Annual tariffs"),
-        tariffsConfigured?t("Tarifs renseignés ; leurs exercices et leur couverture restent à vérifier.","Tariffs entered; years and coverage still require checking."):
-        t("Aucun tarif annuel renseigné : coûts estimés indisponibles (option facultative).","No annual tariffs: cost estimates unavailable (optional)."),
-        "tariffs",t("Renseigner les tarifs","Enter tariffs"),true)+
-      '<div class="readiness-row pending"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
-      '<div><strong>'+safe(t("Audit des identités techniques","Technical identity audit"))+'</strong><p>'+
-      safe(t("Un résultat nul dans les compteurs d’erreurs ne prouve pas un audit exhaustif. Aucune suppression sans vérifications de dépendances.",
-        "Zero reported errors does not prove a complete audit. No deletion without dependency checks."))+
-      '</p><div class="actions"><button type="button" class="secondary" data-tab="diagnostics">'+
-      safe(t("Consulter les diagnostics","Review diagnostics"))+'</button></div></div></div>'+
+      check(sourceStatus,t("Synchronisation des compteurs","Meter synchronization"),
+        sourceText,"meters",activeReady?"":t("Vérifier les compteurs","Review meters"))+
+      check(retiredStatus,t("Historique des compteurs déposés","Retired-meter history"),
+        retiredText,"meters",retiredStatus==="na"||retiredStatus==="passed"?"":t(
+          "Rechercher les relevés historiques","Search historical readings"))+
+      '</div><div class="readiness-optional"><h4>'+safe(t(
+        "Parcours disponibles selon vos besoins","Workflows available when needed"))+'</h4>'+
+      feature(t("Versions historiques Recorder","Recorder history versions"),
+        verified.length?String(verified.length)+t(" version(s) historisée(s) vérifiée(s). Import(s) à vérifier : ",
+          " verified historical version(s). Pending imports: ")+String(ledger.pending||0)+"."
+          :t("Aucune version Recorder vérifiée. La préparation et l’importation sont facultatives.",
+             "No verified Recorder version. Preparing and importing one is optional."),
+        "energy",t("Examiner Recorder","Review Recorder"))+
+      feature(t("Sources Trybatec dans Énergie","Trybatec Energy sources"),
+        energySources.length?String(energySources.length)+t(
+          " source(s) identifiée(s), sans validation exhaustive du double comptage.",
+          " source(s) found, without an exhaustive double-counting audit.") :
+          t("Aucune source Trybatec configurée. La première activation utilise un parcours distinct.",
+            "No Trybatec source configured. First activation uses a separate workflow."),
+        "energy",t("Consulter Énergie","Review Energy"))+
+      feature(t("Tarifs annuels (facultatifs)","Annual tariffs (optional)"),
+        tariffsConfigured?t("Tarifs présents ; leur couverture reste à examiner.",
+          "Tariffs are present; their coverage still needs review."):
+          t("Aucun tarif : seules les estimations de coûts correspondantes sont indisponibles.",
+            "No tariffs: only the corresponding cost estimates are unavailable."),
+        "tariffs",t("Consulter les tarifs","Review tariffs"))+
+      '</div><div class="readiness-optional"><h4>'+safe(t(
+        "Diagnostics avancés","Advanced diagnostics"))+'</h4>'+
+      feature(t("Audit des identités techniques","Technical identity audit"),
+        t("Audit non exhaustif. Les anciennes entités ne sont jamais déclarées supprimables sur ce seul constat.",
+          "The audit is not exhaustive. Old entities are never considered safe to delete on this evidence alone."),
+        "diagnostics",t("Consulter les diagnostics","Review diagnostics"))+
       '</div></section>';
   }
   _overview() {
