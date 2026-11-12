@@ -502,6 +502,19 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Période incomplète","Incomplete period"],
   ["Lecture des relevés et calcul en cours.","Reading source data and calculating."],
   ["Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.","Choose the year, utility and optionally a meter. Existing rates are preserved."],
+  ["Tarifs annuels","Annual rates"],
+  ["Montants en EUR par exercice, fluide et, facultativement, compteur physique.","Rates in EUR by year, utility and optionally physical meter."],
+  ["Compteur non identifié","Unidentified meter"],
+  ["(déposé)","(retired)"],
+  ["Annuler la saisie","Discard edits"],
+  ["Modifier","Edit"],
+  ["Action","Action"],
+  ["Exercice invalide : choisissez une année entre 2000 et 2100.","Invalid year: choose a year between 2000 and 2100."],
+  ["Le tarif doit être compris entre 0 et 1 000 000, avec six décimales au maximum.","Enter a rate between 0 and 1,000,000 with no more than six decimal places."],
+  ["Tarif enregistré, mais actualisation impossible : actualisez le panneau pour vérifier la valeur.","Rate saved, but the panel could not refresh: reload to verify the value."],
+  ["Aucun tarif enregistré pour cet exercice.","No rate saved for this year."],
+  ["Tarif effectif enregistré","Saved effective rate"],
+  ["Exercices suggérés ci-dessous ; toute année entre 2000 et 2100 peut être saisie.","Suggested years are shown; you can enter any year from 2000 to 2100."],
   ["Portée","Scope"],
   ["Préparer une version historique Recorder","Prepare a Recorder history version"],
   ["Plan non importé","Plan not imported"],
@@ -1296,7 +1309,7 @@ class TrybatecPanel extends HTMLElement {
     }
     const raw=String(f.rate).trim();
     const rate=Number(raw);
-    if (!remove && (!/^[0-9]+(?:\\.[0-9]{1,6})?$/.test(raw) ||
+    if (!remove && (!/^[0-9]+(?:\.[0-9]{1,6})?$/.test(raw) ||
         !Number.isFinite(rate) || rate<0 || rate>1000000)) {
       this._tariffError="Le tarif doit être compris entre 0 et 1 000 000, avec six décimales au maximum.";
       this._render();return;
