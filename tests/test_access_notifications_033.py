@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
+
+from custom_components.trybatec.access_notifications import access_notification_text
 
 SOURCE = (
     Path(__file__).resolve().parents[1]
@@ -53,12 +56,16 @@ def _notifier() -> tuple[object, Notifications]:
         ast.Module(body=[test_class], type_ignores=[])
     )
     notifications = Notifications()
-    scope: dict[str, object] = {"persistent_notification": notifications}
+    scope: dict[str, object] = {
+        "persistent_notification": notifications,
+        "access_notification_text": access_notification_text,
+    }
     exec(compile(module, str(SOURCE), "exec"), scope)
     notifier = scope["AccessNotifierUnderTest"]()
-    notifier.hass = object()
+    notifier.hass = SimpleNamespace(config=SimpleNamespace(language="fr"))
     notifier._access_notification_id = "trybatec_access_synthetic"
     notifier._access_notification_active = False
+    notifier._access_notification_reconciled = False
     notifier._access_notification_kind = None
     notifier._consecutive_connection_failures = 0
     return notifier, notifications
@@ -71,7 +78,7 @@ def test_repeated_connectivity_errors_are_deduplicated() -> None:
 
     assert len(notifications.created) == 1
     assert notifier._access_notification_kind == "connectivity"
-    assert "réessaiera" in notifications.created[0][1]
+    assert "nouvelle tentative" in notifications.created[0][1]
     assert notifications.created[0][3] == notifier._access_notification_id
 
 
@@ -113,3 +120,14 @@ def test_success_dismisses_incident_and_allows_future_notification() -> None:
     notifier._notify_access_issue(authorization=True)
     assert len(notifications.created) == 2
     assert notifications.created[0][3] == notifications.created[1][3]
+
+
+def test_old_notification_is_dismissed_once_after_new_coordinator_succeeds() -> None:
+    notifier, notifications = _notifier()
+    # A fresh coordinator does not know the old persistent-notification state.
+    assert notifier._access_notification_active is False
+    notifier._clear_access_issue()
+    notifier._clear_access_issue()
+    assert notifications.dismissed == [
+        (notifier.hass, notifier._access_notification_id)
+    ]
