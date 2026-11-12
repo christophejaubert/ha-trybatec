@@ -24,6 +24,7 @@ SNAPSHOTS = {
     "pure314": ".github/ci/constraints-pure.txt",
     "ha314": ".github/ci/constraints-ha-runtime.txt",
     "persistence314": ".github/ci/constraints-ha-persistence.txt",
+    "audit314": ".github/ci/constraints-audit.txt",
 }
 SNAPSHOT_LINE = re.compile(r"^([a-zA-Z0-9_.-]+)==([a-zA-Z0-9.!+_-]+)$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
