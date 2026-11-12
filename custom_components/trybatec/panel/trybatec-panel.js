@@ -2006,7 +2006,9 @@ class TrybatecPanel extends HTMLElement {
     } finally {this._readingBusy=false;this._render();}
   }
   _readingReview() {
-    const list=this._historyPreview?.review_candidates||[];
+    const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    const list=(this._historyPreview?.review_candidates||[]).filter(c=>
+      !meter || (c.fluid===meter.fluid && c.meter_serial===meter.serial && c.lot===meter.lot));
     const item=list.find(x=>x.key===this._readingSelected);
     const explanation={
       sparse_interval:"Intervalle espacé (pas une erreur avérée)",
@@ -2084,11 +2086,13 @@ class TrybatecPanel extends HTMLElement {
         '</tbody></table></div></details>':"")+'</section>';
   }
   _history() {
+    const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
       x=>x.interval_key===this._historySelected
     );
     const ready=proposal&&proposal.status==="linear_available_after_explicit_confirmation";
-    const list=this._historyPreview?.proposals?.intervals||[];
+    const list=(this._historyPreview?.proposals?.intervals||[]).filter(x=>
+      !meter || (x.fluid===meter.fluid && x.meter_serial===meter.serial && x.lot===meter.lot));
     const blockers={
       blocked_source_conflict:"Conflit d’index à examiner",
       blocked_unverified_unit:"Unité non vérifiée",
@@ -2098,6 +2102,16 @@ class TrybatecPanel extends HTMLElement {
     };
     return this._heading("Historique & lissage",
       "Répartition linéaire contrôlée, sans modification des relevés bruts.")+
+      (meter?'<section class="meter-history-context"><strong>'+
+        safe(this._t("Compteur sélectionné : ","Selected meter: ")+
+          (FLUID[meter.fluid]||meter.fluid)+" · "+meter.serial+" · "+meter.lot)+'</strong>'+
+        '<p class="muted">'+safe(this._t(
+          "L’analyse est lancée séparément et couvre le compte ; seuls les résultats de ce compteur sont affichés ici.",
+          "The analysis must be started separately and covers the account; only this meter's results are displayed here."))+
+        '</p><div class="actions"><button type="button" class="secondary" data-tab="meters">'+
+        safe(this._t("Retour au compteur","Back to meter"))+'</button>'+
+        '<button type="button" class="secondary" data-history-context-clear>'+
+        safe(this._t("Afficher tous les compteurs","Show all meters"))+'</button></div></section>':"")+
       '<section class="card"><div class="panel-title"><h3>Charger une période</h3>'+
       '<span class="pill audit">Aperçu en lecture seule</span></div>'+
       '<div class="form-grid">'+
