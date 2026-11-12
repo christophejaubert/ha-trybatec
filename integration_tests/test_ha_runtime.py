@@ -879,3 +879,70 @@ async def test_normal_setup_reload_never_imports_history_or_updates_energy(
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert (hass.data[DOMAIN][entry.entry_id].stable_unit_guard is not None) is stable
+
+
+async def test_reused_serial_with_unscoped_b6_id_blocks_both_new_stable_meters(
+    hass, monkeypatch,
+):
+    """An ambiguous historical serial cannot be assigned to either new lot."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    registry = er.async_get(hass)
+    prior_entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic preexisting ambiguous meter",
+        unique_id="synthetic-old-ambiguous-entry",
+        data={
+            CONF_USERNAME: "synthetic-old-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-old-deal",
+        },
+    )
+    prior_entry.add_to_hass(hass)
+    old_uid = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    legacy = registry.async_get_or_create(
+        "sensor", DOMAIN, old_uid,
+        config_entry=prior_entry, suggested_object_id="synthetic_ambiguous_legacy",
+    )
+    before = (legacy.entity_id, legacy.unique_id, legacy.device_id)
+
+    payload = synthetic_indexes("m3")
+    other = deepcopy(payload["lines"][0])
+    other["lot"] = "MOCK-LOT-2"
+    payload["lines"].append(other)
+
+    async def indexes(self, deal_id, start, end):
+        return deepcopy(payload)
+
+    async def enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 2}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic stable duplicate-serial account",
+        unique_id="synthetic-ci-account",
+        data={
+            CONF_USERNAME: "synthetic-ci-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-ci-deal",
+            CONF_STABLE_METER_IDENTITIES: True,
+        },
+    )
+    hass.set_state(CoreState.running)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    now = registry.async_get(legacy.entity_id)
+    assert now is not None
+    assert (now.entity_id, now.unique_id, now.device_id) == before
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert len(coordinator.data["meters"]) == 2
+    for meter in coordinator.data["meters"].values():
+        assert meter["stable_unit_status"] == "legacy_identity_requires_review"
+        assert meter["stable_unit_approved"] is False
+        stable_uid = stable_meter_unique_id(
+            "synthetic-ci-account", meter["lot"], meter["fluid"], meter["serial"],
+        )
+        assert registry.async_get_entity_id("sensor", DOMAIN, stable_uid) is None
