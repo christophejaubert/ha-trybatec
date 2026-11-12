@@ -2507,16 +2507,23 @@ class TrybatecPanel extends HTMLElement {
   }
   _tariffs() {
     const a=this._current, f=this._tariffInput;
-    const rows=Object.entries(a.tariffs).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
+    const editButton=(year,fluid,physicalKey="")=>
+      '<button type="button" class="secondary" data-tariff-edit-year="'+safe(year)+
+      '" data-tariff-edit-fluid="'+safe(fluid)+'" data-tariff-edit-meter="'+safe(physicalKey)+
+      '">'+safe(this._t("Modifier","Edit"))+'</button>';
+    const rows=Object.entries(a.tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,fluids])=>
       Object.entries(fluids).map(([fluid,t])=>'<tr><td>'+safe(year)+'</td><td>'+safe(FLUID[fluid]||fluid)+
       '</td><td>'+safe(this._number(t.rate))+' '+safe(fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
-      '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>'));
+      '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td><td>'+
+      editButton(year,fluid)+'</td></tr>'));
     const overrides=Object.entries(a.meter_tariffs||{}).sort((a,b)=>Number(b[0])-Number(a[0])).flatMap(([year,values])=>
       Object.entries(values).map(([key,t])=>{
         const m=a.meters.find(m=>m.physical_key===key);
         return '<tr><td>'+safe(year)+'</td><td>'+safe(m?(FLUID[m.fluid]+" · "+m.serial):"Compteur non identifié")+
           '</td><td>'+safe(this._number(t.rate))+' '+safe(m&&m.fluid==="CET"?"EUR/kWh":"EUR/m³")+'</td>'+
-          '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td></tr>';
+          '<td>'+safe(t.status==="approved"?"Approuvé":"Provisoire")+'</td><td>'+
+          (m?editButton(year,m.fluid,key):'<span class="muted">'+safe(this._t("Non vérifié","Not verified"))+'</span>')+
+          '</td></tr>';
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
     const coverage=this._tariffCoverage.get(a.entry_id);
