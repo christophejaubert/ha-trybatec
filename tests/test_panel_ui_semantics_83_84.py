@@ -116,6 +116,11 @@ fixture._tariffCoverage.set(account.entry_id,{status:"complete",meters:[{
 }]});
 const scanned=p._readinessView.call(fixture,account);
 assert.match(scanned,/Bornes vérifiées par une analyse historique complète/);
+fixture._tariffCoverage.set(account.entry_id,{status:"complete",meters:[]});
+const absentFromScan=p._readinessView.call(fixture,account);
+assert.doesNotMatch(absentFromScan,/Bornes vérifiées par une analyse historique complète/);
+assert.match(absentFromScan,/Non vérifié/);
+
 
 // Contextual summary must not leak aggregated rows for other physical meters.
 fixture._historyContextKey=meter.physical_key;
