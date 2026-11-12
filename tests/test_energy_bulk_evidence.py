@@ -1,7 +1,9 @@
 """Synthetic L3 evidence tests: no production HA, Recorder DB, or provider calls."""
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
+from functools import wraps
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -16,6 +18,19 @@ from custom_components.trybatec.energy_bulk_evidence import (
     MAX_METERS, _ledger_scopes, assess_energy_evidence,
 )
 from custom_components.trybatec import energy_bulk_evidence_ha as native
+
+
+def _sync_async_test(fn):
+    """Run isolated async tests under the locked pure-test dependencies.
+
+    CI's pure environment deliberately does not install pytest-asyncio.
+    The synchronous wrapper preserves pytest fixture discovery/signatures.
+    """
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        return asyncio.run(fn(*args, **kwargs))
+
+    return wrapped
 
 
 ACCOUNT = "SYNTH-ACCOUNT"
@@ -253,7 +268,7 @@ def test_ledger_inventory_does_not_treat_missing_scope_as_absence():
     assert report["inventories"]["b15_versions"]["complete"] is False
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_native_admin_gate_before_any_reads():
     for user in (None, SimpleNamespace(is_admin=False, id="u"),
                  SimpleNamespace(is_admin=True, id=None),
@@ -263,7 +278,7 @@ async def test_native_admin_gate_before_any_reads():
                 SimpleNamespace(data={}), SimpleNamespace(), user=user, lot=LOT)
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_native_snapshot_reads_only_and_detects_stale_cache(monkeypatch, tmp_path):
     calls = {"reads": 0, "writes": 0, "provider": 0}
     root = tmp_path / ".storage"
@@ -325,7 +340,7 @@ async def test_native_snapshot_reads_only_and_detects_stale_cache(monkeypatch, t
     assert {file.name: file.read_bytes() for file in root.iterdir()} == before_bytes
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_corrupt_storage_is_not_renamed_fixed_or_migrated(tmp_path):
     root = tmp_path / ".storage"
     root.mkdir()
@@ -344,7 +359,7 @@ async def test_corrupt_storage_is_not_renamed_fixed_or_migrated(tmp_path):
     assert sorted(path.name for path in root.iterdir()) == ["energy"]
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_old_version_energy_store_is_not_migrated(tmp_path):
     root = tmp_path / ".storage"
     root.mkdir()
@@ -361,7 +376,7 @@ async def test_old_version_energy_store_is_not_migrated(tmp_path):
     assert json.loads((root / "energy").read_text(encoding="utf-8")) == legacy
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_oversized_or_foreign_storage_envelope_is_not_loaded(tmp_path):
     root = tmp_path / ".storage"
     root.mkdir()
@@ -382,7 +397,7 @@ async def test_oversized_or_foreign_storage_envelope_is_not_loaded(tmp_path):
     assert path.stat().st_size == native._MAX_STORAGE_BYTES + 1
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_native_fails_closed_when_live_manager_not_initialized():
     hass = SimpleNamespace(data={})
     value = await native._energy_without_initializing(hass)
@@ -390,7 +405,7 @@ async def test_native_fails_closed_when_live_manager_not_initialized():
     assert hass.data == {}  # Must not invoke HA async_get_manager.
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_recorder_probe_is_bounded_and_never_writes(monkeypatch):
     calls = {"read": 0, "write": 0}
     # Native HA modules are replaced by synthetic mocks, not imported from HA.
@@ -446,7 +461,7 @@ def test_l3_to_pr92_rejects_browser_origin_or_invalid_prefs():
         preview_bulk_with_l3_evidence(assess_energy_evidence(snapshot()), None)
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_ha_auth_store_disagrees_with_supplied_admin_claim():
     class Auth:
         async def async_get_user(self, _id):
@@ -457,7 +472,7 @@ async def test_ha_auth_store_disagrees_with_supplied_admin_claim():
             hass, SimpleNamespace(), user=SimpleNamespace(id="synth", is_admin=True), lot=LOT)
 
 
-@pytest.mark.asyncio
+@_sync_async_test
 async def test_interrupted_initial_read_gives_blocked_report(monkeypatch):
     class Auth:
         async def async_get_user(self, user_id):
