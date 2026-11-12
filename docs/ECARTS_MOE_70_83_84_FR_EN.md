@@ -33,3 +33,26 @@ P1: exact logo color use and final visual approval; full seven-view 320 CSS px c
 P2: real light/dark computed contrasts, hot theme switch, graph alternatives and colour-independent indicators. Source-only tests and synthetic browser fixtures cannot establish real HA acceptance.
 
 Deliver independently of tariff PR #118, with no changes to `trybatec-panel.js` or its `acceptance.cjs` until coordinated. Keep #70/#83/#84 open and prohibit implicit configuration writes, migration, merging or release.
+
+
+## FR — Mesures Chromium synthétiques vérifiées le 12/11/2026
+
+**Preuve :** [workflow UI accessibilité #43283214906](https://github.com/christophejaubert/ha-trybatec/actions/runs/43283214906), SHA `2d61e281e75c8949e736567e91c5150fef6c3fbe`. La sonde a achevé les 56 combinaisons synthétiques ; aucune recette Home Assistant réelle.
+
+| Mesure | Constat | Qualification |
+|---|---|---|
+| Reflow 320 CSS px | **4/56 observations de débordement** | **P1 :** toutes les variantes FR (bureau/mobile × clair/sombre) de la section **Énergie et versions**, largeur document `373 px` à viewport `320 px` |
+| Contour de focus | 0 observation de contour absent | Contrôle limité à la navigation synthétique, pas à tous les champs |
+| Focus hors viewport | 40/56 observations | Signal à examiner (barre d'onglets défilante, focus programmatique et véritable masquage WCAG sont à distinguer) |
+| Cibles <24 CSS px | 56 observations d'éléments dans les 8 vues Énergie, pas 56 boutons distincts | Analyser dimensions et exceptions applicables ; ne pas déclarer automatiquement une violation WCAG |
+| VoiceOver/TalkBack, zoom texte 200 % | Non testés | Recette complémentaire nécessaire |
+
+Les **4 cas de débordement concernent le texte français d'Énergie et versions** ; aucun débordement n'est observé par cette sonde dans les 52 autres combinaisons. Ce résultat synthétique n'identifie pas encore à lui seul l'élément CSS responsable. Correctif de panneau à coordonner **après** stabilisation de la PR tarifaire #118 ; ne pas modifier ce fichier dans la présente PR de preuves.
+
+## EN — Verified synthetic Chromium observations (2026-11-12)
+
+[Evidence run #43283214906](https://github.com/christophejaubert/ha-trybatec/actions/runs/43283214906), SHA `2d61e281e75c8949e736567e91c5150fef6c3fbe`: all **56 synthetic** configurations executed; zero live HA acceptance.
+
+**Four** 320 CSS px overflows occur only on French **Energy & versions**, across desktop/mobile and light/dark: measured document width **373 px** for a **320 px** viewport. The other 52 configurations show no document overflow in this probe. Zero missing focus-outline observations, 40 off-viewport focus observations, and 56 under-24px target observations remain diagnostic signals requiring inspection for scrolling, selection behavior and WCAG exceptions. They are not 40/56 automatically proven AA violations; screen readers and true 200% text resizing have **not** been tested.
+
+Coordinate any shared panel fix with tariff PR #118. Keep #70/#83/#84 open for complete real acceptance.
