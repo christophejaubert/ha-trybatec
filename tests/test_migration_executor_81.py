@@ -345,3 +345,24 @@ def test_business_acceptance_must_be_independent_and_complete():
                 journal=journal, activation=activation,
             )
     asyncio.run(scenario())
+
+def test_two_distinct_meters_cannot_be_mapped_to_one_device():
+    async def scenario():
+        reg, devices, journal, plan, _, lookup = _fixture()
+        reg.extra["sensor.other"] = SimpleNamespace(
+            entity_id="sensor.other", unique_id="synthetic-account_FAKE-2_b6_m³_index",
+            platform="trybatec", config_entry_id=ENTRY, device_id=DID,
+        )
+        plan["mappings"].append({
+            "status": "ready_for_separate_confirmation",
+            "preserved_entity_id": "sensor.other",
+            "source_unique_id": "synthetic-account_FAKE-2_b6_m³_index",
+            "target_unique_id": "meter_canonical_second_index",
+            "source_unit": "m³", "blockers": [],
+        })
+        async def supplier():
+            return deepcopy(plan)
+        with pytest.raises(ValueError, match="Distinct physical meters"):
+            await _run(reg, devices, journal, supplier, lookup)
+        assert journal.record is None
+    asyncio.run(scenario())
