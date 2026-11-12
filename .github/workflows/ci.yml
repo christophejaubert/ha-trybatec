@@ -260,6 +260,16 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/tested-reader
         run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
+      - name: Snapshot and restore isolated synthetic Home Assistant storage
+        working-directory: tested-reader
+        run: |
+          python ../ci-harness/scripts/ci_backup_restore.py snapshot "$RUNNER_TEMP/ha-decision-${{ matrix.case }}" "$RUNNER_TEMP/ha-backup-${{ matrix.case }}"
+          python ../ci-harness/scripts/ci_backup_restore.py restore "$RUNNER_TEMP/ha-backup-${{ matrix.case }}" "$RUNNER_TEMP/ha-restored-${{ matrix.case }}"
+      - name: Process 3 - verify restored storage in a fresh Home Assistant Core
+        working-directory: tested-reader
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-reader
+        run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-restored-${{ matrix.case }}"
 
   decision-persistence-gate:
     name: decision-persistence-gate
