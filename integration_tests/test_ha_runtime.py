@@ -995,3 +995,35 @@ async def test_legacy_suffixed_entity_id_preserved_after_reload_and_re_setup(
     ]
     assert len(owned) == 1
     assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+
+async def test_legacy_suffixed_entity_id_preserved_across_reload(
+    hass, monkeypatch,
+):
+    """A user/HA-assigned _2 suffix must never trigger a new physical ID."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    owned = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(owned) == 1
+    previous = owned[0]
+    suffixed_id = f"{previous.entity_id}_2"
+    updated = registry.async_update_entity(
+        previous.entity_id, new_entity_id=suffixed_id,
+    )
+    assert updated.entity_id == suffixed_id
+    before = (updated.unique_id, updated.device_id, updated.config_entry_id)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    persisted = registry.async_get(suffixed_id)
+    assert persisted is not None
+    assert (persisted.unique_id, persisted.device_id, persisted.config_entry_id) == before
+    assert registry.async_get(previous.entity_id) is None
+    assert registry.async_get_entity_id("sensor", DOMAIN, before[0]) == suffixed_id
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
