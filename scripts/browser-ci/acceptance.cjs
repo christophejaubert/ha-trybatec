@@ -249,6 +249,18 @@ async function runCase(browser, locale, device) {
     if(tab==="overview"){
       const text=await page.locator("trybatec-panel main").innerText();
       assert.match(text,locale==="FR"?/État de la configuration/:/Configuration status/);
+      const falseWarnings=page.locator("trybatec-panel .readiness-row.issue");
+      assert.equal(await falseWarnings.count(),0,
+        "Missing optional configuration and retired-meter dates are not proven errors");
+      const activeNeutral=await page.locator("trybatec-panel .readiness-optional button.secondary")
+        .first().evaluate(button=>({
+          disabled:button.disabled,
+          opacity:Number(getComputedStyle(button).opacity),
+          cursor:getComputedStyle(button).cursor
+        }));
+      assert.equal(activeNeutral.disabled,false);
+      assert.ok(activeNeutral.opacity>=0.95,"Enabled neutral button must not look disabled");
+      assert.equal(activeNeutral.cursor,"pointer");
     }
     if(tab==="meters"){
       const header=page.locator("trybatec-panel .meter-title").first();
@@ -261,6 +273,28 @@ async function runCase(browser, locale, device) {
       assert.equal(await page.locator("trybatec-panel select[data-meter-option-field='unit']").inputValue(),"m³");
       assert.equal(await page.locator("trybatec-panel input[data-meter-option-field='device_uuid']").inputValue(),"");
       assert.equal(await page.locator("trybatec-panel button[data-meter-options-save]").count(),1);
+      await page.locator('trybatec-panel button[data-meter="1"]').click();
+      const retired=await page.locator("trybatec-panel .meter-title").first().innerText();
+      assert.match(retired,/SYNTH-EF-OLD/);
+      const detail=await page.locator("trybatec-panel main").innerText();
+      assert.match(detail,locale==="FR"?/Non vérifié/:/Not verified/,
+        "Retired meter missing history must not be presented as a proven error");
+      await page.locator('trybatec-panel .meter-detail-field button[data-meter-context="history"]')
+        .first().click();
+      const context=await page.locator("trybatec-panel .meter-history-context").innerText();
+      assert.match(context,/SYNTH-EF-OLD/,
+        "History navigation must preserve the selected physical meter");
+      await page.locator('trybatec-panel .meter-history-context button[data-tab="meters"]').click();
+      const again=await page.locator("trybatec-panel .meter-title").first().innerText();
+      assert.match(again,/SYNTH-EF-OLD/,"Back navigation must preserve the meter");
+      await page.locator('trybatec-panel .meter-detail-field button[data-meter-context="scan"]')
+        .first().click();
+      const focused=await page.evaluate(()=>{
+        const root=document.querySelector("trybatec-panel").shadowRoot;
+        return root.activeElement?.dataset.historicalScan!==undefined;
+      });
+      assert.equal(focused,true,
+        "Scan link must focus the explicit scan action without starting it");
     }
     if(tab==="energy"){
       const locked=page.locator("trybatec-panel fieldset.prerequisite-locked");
