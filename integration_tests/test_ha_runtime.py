@@ -17,7 +17,9 @@ from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.trybatec.api import TrybatecClient
-from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS
+from custom_components.trybatec.const import (
+    CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS, CONF_STABLE_METER_IDENTITIES,
+)
 from custom_components.trybatec.units import meter_key
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -39,7 +41,7 @@ def synthetic_indexes(unit: str | None):
     return {"lines": [meter]}
 
 
-async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None, deposed=False):
+async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options=None, deposed=False, stable=False):
     payload = synthetic_indexes(unit)
     payload["lines"][0]["depose"] = deposed
     calls = []
@@ -63,6 +65,7 @@ async def configure_fake_account(hass, monkeypatch, unit: str | None, *, options
             CONF_USERNAME: "synthetic-ci-user",
             CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
             CONF_DEAL_ID: "synthetic-ci-deal",
+            **({CONF_STABLE_METER_IDENTITIES: True} if stable else {}),
         },
     )
     # Existing runtime tests install the entry after HA is already started.
@@ -511,3 +514,83 @@ async def test_deposed_meter_remains_visible_but_has_no_live_statistics(hass, mo
     assert "state_class" not in counter.attributes
     assert float(counter.state) == pytest.approx(15.0)
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_stable_meter_unit_verification_and_correction_do_not_duplicate_entity(
+    hass, monkeypatch,
+):
+    """Greenfield: UNKNOWN -> m³ -> L must keep one entity and prevent bad sums."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    entry, calls = await configure_fake_account(
+        hass, monkeypatch, None, stable=True,
+    )
+    account = entry.unique_id or entry.entry_id
+    uid = stable_meter_unique_id(account, "MOCK-LOT", "EF", "MOCK-WATER-01")
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("sensor", DOMAIN, uid)
+    assert entity_id is not None
+    assert registry.async_get(entity_id).config_entry_id == entry.entry_id
+    initial = hass.states.get(entity_id)
+    assert initial is not None
+    assert initial.state in ("unknown", "unavailable")
+    assert "state_class" not in initial.attributes
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is not None
+
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+    first_calls = len(calls)
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {key: "m³"}},
+    )
+    await hass.async_block_till_done()
+    confirmed = hass.states.get(entity_id)
+    assert confirmed is not None and float(confirmed.state) == pytest.approx(15)
+    assert confirmed.attributes["state_class"] == "total_increasing"
+    assert confirmed.attributes["unit_of_measurement"] == "m³"
+    assert confirmed.attributes["unit_guard_status"] == "approved"
+    assert len(calls) == first_calls
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+
+    # A scale correction without a Recorder migration must not silently turn
+    # a persisted index of 15 m³ into 0.015 m³ on the same statistic ID.
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {key: "L"}},
+    )
+    await hass.async_block_till_done()
+    blocked = hass.states.get(entity_id)
+    assert blocked.state in ("unknown", "unavailable")
+    assert "state_class" not in blocked.attributes
+    assert blocked.attributes["unit_guard_status"] == "source_unit_changed_requires_review"
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+    owned = [row for row in registry.entities.values()
+             if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+             and row.unique_id.startswith("meter_")]
+    assert len(owned) == 1
+    assert len(calls) == first_calls
+
+    # The lock must survive a real config-entry reload. A second sensor may
+    # never be created when the new raw scale is still unapproved.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    reread = hass.states.get(entity_id)
+    assert reread.state in ("unknown", "unavailable")
+    assert reread.attributes["unit_guard_status"] == "source_unit_changed_requires_review"
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+
+
+async def test_existing_account_keeps_legacy_meter_identity(hass, monkeypatch):
+    """The stable-mode flag is never enabled retroactively by an update."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    owned = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(owned) == 1
+    assert "_b6_m³_index" in owned[0].unique_id
+    assert not owned[0].unique_id.startswith("meter_")
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
