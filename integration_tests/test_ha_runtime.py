@@ -792,3 +792,48 @@ async def test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate(
         and row.unique_id.startswith("meter_")
     ]
     assert len(rows) == 1
+
+
+async def test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication(
+    hass, monkeypatch,
+):
+    """A former account's b6 entity must not become a second stable sensor."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    legacy_entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic former account",
+        unique_id="synthetic-previous-entry",
+        data={
+            CONF_USERNAME: "former-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "former-deal",
+        },
+    )
+    legacy_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    old_unique_id = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    prior = registry.async_get_or_create(
+        "sensor", DOMAIN, old_unique_id,
+        suggested_object_id="synthetic_preexisting_legacy_meter",
+        config_entry=legacy_entry,
+    )
+    old_registry_identity = (prior.entity_id, prior.unique_id, prior.device_id)
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=True)
+    current = registry.async_get(prior.entity_id)
+    assert current is not None
+    assert (current.entity_id, current.unique_id, current.device_id) == old_registry_identity
+    assert current.config_entry_id == legacy_entry.entry_id
+
+    stable = stable_meter_unique_id(
+        entry.unique_id or entry.entry_id, "MOCK-LOT", "EF", "MOCK-WATER-01",
+    )
+    assert registry.async_get_entity_id("sensor", DOMAIN, stable) is None
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_status"] == (
+        "legacy_identity_requires_review"
+    )
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_approved"] is False
+    assert coordinator.stable_unit_guard._units == {}
+    assert CONF_STABLE_METER_IDENTITIES not in legacy_entry.data
