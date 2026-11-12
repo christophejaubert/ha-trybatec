@@ -6,8 +6,10 @@ the single source of truth for b15 preview and import plans.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+from math import isfinite
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -38,15 +40,25 @@ def statistic_rows(daily: Mapping[date, float]) -> list[dict[str, Any]]:
         raise ValueError("Statistical consumption needs civil dates")
     def hour(day: date) -> datetime:
         return datetime.combine(day, time(12, 0), tzinfo=ZONE).astimezone(timezone.utc)
-    cumulative = 0.0
+    cumulative = Decimal(0)
     rows = [{"start": hour(dates[0] - timedelta(days=1)), "state": 0.0, "sum": 0.0}]
     for day in dates:
-        amount = float(daily[day])
-        if not (0 <= amount < float("inf")):
+        raw = daily[day]
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, Decimal)):
             raise ValueError("Invalid daily consumption")
-        cumulative = round(cumulative + amount, 6)
+        try:
+            amount = Decimal(str(raw))
+        except (ValueError, InvalidOperation) as exc:
+            raise ValueError("Invalid daily consumption") from exc
+        if not amount.is_finite() or amount < 0:
+            raise ValueError("Invalid daily consumption")
+        # Keep the running sum exact: rounding every day loses small amounts.
+        cumulative += amount
+        cumulative_value = float(cumulative)
+        if not isfinite(cumulative_value):
+            raise ValueError("Invalid daily consumption")
         rows.append({
-            "start": hour(day), "state": cumulative, "sum": cumulative,
+            "start": hour(day), "state": cumulative_value, "sum": cumulative_value,
         })
     if len(rows) > 100000:
         raise ValueError("Historical Recorder row limit exceeded")

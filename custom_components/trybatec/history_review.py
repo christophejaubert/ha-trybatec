@@ -172,12 +172,14 @@ def review_candidates(
                 reasons.append("conflicting_source_reading")
             if previous is not None:
                 prev_at, prev_value = previous
-                span = (at - prev_at).total_seconds() / 3600
+                span = (at.astimezone(timezone.utc) -
+                        prev_at.astimezone(timezone.utc)).total_seconds() / 3600
                 if span > sparse_hours:
                     reasons.append("sparse_interval")
-                # A zero-specific opt-out must not be bypassed merely
-                # because a zero would also look like an index decrease.
-                if value < prev_value and not (zero_review_days == 0 and value == 0):
+                # A zero episode has its own configurable threshold. Do not
+                # bypass threshold N by reporting its first zero as a
+                # decrease; nonzero decreases remain independently flagged.
+                if value != 0 and value < prev_value:
                     reasons.append("index_decrease")
             if reasons:
                 key = reading_key(lot, fluid, serial, at, value)

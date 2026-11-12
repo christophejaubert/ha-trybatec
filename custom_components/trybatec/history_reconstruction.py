@@ -7,7 +7,7 @@ Different physical meter indexes are NEVER subtracted or added to each other.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from hashlib import sha256
 import json
@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from .const import FLUIDS, TIMEZONE
+from .units import normalized_unit
 
 LOCAL_ZONE = ZoneInfo(TIMEZONE)
 PRECISION = Decimal("0.000000001")
@@ -86,7 +87,7 @@ def propose_interval(
     else:
         start_at, start_value = start_reading
         start_day = _local_day(start_at)
-        if start_at >= end_at:
+        if start_at.astimezone(timezone.utc) >= end_at.astimezone(timezone.utc):
             raise ValueError("Index timestamps must increase")
         if estimated_start_date is not None or confirm_estimated_start:
             raise ValueError("Cannot mix real and estimated starting bounds")
@@ -200,6 +201,8 @@ def consolidate_consumptions(
             grouped[day].append((serial, _quantity(amount)))
     if len(units) != 1:
         raise ValueError("Incompatible normalized source units")
+    if units != {normalized_unit(fluid)}:
+        raise ValueError("Unverified source unit")
     rows = []
     cumulative = Decimal(0)
     for day, observations in sorted(grouped.items()):
@@ -255,7 +258,8 @@ def preview_sparse_intervals(
         for first, last in zip(readings, readings[1:]):
             first_at, first_index = first
             last_at, last_index = last
-            gap_hours = (last_at - first_at).total_seconds() / 3600
+            gap_hours = (last_at.astimezone(timezone.utc) -
+                         first_at.astimezone(timezone.utc)).total_seconds() / 3600
             if gap_hours <= sparse_hours:
                 continue
             total_found += 1
