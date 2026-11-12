@@ -16,6 +16,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -30,7 +31,7 @@ from .const import (
 )
 from .coordinator import TrybatecCoordinator
 from .history_devices_b15 import load_historical_inventory
-from .meter_identity import stable_meter_unique_id
+from .meter_identity import resolve_existing_b6_binding, stable_meter_unique_id
 from .parsing import resolve_tariff, validate_tariffs
 from .units import normalized_unit, unit_factor
 
@@ -76,13 +77,47 @@ async def async_setup_entry(
         for serial, meter in data["meters"].items():
             if not meter["deposed"]:
                 active_fluids.add(meter["fluid"])
-            # Stable-mode meters retain one entity across unit verification.
-            # Existing legacy entries keep exactly their historical behavior.
-            identity = (serial, None if stable_identity_mode else meter.get("verified_unit"))
+            # One physical entity per meter per load; no new b6 generation
+            # appears simply because an option changes its raw source scale.
+            identity = (serial, None)
             if identity not in known_meter_versions:
+                source_override = None
+                baseline_override = None
+                if stable_identity_mode:
+                    # Do not materialize a second entity over an existing
+                    # legacy owner, lost baseline or foreign identity.
+                    if meter.get("stable_unit_status") in (
+                        "legacy_identity_requires_review",
+                        "missing_unit_baseline_requires_review",
+                        "invalid_unit_baseline_requires_review",
+                        "foreign_stable_identity_requires_review",
+                    ):
+                        continue
+                else:
+                    current_registry = er.async_get(hass)
+                    own_rows = [
+                        {"unique_id": row.unique_id, "platform": row.platform}
+                        for row in current_registry.entities.values()
+                        if row.config_entry_id == entry.entry_id
+                    ]
+                    duplicate_serial = sum(
+                        x["serial"] == meter["serial"] for x in data["meters"].values()
+                    ) > 1
+                    bound = resolve_existing_b6_binding(
+                        account_key, meter["lot"], meter["fluid"], meter["serial"],
+                        meter.get("verified_unit"), own_rows,
+                        serial_is_unique=not duplicate_serial,
+                    )
+                    if bound["status"].startswith("blocked_"):
+                        continue
+                    if bound["status"] == "preserve_registered_b6":
+                        source_override = bound["unique_id"]
+                        baseline_override = bound["baseline_unit"]
                 known_meter_versions.add(identity)
                 new.append(TrybatecMeterSensor(
                     coordinator, account_key, serial, stable=stable_identity_mode,
+                    legacy_unique_id=source_override,
+                    legacy_source_unit=baseline_override,
                 ))
         for fluid in active_fluids:
             allowed_metrics = ("volume", "cost", "price")
@@ -128,13 +163,20 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
     def __init__(
         self, coordinator: TrybatecCoordinator, account_key: str, serial: str,
         *, stable: bool = False,
+        legacy_unique_id: str | None = None,
+        legacy_source_unit: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._serial = serial
         meter = coordinator.data["meters"][serial]
         physical_serial = meter["serial"]
         self._stable_identity_mode = stable
-        self._source_unit = meter.get("verified_unit")
+        # For an already-registered b6 identity, freeze the source scale
+        # encoded when that entity was created, even after a HA restart.
+        self._source_unit = (
+            legacy_source_unit if legacy_unique_id is not None
+            else meter.get("verified_unit")
+        )
         suffix = ("_" + sha256(json.dumps([meter["lot"], meter["fluid"], physical_serial], separators=(",", ":")).encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
         fluid = meter["fluid"]
         # Legacy b6 identities remain untouched. Greenfield entries use a
@@ -142,7 +184,7 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         tag = self._source_unit or "unverified"
         self._attr_unique_id = (
             stable_meter_unique_id(account_key, meter["lot"], fluid, physical_serial)
-            if stable else f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
+            if stable else legacy_unique_id or f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
         )
         self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (
             " (unit unverified)" if not stable and not self._source_unit else ""
