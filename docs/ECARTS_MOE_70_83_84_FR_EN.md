@@ -60,3 +60,19 @@ Coordinate any shared panel fix with tariff PR #118. Keep #70/#83/#84 open for c
 ### Preuve affinée / Refined probe evidence
 
 **FR/EN :** [Workflow #43307386560](https://github.com/christophejaubert/ha-trybatec/actions/runs/43307386560), SHA `b6a7b9ed3c18cc3c0d0d5e3efed6cfa0744b937f` : 56 cas synthétiques, reflow FR Énergie 4/56 sur baseline, focus visible et 0/56 hors fenêtre **après** défilement, petites cibles précisées en cases à cocher avec libellés. Les valeurs précédentes 40/56 et 56/56 provenaient de l'ancienne sonde, moins précise ; ne pas les réutiliser comme des échecs WCAG certifiés. Aucun test HA réel.
+
+---
+
+## FR — Revue sécurité du workflow #133 (CI/CD)
+
+**État source :** [PR #133](https://github.com/christophejaubert/ha-trybatec/pull/133), SHA `7cbd79859f7b1e3ff07d9318df05badebbdbe1de`, [workflow #43283574524](https://github.com/christophejaubert/ha-trybatec/actions/runs/43283574524) réussi. Test **synthétique** uniquement, sans connexion au Home Assistant réel, sans jeton HA, sans identifiant de compteur ni donnée de consommation. Le rapport initial comportait 56 cas dont 4 débordements FR Énergie ; la sonde affinée de #133 distingue désormais 40 éléments initialement hors écran, aucun après défilement explicite, et 24 observations de petites cases à cocher natives dans des libellés cliquables. Ces mesures restent synthétiques et ne constituent pas une certification WCAG.
+
+**Contrôles d'isolation vérifiés :** `permissions: {}`, checkout sans identifiants persistants, actions référencées par SHA immuable, conteneur Playwright référencé par digest, utilisateur non root 1001, `npm ci --ignore-scripts` depuis lockfile, un artefact JSON synthétique à rétention limitée. L'audit n'a identifié aucune donnée réelle incluse dans le jeu de test. La CI verte ne prouve pas l'absence absolue de fuite en cas de modification malveillante d'un script de PR, ni une conformité WCAG.
+
+**Correctif CI proposé séparément :** compléter les filtres de déclenchement quand les dépendances ou tests du diagnostic changent ; tester et valider la structure 56 cas et le marqueur `synthetic-only`, refuser les champs à risque et les destinations externes dans l'artefact ; interdire l'upload si la validation ou le diagnostic échoue (`if: success()`, `if-no-files-found: error`). Aucune modification fonctionnelle du panneau. L'intégration du correctif à #133 requiert une décision de fusion distincte. Les résultats synthétiques restent des **écarts** et non une recette réelle.
+
+## EN — #133 CI security review
+
+[PR #133](https://github.com/christophejaubert/ha-trybatec/pull/133) at `7cbd7985`, [run #43283574524](https://github.com/christophejaubert/ha-trybatec/actions/runs/43283574524), passed its synthetic 56-case probe with **zero real HA sessions**. Initial synthetic diagnostics reported four French Energy 320-px overflows; the refined #133 probe now distinguishes 40 targets initially offscreen but zero after explicit scrolling, and 24 small native checkbox observations inside clickable labels. These are not automatically proven WCAG failures.
+
+Baseline isolation uses zero GitHub permissions, a credential-free checkout, SHA-pinned actions, a digest-pinned non-root Playwright container, script-free locked npm installation and a short-lived synthetic JSON artifact. No real meter or supplier data was found in the fixed fixture. A passing untrusted-PR workflow is **not** proof against all possible malicious code or live HA accessibility. The separate CI follow-up adds complete change-path triggers, schema/identifier checks and fail-closed artifact upload after successful probe and validation. It does not change business UI code or authorize merging #133.

@@ -4,6 +4,24 @@ on:
   pull_request:
     paths:
       - "scripts/browser-ci/a11y_independent_70_83_84.cjs"
+      - "scripts/browser-ci/validate_a11y_report*.cjs"
+      - "scripts/browser-ci/package.json"
+      - "scripts/browser-ci/package-lock.json"
+      - "scripts/ui_a11y_static_audit.py"
+      - "tests/test_ui_a11y_static_audit_70_83_84.py"
+      - ".github/workflows/ui-a11y-synthetic-70-83-84.yml"
+      - "custom_components/trybatec/panel/**"
+  # FR : recontrôler après fusion dans main, sans publication ni données réelles.
+  # EN: rerun synthetic accessibility checks on main pushes after merge.
+  push:
+    branches: [main]
+    paths:
+      - "scripts/browser-ci/a11y_independent_70_83_84.cjs"
+      - "scripts/browser-ci/validate_a11y_report*.cjs"
+      - "scripts/browser-ci/package.json"
+      - "scripts/browser-ci/package-lock.json"
+      - "scripts/ui_a11y_static_audit.py"
+      - "tests/test_ui_a11y_static_audit_70_83_84.py"
       - ".github/workflows/ui-a11y-synthetic-70-83-84.yml"
       - "custom_components/trybatec/panel/**"
   workflow_dispatch:
@@ -30,13 +48,17 @@ jobs:
           persist-credentials: false
       - name: "Install version-locked Playwright, no lifecycle scripts"
         run: npm ci --prefix scripts/browser-ci --ignore-scripts --no-audit --fund=false
+      - name: "Test synthetic-only report guard / Tester le garde"
+        run: node --test scripts/browser-ci/validate_a11y_report.test.cjs
       - name: "Inspect 56 synthetic screen configurations, never live HA"
         run: node scripts/browser-ci/a11y_independent_70_83_84.cjs
+      - name: "Reject non-synthetic report before any upload / Contrôler le rapport"
+        run: node scripts/browser-ci/validate_a11y_report.cjs ui-a11y-synthetic-report.json
       - name: "Retain only synthetic JSON findings"
-        if: always()
+        if: success()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: trybatec-ui-a11y-synthetic
           path: ui-a11y-synthetic-report.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
