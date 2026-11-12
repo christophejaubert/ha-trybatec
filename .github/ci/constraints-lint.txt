@@ -1,0 +1,4 @@
+# CI lint dependency versions observed in verified run 43186060507
+# Pinned versions, not SHA256 distribution hashes; Linux x86_64 snapshot.
+# Refresh only with review and full passing CI.
+ruff==0.17.4

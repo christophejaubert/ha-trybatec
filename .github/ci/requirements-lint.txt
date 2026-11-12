@@ -1,2 +1,6 @@
-# Reference Ruff version verified in successful GitHub Actions run 42479226587.
-ruff==0.17.4
+# FR: Roue officielle Ruff 0.17.4 Linux glibc x86_64 (PyPI, 05/11/2026).
+# EN: SHA256 verified against official PyPI release metadata, x86_64 Linux wheel.
+# Other platforms require separately reviewed wheel hashes; do not use sdist.
+# https://pypi.org/project/ruff/0.17.4/
+ruff==0.17.4 \
+    --hash=sha256:2cd025509b2e15721b426fc70fd946d71f43b3db3b08e946dfec2d696d911690

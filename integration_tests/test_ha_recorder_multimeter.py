@@ -19,8 +19,8 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import CoreState
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
+from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.components.recorder.common import async_wait_recording_done
 
 from custom_components.trybatec.api import TrybatecClient
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
@@ -250,3 +250,77 @@ async def test_historical_recovery_across_independent_ha_core_processes(
             f"{out.decode(errors='replace')}\n{err.decode(errors='replace')}"
         )
         assert ("WRITE" if stage == "write" else "RESTART") in out.decode()
+
+
+@pytest.mark.parametrize("fault", ["before_second_queue", "after_third_queue"])
+async def test_backup_restore_of_interrupted_synthetic_sqlite_queue(
+    tmp_path, fault
+):
+    """Restore physical HA Store plus synthetic SQLite adapter after interruption.
+
+    SQL here is the isolated deterministic queue ADAPTER, not HA Recorder's
+    production schema. Actual Recorder import/readback is separately tested.
+    """
+    import asyncio
+    import os
+    from pathlib import Path
+    import sqlite3
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    runner = root / "scripts" / "ci_multimeter_restart.py"
+    original = tmp_path / f"original-{fault}"
+    recovered = tmp_path / f"restored-{fault}"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root)
+
+    async def process(stage, config):
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(runner), stage, str(config), fault,
+            cwd=str(root), env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=95)
+        assert proc.returncode == 0, (
+            f"{fault}/{stage}: {stdout.decode(errors='replace')}\n"
+            f"{stderr.decode(errors='replace')}"
+        )
+        return stdout.decode()
+
+    assert "WRITE" in await process("write", original)
+
+    # Both subprocess and its SQLite connection are stopped before backup.
+    # Copy only synthetic queue files to an entirely separate HA config.
+    from shutil import copy2
+
+    storage = original / ".storage"
+    keys = sorted(storage.glob("trybatec.history_v5_*"))
+    assert len(keys) == 1 and keys[0].is_file()
+    (recovered / ".storage").mkdir(parents=True)
+    copy2(keys[0], recovered / ".storage" / keys[0].name)
+
+    origin_sqlite = original / "ci_recorded_rows.sqlite3"
+    restored_sqlite = recovered / "ci_recorded_rows.sqlite3"
+    assert origin_sqlite.is_file()
+    with sqlite3.connect(origin_sqlite) as source_db, sqlite3.connect(restored_sqlite) as backup_db:
+        source_db.backup(backup_db)
+
+    with sqlite3.connect(restored_sqlite) as conn:
+        before_rows = conn.execute("SELECT COUNT(*) FROM rows").fetchone()[0]
+    assert before_rows == (3 if fault == "before_second_queue" else 9)
+
+    assert "RESTART" in await process("verify", recovered)
+    with sqlite3.connect(restored_sqlite) as conn:
+        results = conn.execute(
+            "SELECT id, stamp, amount FROM rows ORDER BY id, stamp"
+        ).fetchall()
+        assert len(results) == 9
+        assert len({(stat_id, stamp) for stat_id, stamp, _ in results}) == 9
+        for stat_id in {row[0] for row in results}:
+            sums = [row[2] for row in results if row[0] == stat_id]
+            assert sums == [0.0, 1.5, 3.0]
+
+    # The interrupted source remains isolated; only the restored copy resumed.
+    with sqlite3.connect(origin_sqlite) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == before_rows
