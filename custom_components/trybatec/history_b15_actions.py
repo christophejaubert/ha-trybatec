@@ -121,6 +121,7 @@ async def async_preview_b15(hass: Any, call: Any) -> dict[str, Any]:
         "physical_meters": plan["physical_meters"],
         "dwelling_fluid_groups": plan["logical_groups"],
         "approved_estimated_origins": plan["approved_estimated_origins"],
+        "daily_provenance": plan["coverage_evidence"],
         "origins_are_assumptions_not_measured_indexes": True,
         "series": [{
             "logical_id": item["logical_id"], "kind": item["kind"],

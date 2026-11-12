@@ -15,6 +15,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 EXPECTED = {
     "ci.yml",
     "trusted-workflow-integrity.yml",
+    "public-privacy-preflight.yml",
     "publish-experimental.yml",
     "browser-acceptance.yml",
 }
@@ -49,7 +50,7 @@ def scan_workflow(name: str, source: str) -> list[str]:
             step.append(following)
         if not any(re.match(r"^\s*persist-credentials:\s*false\s*(?:#.*)?$", s) for s in step):
             problems.append("checkout persists or does not explicitly disable credentials")
-    if name != "trusted-workflow-integrity.yml" and re.search(
+    if name not in {"trusted-workflow-integrity.yml", "public-privacy-preflight.yml"} and re.search(
         r"(?m)^\s{2}pull_request_target\s*:", source
     ):
         problems.append("unexpected privileged pull_request_target trigger")
@@ -65,6 +66,24 @@ def scan_workflow(name: str, source: str) -> list[str]:
         )
         if not all(needle in source for needle in required):
             problems.append("trusted PR guard no longer runs base-branch-only")
+
+    if name == "public-privacy-preflight.yml":
+        # FR/EN: privileged trigger is allowed only for the exact trusted
+        # base-sourced privacy scanner; never allow PR-controlled code execution.
+        requirements = (
+            "pull_request_target:",
+            "branches: [main]",
+            "permissions:\n  contents: read",
+            "ref: main",
+            "persist-credentials: false",
+            "refs/pull/$PR_NUMBER/head",
+            'if [[ "$fetched" != "$PR_HEAD_SHA" ]]',
+            "python3 -I scripts/public_privacy_preflight.py",
+        )
+        if not all(needle in source for needle in requirements):
+            problems.append("privacy gate no longer runs trusted main-only scanner")
+        if re.search(r"(?m)^\s{2}pull_request\s*:", source):
+            problems.append("privacy gate cannot run from PR-provided workflow")
 
     if name == "publish-experimental.yml":
         requirements = (

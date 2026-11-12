@@ -54,3 +54,31 @@ def test_named_step_uses_syntax_and_checkout_protection():
     assert policy.scan_workflow(
         "ci.yml", named.replace("persist-credentials: false", "persist-credentials: true")
     )
+
+
+def test_privacy_workflow_can_only_use_trusted_default_branch():
+    source = (
+        Path(__file__).resolve().parents[1] /
+        ".github/workflows/public-privacy-preflight.yml"
+    ).read_text(encoding="utf-8")
+    assert policy.scan_workflow("public-privacy-preflight.yml", source) == []
+    assert policy.scan_workflow(
+        "public-privacy-preflight.yml",
+        source.replace("ref: main", "ref: candidate"),
+    )
+    assert policy.scan_workflow(
+        "public-privacy-preflight.yml",
+        source.replace("persist-credentials: false", "persist-credentials: true"),
+    )
+    assert policy.scan_workflow(
+        "public-privacy-preflight.yml",
+        source.replace("python3 -I scripts/public_privacy_preflight.py", "echo bypass"),
+    )
+    assert policy.scan_workflow(
+        "public-privacy-preflight.yml",
+        source.replace("pull_request_target:", "pull_request:"),
+    )
+    assert policy.scan_workflow(
+        "public-privacy-preflight.yml",
+        source.replace("permissions:\n  contents: read", "permissions: write-all"),
+    )

@@ -1,5 +1,77 @@
 # 🤖 Pilotage MOE / MOE release tracking
 
+## Réconciliation — 12 novembre 2026 / Reconciliation — 12 November 2026
+
+**FR.** Cible unique `0.3.4b1`, non autorisée à être fusionnée, publiée ou installée. **`main`** : `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. Dernière release : `0.3.3b1`. À cette vérification : **23 PR ouvertes en brouillon**, **12 issues ouvertes**. Les SHA ci-dessous sont ceux des branches individuelles et non d'une candidate complète. L'issue [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) fait foi pour les décisions D2–D7, non pour le succès de tests non exécutés.
+
+**EN.** One target prerelease `0.3.4b1`; merges, publishing and deployment are not authorized. Main and last published release as above. **23 open draft PRs**, 12 open issues at this snapshot. Individual PR checks do not qualify a combined candidate.
+
+| PR | SHA observé / Observed SHA | Lot / Track | Tests individuels / Individual checks | Blocage / Blocker |
+|---|---|---|---|---|
+| [#82](https://github.com/christophejaubert/ha-trybatec/pull/82) | `5fc1d126c7a31a2da1d9769948d05a1fbb3070cb` | Exclu / Excluded | 10 contrôles requis verts* | Migration historique |
+| [#118](https://github.com/christophejaubert/ha-trybatec/pull/118) | `8d5aab1343aaf2bf33d57accb92aa7e935c53011` | A tarifs / Tariffs | 10 contrôles requis verts* | Raccorder natif/YTD |
+| [#120](https://github.com/christophejaubert/ha-trybatec/pull/120) | `54aa8e9e68b64e33dfa4b442773b1e9701dd2846` | A identités / IDs | 10 contrôles requis verts* | Chevauchement #132 |
+| [#124](https://github.com/christophejaubert/ha-trybatec/pull/124) | `926f7bbeb2689bf9b812f71364725825f794093a` | A Gitleaks | 10 contrôles requis verts* | Scan historique planifié |
+| [#125](https://github.com/christophejaubert/ha-trybatec/pull/125) | `60a571f7e98b5b114262286538923c75f50784c1` | B filiation / Lineage | 10 contrôles requis verts* | Brancher #36/#88 |
+| [#126](https://github.com/christophejaubert/ha-trybatec/pull/126) | `8fd1971fe3872784aaeb16d8a6ea3114609cc34d` | A release CI | 10 contrôles requis verts* | Contrôler notes FR/EN |
+| [#127](https://github.com/christophejaubert/ha-trybatec/pull/127) | `f0f74f2fdd48961c6f7322cab8defde627f623b3` | B provenance | 10 contrôles requis verts* | Brancher Recorder |
+| [#128](https://github.com/christophejaubert/ha-trybatec/pull/128) | `ba7e25c8669743ba9a39837b93431035fb879133` | B Recorder | 10 contrôles requis verts* | Writer/reprise/restauration |
+| [#129](https://github.com/christophejaubert/ha-trybatec/pull/129) | `299d913d80b4844bd8aaa6db2242d3edc8bdbe5b` | B Énergie L6 | 10 contrôles requis verts* | Admissibilité non prouvée |
+| [#130](https://github.com/christophejaubert/ha-trybatec/pull/130) | `407f994133e1bd8ef446408f5387ebbbb21cc989` | B Énergie L7 | 10 contrôles requis verts* | Port HA en refus total |
+| [#131](https://github.com/christophejaubert/ha-trybatec/pull/131) | `d87fe2adbc1747f5f34668e25619ac0fb31f375c` | A/B marque / Brand | 10 contrôles requis verts* | Recette visuelle |
+| [#132](https://github.com/christophejaubert/ha-trybatec/pull/132) | `2c7ef18d7d6f315db56bbe6bcc9441a99ab3135c` | A accès / Access | 10 contrôles requis verts* | Chevauchement #120 |
+| [#133](https://github.com/christophejaubert/ha-trybatec/pull/133) | `ed807d3811da36a5223e8fff46ab503e8a04d42e` | B a11y | 10 contrôles requis verts* | Empilement #142 |
+| [#134](https://github.com/christophejaubert/ha-trybatec/pull/134) | SHA mouvant (présent document) / Self-updating | MOE | Requalifier après cette édition | Auto-référence |
+| [#136](https://github.com/christophejaubert/ha-trybatec/pull/136) | `4275b20ed79b73f72d354b1748463cd3b8d7a183` | A YTD | Checks réussis, trusted sauté / Trusted skipped | Empilée #120 |
+| [#137](https://github.com/christophejaubert/ha-trybatec/pull/137) | `7117489ad160f26c5825932e879f5175b3b5e351` | Hors fusion / Proof only | 10 contrôles requis verts* | Ne jamais fusionner |
+| [#138](https://github.com/christophejaubert/ha-trybatec/pull/138) | `4c005f9631c61bd8456007760c385e2d44d6529f` | A/B reflow | Checks réussis, trusted sauté / Trusted skipped | Empilée #118 |
+| [#139](https://github.com/christophejaubert/ha-trybatec/pull/139) | `fa0c49cb07284088bf92d11b5aff35a9f9210cd0` | A options | Checks réussis, trusted sauté / Trusted skipped | Empilée #120 |
+| [#140](https://github.com/christophejaubert/ha-trybatec/pull/140) | `39ddc6cf68eaa92785c9e4a8ab60d82d96e0cad0` | A confidentialité / Privacy | 10 contrôles requis verts* | Fusion + ruleset distincts |
+| [#142](https://github.com/christophejaubert/ha-trybatec/pull/142) | `8260b269a0b23dd970bafaacb63f3fb6d5a708ce` | B a11y CI | CI 41 succès; contextes sautés | Empilée #133 |
+| [#143](https://github.com/christophejaubert/ha-trybatec/pull/143) | `c886e747fd67915936afec60fbde970d6d50cae5` | Hors fusion / Proof only | CI 41 succès; contextes sautés | Ne jamais fusionner |
+| [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) | `cc95a878df9ae4bd13e1f128e4aa4474b8defb25` | A composition / Combined batch | Partielle à l'observation / Running | CI et recette en cours |
+| [#145](https://github.com/christophejaubert/ha-trybatec/pull/145) | `108e50923adc5aa7217462c31a6c1df1a535432c` | À examiner / Review | 10 contrôles requis verts* | Non qualifiée / Unverified |
+
+* **FR :** Les dix checks obligatoires de `main` (Python 3.13/3.14, Ruff, HACS, Gitleaks, HA import/runtime, Hassfest, persistance et intégrité workflow) ont réussi sur les branches directes vérifiées. Préparation manuelle de release sautée. #136/#138/#139 ont le check d'intégrité sauté dans leur contexte empilé ; #142/#143 partagent un SHA avec 41 checks réussis, mais aussi des contextes sautés. **EN:** Ten required checks green on observed direct branches; separate stacked and skipped contexts must not be reported as fully qualified. No integrated-SHA acceptance has been proven.
+
+### FR — Deux lots, une seule qualification
+
+- **A — socle, tarifs, conformité :** [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) compose déjà #120/#132/#118/#136/#139/#138/#131 au SHA `cc95a878df9ae4bd13e1f128e4aa4474b8defb25`, **brouillon non fusionné**, avec CI en cours au premier constat. Revalider le SHA final et les conflits `config_flow.py`, `coordinator.py`, `sensor.py`, options-flow, traductions, tarifs/YTD et panneau. Ne pas recomposer ailleurs ce qui est déjà repris. Vérifier séparément les correctifs CI #124/#126 et #140. D1 : conserver identité Git ; D2 : contrôle `public-privacy-preflight` obligatoire seulement après fusion explicitement autorisée, qualification depuis un workflow de confiance puis modification ciblée du ruleset ; D3 : aucune réécriture d'historique.
+- **B — historique, déposés, Énergie, UI :** #127/#128 + #125 + #129/#130 + #133/#142, en raccordant #120/#144 et la composition UI #138/#131 déjà en A. #137 et #143 restent des **preuves non fusionnables** ; ne pas réintégrer leurs commits artificiellement. Périmètre actif #35/#36/#37/#42/#70/#83/#84/#88 et #81 exclusivement non migrant ; **exclusions #82/#34/#39**.
+- **Qualification :** créer seulement si nécessaire une branche de preuve unique, reprendre les branches dans l'ordre des dépendances, lancer les dix checks obligatoires, CodeQL, audits dépendances, Gitleaks et privacy depuis confiance, tests d'intégration et navigateur; inventorier `xfail`, avertissements, `skipped` et erreurs. **Aucun SHA global n'est qualifié à ce stade**.
+
+### EN — A single qualification gate
+
+Batch A already has draft combined PR #144 for new-account IDs, access, tariffs/native options/YTD, responsive UI and branding; do not duplicate it. Batch B must wire provenance/Recorder and physical lineage to L6/L7, plus #133/#142 a11y evidence, preserving A's shared files. Run full CI and browser/HA synthetic tests on the *new combined SHA*, not old proof PR #137/#143. Exclude migration #82 and issues #34/#39. A passing check does not grant merge, release or production access.
+
+### FR — Critères métier et risques bloquants
+
+1. **#36 Recorder :** `history_recorder_b15.py` refuse le rejeu sélectif sans preuve indépendante de quiescence du writer. Exiger lecture intégrale, snapshots immuables V1/V2/V3, vérification de persistance, collisions, redémarrages, crash/reprise, copie isolée et restauration d'essai ; préserver l'absence de double comptage.
+2. **#37 :** inventaire et filiation de générations physiques, dates, lacunes, index et unités ; agréger seulement les consommations admissibles, jamais les index cumulés.
+3. **#88 L6/L7 :** aucune admissibilité native prouvée ; `energy_bulk_native_observer_l7.py` refuse explicitement toute sauvegarde, écriture de journal et mutation Énergie en production. L'automate L7 et ses tests synthétiques ne remplissent donc pas encore l'exigence d'ajout groupé réel. Préparer un adaptateur et une restauration HA sûrs, mais n'exécuter aucune écriture sur l'installation de l'utilisateur.
+4. **Interface :** tests synthétiques FR/EN mobile/bureau clair/sombre et WCAG à relancer sur candidate ; les 56 cas de recette réelle ne sont pas réputés effectués.
+5. **Confidentialité :** vérifier les patches et artefacts avant toute contribution publique ; aucun secret, adresse personnelle autre que l'identité Git autorisée, référence d'installation, index ou consommation réelle.
+
+**EN — Remaining functional blockers:** Recorder needs independent writer-quiescence and full readback/recovery proof; physical generation boundaries and no double-counting are unproven end to end; L6 cannot presently admit real sources, and L7's native adapter denies all actual writes/backups/journal operations; browser/a11y checks remain synthetic rather than live HA acceptance.
+
+### FR — Campagne de recette unique (non exécutée)
+
+**Préparer un environnement de test isolé avec fixtures fictives.** Consigner une baseline `0.3.3b1` (anciens comptes, entités, Recorder, sources Énergie), le SHA exact testé, la version HA, les snapshots et un plan de retour arrière.
+
+**Enchaînement :** mise à niveau sans migration historique ; préservation des comptes/IDs/Énergie ; nouveaux comptes ; authentification 401/403 et réauthentification ; notifications ; tarifs, options natives, persistance et YTD ; compteurs en service/déposés et provenance ; Recorder V1→V2/V3, crash/reprise, absence de rejeu dangereux ; contrôles L6, confirmation L7, sauvegarde/réécriture/récupération en environnement isolé ; navigation FR/EN, clair/sombre, mobile/bureau, clavier et lecteur d'écran ; redémarrage, retour arrière, trace des refus et de l'absence de doublons. **Les opérations réelles de sauvegarde, installation, Recorder, Énergie et restauration requièrent chacune une autorisation explicite couvrant l'opération.**
+
+**EN — One HA acceptance campaign (not executed):** record baseline and exact candidate SHA; test existing/new accounts, stable identities, auth/re-auth/alerts, native tariffs and YTD, measured/estimated history and lineage, Recorder persistence/crash/recovery, guarded bulk Energy and backup/rollback, browser/accessibility and restart/downgrade. Real operations require separate explicit user approval.
+
+### Décisions à venir / Future decisions
+
+**Fusion / Merge:** demande consolidée seulement après vérification des SHA, dépendances, conflits, CI et portée de chaque PR. **Publication / Release:** décision distincte `0.3.4b1`, tag technique sans emoji, titre `🤖 `, SHA exact, notes FR/EN, périmètre D3/D4, résultats et risques. **Installation / Deploy:** troisième décision indépendante. Toute réduction du périmètre exige un accord utilisateur exprès ; pas de suppression silencieuse. / No unauthorized merge, release, tag, install, migration, cleanup, restore or Home Assistant change.
+
+---
+
+## Instantané documentaire antérieur (historique) / Earlier document snapshot (historical)
+
+> Les sections ci-dessous représentent l'état enregistré avant cette réconciliation et peuvent citer des PR encore en brouillon à l'époque. Ne pas les utiliser comme source courante sans vérifier GitHub. / The following sections document an earlier snapshot and may describe PRs as drafts before their later merges. Use the current section above and live GitHub state for decisions.
+
 > **État au 12 novembre 2026 / Snapshot on 12 November 2026.**
 > Dépôt / Repository: [christophejaubert/ha-trybatec](https://github.com/christophejaubert/ha-trybatec).
 > **Document de préparation, non autorisation de fusion, de publication ou de modification Home Assistant. / Preparation only; no merge, release or Home Assistant change is authorized.**

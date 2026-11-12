@@ -1,0 +1,51 @@
+name: "🤖 Privacy preflight / Confidentialité des contributions"
+
+# FR/EN: This workflow MUST be loaded from main, never from a candidate PR.
+# PR Git objects are fetched as data; the PR tree is never checked out or run.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  public-privacy-preflight:
+    name: public-privacy-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted main only without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect untrusted Git objects with the trusted main script
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]{1,9}$ && "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ && "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PRIVACY ERROR: invalid PR reference metadata"
+            exit 2
+          fi
+          # Never check out, source, import, install or execute PR-provided files.
+          # Fetch a repository-owned PR ref only; verify it matches the event SHA.
+          if ! git fetch --quiet --no-tags --no-recurse-submodules origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/privacy-review-head"; then
+            echo "PRIVACY ERROR: unable to fetch PR objects"
+            exit 2
+          fi
+          fetched="$(git rev-parse --verify 'refs/remotes/origin/privacy-review-head^{commit}')"
+          if [[ "$fetched" != "$PR_HEAD_SHA" ]]; then
+            echo "PRIVACY ERROR: PR changed during inspection; request a new run"
+            exit 2
+          fi
+          python3 -I scripts/public_privacy_preflight.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA"
