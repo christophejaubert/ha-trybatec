@@ -1,0 +1,3 @@
+# FR: outil PEP 517 employé hors isolation uniquement dans les jobs HA Python 3.14.
+# EN: PEP 517 backend installed with a verified wheel before no-build-isolation HA jobs.
+setuptools==84.2.1
