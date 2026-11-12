@@ -124,7 +124,7 @@ async function one(browser, config) {
         const host=document.querySelector("trybatec-panel");
         const root=host.shadowRoot;
         const controls=[...root.querySelectorAll("button,input,select,textarea,a[href]")]
-          .filter(el=>!el.disabled && el.getClientRects().length);
+          .filter(el=>!el.matches(":disabled") && el.getClientRects().length);
         return {
           viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
           hostWidth:Math.ceil(host.getBoundingClientRect().width),
@@ -133,7 +133,7 @@ async function one(browser, config) {
             const r=el.getBoundingClientRect();return r.width<24||r.height<24;
           }).map(el=>(el.getAttribute("aria-label")||el.innerText||el.tagName).slice(0,72)),
           buttons:[...root.querySelectorAll("button.primary,button.secondary")]
-            .filter(el=>el.getClientRects().length&&!el.disabled).slice(0,6)
+            .filter(el=>el.getClientRects().length&&!el.matches(":disabled")).slice(0,6)
             .map(el=>{
               const style=getComputedStyle(el);
               return {label:(el.getAttribute("aria-label")||el.innerText||"").slice(0,64),
