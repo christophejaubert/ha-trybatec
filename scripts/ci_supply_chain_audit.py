@@ -21,6 +21,7 @@ FILES = (
     ".github/ci/constraints-ha-runtime.txt",
     ".github/ci/constraints-ha-persistence.txt",
     ".github/ci/constraints-audit.txt",
+    ".github/ci/constraints-build.txt",
 )
 MAX_OUTPUT = 6 * 1024 * 1024
 MAX_FINDINGS = 1200
