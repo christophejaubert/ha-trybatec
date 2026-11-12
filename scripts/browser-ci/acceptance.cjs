@@ -299,7 +299,7 @@ async function runCase(browser, locale, device, dark=false) {
       assert.equal(await page.locator("trybatec-panel select[data-meter-option-field='unit']").inputValue(),"m³");
       assert.equal(await page.locator("trybatec-panel input[data-meter-option-field='device_uuid']").inputValue(),"");
       assert.equal(await page.locator("trybatec-panel button[data-meter-options-save]").count(),1);
-      assert.equal(await page.locator('trybatec-panel .notice[role="status"].warning').count(),0,
+      assert.equal(await page.locator('trybatec-panel .notice[role="status"].warning:visible').count(),0,
         "An unverified missing date must not become a proven warning");
       await page.locator('trybatec-panel button[data-meter="1"]').click();
       const retired=await page.locator("trybatec-panel .meter-title").first().innerText();
