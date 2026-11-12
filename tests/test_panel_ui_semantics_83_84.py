@@ -72,7 +72,7 @@ assert.match(detail,/status-indicator na/);
 assert.match(detail,/data-meter-context="scan"/);
 assert.match(detail,/data-meter-context="history"/);
 assert.match(detail,/data-meter-context="unit"/);
-assert.match(detail,/Historique & lissage/);
+assert.match(detail,/Historique &amp; lissage/);
 assert.match(detail,/Origine : unité enregistrée manuellement/);
 assert.match(detail,/status-indicator passed/);
 assert.doesNotMatch(detail,/Anomalie détectée/);
@@ -176,7 +176,7 @@ assert.doesNotMatch(staleView,/SYNTH-OTHER/);
 fixture._t=(fr,en)=>en;
 fixture._historyContextKey=null;
 const english=p._meterDetail.call(fixture,meter);
-assert.match(english,/History & smoothing/);
+assert.match(english,/History &amp; smoothing/);
 assert.match(english,/Retired/);
 for (const label of ["Latest available index","First known observation",
     "Last source observation","Date of latest usable index","Unit status",
