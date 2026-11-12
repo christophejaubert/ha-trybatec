@@ -48,7 +48,7 @@ habluetooth==7.1.2
 hass-nabucasa==2.8.1
 home-assistant-bluetooth==2.0.0
 homeassistant==2026.11.0
-httpcore2==2.14.0
+httpcore2==2.16.0
 httpx2==2.14.0
 icmplib==3.0.4
 idna==3.20
