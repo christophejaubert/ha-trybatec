@@ -17,11 +17,11 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_METER_TARIFFS, CONF_TARIFFS, DOMAIN, FLUIDS
-from .parsing import numeric, validate_tariffs
+from .parsing import validate_tariffs
 from .units import meter_key
 from .tariff_validation import (
     effective_rate as effective_rate,  # Compatibility re-export, intentionally public.
-    tariff_fingerprint, validate_meter_tariffs,
+    tariff_fingerprint, validate_meter_tariffs, validate_edit_rate,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,13 +56,8 @@ async def change_tariff(
             or not isinstance(expected_fingerprint, str)
             or len(expected_fingerprint) != 64 or not set(expected_fingerprint) <= _HEX):
         raise ValueError("Invalid tariff edit scope")
-    if not remove:
-        amount = numeric(rate)
-        if amount is None or amount > 1000000:
-            raise ValueError("Tariff must be a finite non-negative number")
-        amount = round(amount, 6)
-    else:
-        amount = None
+    # Reject excessive precision rather than silently changing the user's rate.
+    amount = None if remove else validate_edit_rate(rate)
     if physical_key is not None:
         if (not isinstance(physical_key, str)
                 or len(physical_key) != 24 or not set(physical_key) <= _HEX):
