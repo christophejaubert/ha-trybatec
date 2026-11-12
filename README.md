@@ -12,6 +12,9 @@
 
 [Français](#installation-fr) · [English](#installation-en)
 
+**Charte de conception UI/UX / UI/UX design guidance :** pour toute évolution de l'interface Trybatec, consulter les [règles transversales FR/EN](docs/UI_GUIDELINES.md) (états, boutons, navigation, risques et accessibilité) et le [design system](docs/DESIGN_SYSTEM.md) (palette, pictogrammes, contrastes). Ces documents spécifient les règles à appliquer ; ils ne prouvent pas leur implémentation ni leur recette. / For any Trybatec UI change, follow the [project-wide bilingual UI guidelines](docs/UI_GUIDELINES.md) and [visual design system](docs/DESIGN_SYSTEM.md). These specifications are not evidence of implementation or real-world acceptance.
+
+
 **Préparation des versions / Release preparation:** [périmètre de la candidate 0.3.3b1](docs/RELEASE_SCOPE_0.3.3b1.md) et [audit de préparation Marketplace](docs/MARKETPLACE_READINESS.md). Ces documents ne prouvent ni la conformité finale ni la publication d'une version stable. / These working documents are not evidence of a completed acceptance test, a stable release or a public-catalog listing.
 
 > **EXPERIMENTAL BETA — UNSUPPORTED / MAINTENANCE NON GARANTIE.** The service endpoints were identified from the
