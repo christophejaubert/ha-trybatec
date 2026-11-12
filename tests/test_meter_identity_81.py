@@ -4,6 +4,7 @@ from copy import deepcopy
 import pytest
 
 from custom_components.trybatec.meter_identity import (
+    evaluate_unit_transition,
     legacy_meter_unique_ids,
     preview_stable_identity_transition,
     stable_meter_unique_id,
@@ -160,3 +161,26 @@ def test_preview_rejects_incomplete_or_excessive_inventories():
             {"unique_id": "uid", "entity_id": "not-sensor"}])
     with pytest.raises(ValueError, match="size"):
         preview_stable_identity_transition(ACCOUNT, ENTRY, [meter()] * 3001, [])
+
+
+@pytest.mark.parametrize("baseline,incoming,expected", [
+    (None, None, "source_unit_unverified"),
+    ("unverified", None, "source_unit_unverified"),
+    (None, "m³", "first_verified_unit"),
+    ("unverified", "m³", "first_verified_unit"),
+    ("m³", "m³", "approved"),
+    ("m³", "L", "source_unit_changed_requires_review"),
+    ("kWh", "MWh", "source_unit_changed_requires_review"),
+    ("L", None, "source_unit_unverified"),
+])
+def test_source_scale_is_locked_without_creating_new_id(baseline, incoming, expected):
+    assert evaluate_unit_transition(baseline, incoming) == expected
+
+
+def test_stored_unit_missing_with_registered_sensor_fails_closed():
+    assert evaluate_unit_transition(
+        None, "m³", registered_without_baseline=True
+    ) == "missing_unit_baseline_requires_review"
+    assert evaluate_unit_transition(
+        "m³", "m³", legacy_exists=True
+    ) == "legacy_identity_requires_review"
