@@ -11,6 +11,19 @@ on:
       - "tests/test_ui_a11y_static_audit_70_83_84.py"
       - ".github/workflows/ui-a11y-synthetic-70-83-84.yml"
       - "custom_components/trybatec/panel/**"
+  # FR : recontrôler après fusion dans main, sans publication ni données réelles.
+  # EN: rerun synthetic accessibility checks on main pushes after merge.
+  push:
+    branches: [main]
+    paths:
+      - "scripts/browser-ci/a11y_independent_70_83_84.cjs"
+      - "scripts/browser-ci/validate_a11y_report*.cjs"
+      - "scripts/browser-ci/package.json"
+      - "scripts/browser-ci/package-lock.json"
+      - "scripts/ui_a11y_static_audit.py"
+      - "tests/test_ui_a11y_static_audit_70_83_84.py"
+      - ".github/workflows/ui-a11y-synthetic-70-83-84.yml"
+      - "custom_components/trybatec/panel/**"
   workflow_dispatch:
 
 # FR/EN: zero repository write permission; synthetic-only, no HA credentials.
