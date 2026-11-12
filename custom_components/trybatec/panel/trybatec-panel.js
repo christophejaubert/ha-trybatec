@@ -1313,9 +1313,16 @@ class TrybatecPanel extends HTMLElement {
       safe(tab)+'">'+safe(action)+'</button></div></div></div>';
     const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
     const retiredCoverage=this._tariffCoverage?.get(a.entry_id);
-    // Snapshot dates alone do not prove complete supplier-history verification.
+    // An account-wide scan does not prove a particular retired meter was observed.
+    // Require exact physical identity and two verified supplier bounds for each.
+    const retiredBoundsVerified=retiredCoverage?.status==="complete" &&
+      Array.isArray(retiredCoverage.meters) && retired.every(m=>{
+        const bound=retiredCoverage.meters.find(row=>
+          row.physical_key===m.physical_key);
+        return Boolean(bound?.first_observed_at && bound?.last_source_observed_at);
+      });
     const retiredStatus=retired.length===0?"na":
-      retiredCoverage?.status==="complete" && missingDates.length===0?"passed":"unverified";
+      retiredBoundsVerified && missingDates.length===0?"passed":"unverified";
     const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
       "No active meters in this inventory."):
       conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
