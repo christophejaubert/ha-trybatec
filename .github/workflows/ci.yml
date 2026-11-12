@@ -117,6 +117,20 @@ jobs:
         run: ruff check --output-format=github --select E9,F63,F7,F82 custom_components/trybatec tests
       - name: Verify pinned workflow actions and manual-only publication
         run: python3 -I .github/ci/quality_guard.py
+      - name: Enforce zero unused imports and locals in cleaned source and test modules
+        run: |
+          ruff check --output-format=github --select F401,F841 \
+            custom_components/trybatec/historical_costs.py \
+            custom_components/trybatec/history.py \
+            custom_components/trybatec/panel_tariffs.py \
+            custom_components/trybatec/history_services.py \
+            tests/test_b15_discovery.py \
+            tests/test_b15_recorder_plan.py \
+            tests/test_b6_units_and_recorder.py \
+            tests/test_history_b3.py \
+            tests/test_b7_device_units.py \
+            tests/test_b7_final_acceptance.py \
+            tests/test_history_review_b4.py
       - name: Report general lint debt (not blocking initially)
         continue-on-error: true
         run: ruff check --output-format=github custom_components/trybatec tests
