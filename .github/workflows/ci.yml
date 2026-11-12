@@ -2,6 +2,7 @@ name: 🤖 Compatibility and tests
 
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "21 7 * * *" # Daily compatibility check with latest published HA
@@ -19,6 +20,12 @@ on:
 
 permissions:
   contents: read
+
+# FR : annuler seulement les anciennes CI de la même PR ; préserver les autres déclenchements.
+# EN: cancel only superseded CI runs for the same PR; preserve all other triggers.
+concurrency:
+  group: trybatec-ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pure-tests:

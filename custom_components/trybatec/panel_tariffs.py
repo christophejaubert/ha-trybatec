@@ -20,6 +20,7 @@ from .const import CONF_METER_TARIFFS, CONF_TARIFFS, DOMAIN, FLUIDS
 from .parsing import numeric, validate_tariffs
 from .units import meter_key
 from .tariff_validation import (
+    effective_rate as effective_rate,  # Compatibility re-export, intentionally public.
     tariff_fingerprint, validate_meter_tariffs,
 )
 
