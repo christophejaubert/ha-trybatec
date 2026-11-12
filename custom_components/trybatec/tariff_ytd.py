@@ -70,7 +70,7 @@ def preview_ytd_tariff_costs(
         if fluid not in FLUIDS:
             continue
         value = numeric(item.get("period_consumption"))
-        if value is None or not item.get("indexes"):
+        if value is None or not isinstance(item.get("indexes"), list) or not item["indexes"]:
             continue
         lot, serial = item.get("lot"), item.get("serial")
         if not isinstance(lot, str) or not lot or not isinstance(serial, str) or not serial:
@@ -137,7 +137,8 @@ def preview_ytd_tariff_costs(
                 continue
             price = _rate(record)
             subtotal = (amount * price).quantize(_CENT, rounding=ROUND_HALF_UP)
-            total += amount * price
+            # The displayed total is the sum of displayed meter subtotals.
+            total += subtotal
             rows.append({
                 "physical_key": key, "quantity": float(amount),
                 "rate": float(price), "estimated_cost": float(subtotal),
