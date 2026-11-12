@@ -519,6 +519,282 @@ class TrybatecOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
 
+
+    async def _native_tariff_meter_choices(self) -> dict[str, tuple[str, str]]:
+        """Read physical meters without asking users for technical keys."""
+        choices: dict[str, tuple[str, str]] = {}
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is not None and coordinator.data:
+            for item in coordinator.data.get("meters", {}).values():
+                if not isinstance(item, dict):
+                    continue
+                fluid, lot, serial = (
+                    item.get("fluid"), item.get("lot"), item.get("serial")
+                )
+                if fluid in FLUIDS and lot and serial:
+                    key = meter_key(str(lot), fluid, str(serial))
+                    choices[key] = (
+                        fluid, f"{FLUIDS[fluid]} · {lot} · {serial}"
+                    )
+        try:
+            archive = await load_historical_inventory(
+                self.hass, self.config_entry.entry_id
+            )
+        except (ValueError, TypeError, KeyError, AttributeError):
+            # No invented archived identity when local evidence is unavailable.
+            archive = {}
+        for item in archive.values():
+            if not isinstance(item, dict):
+                continue
+            fluid, lot, serial = (
+                item.get("fluid"), item.get("lot"), item.get("serial")
+            )
+            if fluid in FLUIDS and lot and serial:
+                key = meter_key(str(lot), fluid, str(serial))
+                choices[key] = (
+                    fluid, f"{FLUIDS[fluid]} · {lot} · {serial}"
+                )
+        return choices
+
+    async def async_step_tariffs(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Native graphical year/fluid/meter selector, with no JSON input."""
+        choices = await self._native_tariff_meter_choices()
+        meter_options = [
+            SelectOptionDict(
+                value="__common__",
+                label=self._nav_text("Tarif commun du fluide", "Shared fluid rate"),
+            ),
+            *[
+                SelectOptionDict(value=key, label=value[1])
+                for key, value in sorted(choices.items(), key=lambda pair: pair[1][1])
+            ],
+        ]
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                year = int(user_input["year"])
+                fluid = user_input["fluid"]
+                meter = user_input.get("meter", "__common__")
+                if (not 2000 <= year <= 2100 or fluid not in FLUIDS
+                        or (meter != "__common__"
+                            and choices.get(meter, (None,))[0] != fluid)):
+                    raise ValueError("Invalid native tariff scope")
+                self._native_tariff_scope = {
+                    "year": year,
+                    "fluid": fluid,
+                    "physical_key": None if meter == "__common__" else meter,
+                    "expected_fingerprint": tariff_fingerprint(
+                        dict(self.config_entry.options)
+                    ),
+                }
+                self._native_tariff_change = None
+                return await self.async_step_tariff_edit()
+            except (ValueError, TypeError, KeyError, OverflowError):
+                errors["base"] = "invalid_tariff_scope"
+        schema = vol.Schema({
+            vol.Required("year", default=date.today().year): vol.All(
+                vol.Coerce(int), vol.Range(min=2000, max=2100),
+            ),
+            vol.Required("fluid", default="EF"): self._radio_choices({
+                "EF": self._nav_text("Eau froide (EUR/m³)", "Cold water (EUR/m³)"),
+                "ECS": self._nav_text("Eau chaude (EUR/m³)", "Hot water (EUR/m³)"),
+                "CET": self._nav_text("Chauffage (EUR/kWh)", "Heating (EUR/kWh)"),
+            }),
+            vol.Required("meter", default="__common__"): SelectSelector(
+                SelectSelectorConfig(
+                    options=meter_options, mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+        return self.async_show_form(
+            step_id="tariffs", data_schema=schema, errors=errors,
+        )
+
+    def _native_saved_tariff(self) -> dict | None:
+        scope = self._native_tariff_scope
+        if scope is None:
+            return None
+        year = str(scope["year"])
+        if scope["physical_key"]:
+            stored = validate_meter_tariffs(
+                self.config_entry.options.get(CONF_METER_TARIFFS)
+            )
+            return stored.get(year, {}).get(scope["physical_key"])
+        stored = validate_tariffs(
+            self.config_entry.options.get(CONF_TARIFFS, "{}")
+        )
+        return stored.get(year, {}).get(scope["fluid"])
+
+    async def async_step_tariff_edit(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Edit a single rate; no write occurs before confirmation."""
+        scope = self._native_tariff_scope
+        if scope is None:
+            return await self.async_step_tariffs()
+        errors: dict[str, str] = {}
+        try:
+            saved = self._native_saved_tariff()
+        except (ValueError, TypeError, json.JSONDecodeError):
+            saved = None
+            errors["base"] = "invalid_tariff_legacy"
+        if user_input is not None and not errors:
+            action = user_input.get("action", "save")
+            if action == "cancel":
+                self._native_tariff_scope = None
+                self._native_tariff_change = None
+                return await self.async_step_init()
+            if action not in ("save", "remove"):
+                errors["base"] = "invalid_tariff_action"
+            elif action == "remove" and saved is None:
+                errors["base"] = "tariff_not_found"
+            else:
+                amount = user_input.get("rate")
+                exact = None
+                if action == "save":
+                    try:
+                        if isinstance(amount, bool):
+                            raise ValueError("Boolean rate")
+                        exact = Decimal(str(amount))
+                        if (not exact.is_finite() or exact < 0 or exact > 1000000
+                                or exact.as_tuple().exponent < -6):
+                            raise ValueError("Invalid tariff precision")
+                    except (ValueError, TypeError, InvalidOperation):
+                        errors["base"] = "invalid_tariff_rate"
+                status = user_input.get("status", "provisional")
+                if status not in ("provisional", "approved"):
+                    errors["base"] = "invalid_tariff_action"
+                if not errors:
+                    self._native_tariff_change = {
+                        **scope,
+                        "rate": None if action == "remove" else float(exact),
+                        "status": status,
+                        "remove": action == "remove",
+                    }
+                    return await self.async_step_tariff_confirm()
+        amount_key = (
+            vol.Optional("rate", default=saved["rate"])
+            if saved is not None else vol.Optional("rate")
+        )
+        schema = vol.Schema({
+            amount_key: vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=1000000),
+            ),
+            vol.Required(
+                "status", default=(saved or {}).get("status", "provisional"),
+            ): self._radio_choices({
+                "provisional": self._nav_text("Provisoire", "Provisional"),
+                "approved": self._nav_text("Approuvé", "Approved"),
+            }),
+            vol.Required("action", default="save"): self._radio_choices({
+                "save": self._nav_text("Enregistrer", "Save"),
+                "remove": self._nav_text("Retirer", "Remove"),
+                "cancel": self._nav_text("Annuler sans enregistrer", "Discard edits"),
+            }),
+        })
+        return self.async_show_form(
+            step_id="tariff_edit", data_schema=schema, errors=errors,
+            description_placeholders={
+                "year": str(scope["year"]), "fluid": FLUIDS[scope["fluid"]],
+                "unit": ("EUR/kWh" if scope["fluid"] == "CET" else "EUR/m³"),
+                "existing": (
+                    str(saved["rate"]) if saved else self._nav_text(
+                        "Aucun tarif enregistré", "No saved rate",
+                    )
+                ),
+            },
+        )
+
+    async def async_step_tariff_confirm(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Confirm an admin options change with optimistic concurrency."""
+        pending = self._native_tariff_change
+        if pending is None:
+            return await self.async_step_tariffs()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if user_input.get("confirm") is not True:
+                errors["base"] = "confirmation_required"
+            else:
+                coordinator = self.hass.data.get(DOMAIN, {}).get(
+                    self.config_entry.entry_id
+                )
+                if coordinator is None:
+                    errors["base"] = "tariff_unavailable"
+                else:
+                    try:
+                        await change_tariff(
+                            self.hass, coordinator,
+                            year=pending["year"], fluid=pending["fluid"],
+                            physical_key=pending["physical_key"],
+                            rate=pending["rate"], status=pending["status"],
+                            remove=pending["remove"],
+                            expected_fingerprint=pending["expected_fingerprint"],
+                            confirmed=True,
+                        )
+                    except (ValueError, TypeError, KeyError):
+                        errors["base"] = "invalid_tariff_scope"
+                    else:
+                        self._native_tariff_change = None
+                        self._native_tariff_scope = None
+                        return self.async_show_menu(
+                            step_id="tariff_done",
+                            menu_options={
+                                "tariffs": self._nav_text(
+                                    "Modifier un autre tarif", "Edit another rate",
+                                ),
+                                "init": self._nav_text(
+                                    "Retour au menu", "Back to menu",
+                                ),
+                            },
+                        )
+        return self.async_show_form(
+            step_id="tariff_confirm",
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): BooleanSelector(),
+            }),
+            errors=errors,
+            description_placeholders={
+                "year": str(pending["year"]),
+                "fluid": FLUIDS[pending["fluid"]],
+                "rate": (
+                    self._nav_text("Suppression", "Removal")
+                    if pending["remove"] else str(pending["rate"])
+                ),
+                "unit": ("EUR/kWh" if pending["fluid"] == "CET" else "EUR/m³"),
+                "status": pending["status"],
+            },
+        )
+
+    async def async_step_legacy_tariffs(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Keep the old JSON field only as an explicit COMPAT-01 fallback."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                raw = user_input[CONF_TARIFFS]
+                validate_tariffs(raw)
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                errors["base"] = "invalid_tariffs"
+            else:
+                return await self._save_options_and_navigate(
+                    {CONF_TARIFFS: raw}, "menu"
+                )
+        return self.async_show_form(
+            step_id="legacy_tariffs",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_TARIFFS,
+                    default=self.config_entry.options.get(CONF_TARIFFS, "{}"),
+                ): str,
+            }),
+            errors=errors,
+        )
+
     def _history_thresholds(self) -> dict[str, int]:
         """Use the same persisted thresholds on all history preview screens."""
         return {
