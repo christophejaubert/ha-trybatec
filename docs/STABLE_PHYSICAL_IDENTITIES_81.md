@@ -108,6 +108,35 @@
 
 **Release caution:** a published version may trigger a user's Home Assistant automatic updater. Never enable migration as a release side effect.
 
+## Audit externe et recette isolée / External audit and isolated acceptance
+
+**FR :** La matrice indépendante des consommateurs est définie dans
+[MIGRATION_DEPENDENCY_AUDIT_81.md](MIGRATION_DEPENDENCY_AUDIT_81.md).
+Le scanner `migration_consumer_audit_81.py` ne produit que des références
+opaques de diagnostic, ne conclut jamais à une exhaustivité et ne peut
+jamais débloquer la migration. Les résultats privés de l'installation
+ne doivent pas être publiés sur GitHub.
+
+La procédure de sauvegarde, restauration, comparaison des états,
+redémarrage et procès-verbal de recette isolée figure dans
+[MIGRATION_RESTORE_ACCEPTANCE_81.md](MIGRATION_RESTORE_ACCEPTANCE_81.md).
+**Aucune restauration ni migration réelle n'a été effectuée** ; le PV
+reste non exécuté. Toute action sur une instance ou un fichier privé
+requiert une autorisation spécifique.
+
+**EN:** The independent consumer matrix is specified in
+[MIGRATION_DEPENDENCY_AUDIT_81.md](MIGRATION_DEPENDENCY_AUDIT_81.md).
+The diagnostic scanner emits only opaque references and can never
+claim exhaustive coverage or unlock migration. Never publish real
+installation evidence to GitHub.
+
+The isolated backup/restore, before-and-after comparison, restart and
+business acceptance protocol is specified in
+[MIGRATION_RESTORE_ACCEPTANCE_81.md](MIGRATION_RESTORE_ACCEPTANCE_81.md).
+**No real restore or migration was performed**; the record remains
+not executed. Separate explicit authorization is required before any
+instance or private-data operation.
+
 ## Références / References
 
 - [#81 — architecture/architecture](https://github.com/christophejaubert/ha-trybatec/issues/81)
