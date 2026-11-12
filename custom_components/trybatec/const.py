@@ -1,6 +1,9 @@
 """Constants for the unofficial Trybatec Home Assistant integration."""
 
 DOMAIN = "trybatec"
+# Only newly created entries opt into stable physical IDs. Legacy entries
+# remain unchanged until an explicitly reviewed migration is implemented.
+CONF_STABLE_METER_IDENTITIES = "stable_meter_identities"
 API_ORIGIN = "https://portail.trybatec.fr"
 API_BASE = f"{API_ORIGIN}/api/v1"
 CONF_DEAL_ID = "deal_id"
