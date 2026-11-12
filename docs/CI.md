@@ -12,8 +12,7 @@ not the functional Home Assistant integration. Workflow source:
 - **Manual workflow dispatch:** optionally prepare an **unpublished release draft**,
   only from `main` and only after all mandatory jobs have succeeded.
   A normal push, a PR or a scheduled job **never publishes a release**.
-- **Unit tests:** Python 3.13 and 3.14; coverage report uploaded but the minimum
-  coverage and full Ruff formatting are still advisory.
+- **Unit tests:** Python 3.13 and 3.14; coverage report uploaded; a minimum 75% global project coverage is enforced in both Python jobs beginning with the quality-contracts CI change. Full Ruff lint and formatting remain advisory.
 - **Home Assistant runtime:** isolated test fixture, synthetic portal data,
   real sensor/service behavior and a separate SQLite Recorder backend.
 - **Physical decision storage:** two independent HA Core/Python processes share
@@ -151,7 +150,7 @@ appear releasable. Code/manifest corrections belong in the functional PR.
 1. Validate the functional version and merge authorized changes through PRs.
 2. Merge the updated delivery workflow into `main` using required checks.
 3. Set the intended version in `manifest.json` through the functional workflow.
-4. From **GitHub → Actions → Compatibility and tests → Run workflow**, select
+4. From **GitHub → Actions → 🤖 Compatibility and tests → Run workflow**, select
    `main`, then choose `release_type=prerelease` or `stable`.
 5. After all required tests pass, GitHub prepares **an unpublished draft**.
 6. Publication remains a **separate, explicitly authorized step**. The current
@@ -178,3 +177,14 @@ an installed Home Assistant instance.
 **EN:** cross-cutting requirements appear in [SECURE_DEVELOPMENT_POLICY.md](SECURE_DEVELOPMENT_POLICY.md), and the evidence baseline in [SECURITY_AUDIT_2026-11-12.md](SECURITY_AUDIT_2026-11-12.md). The PR template keeps implementation, exact-SHA CI, live acceptance and publication separate. Preserve all ten active required-status identifiers during incremental hardening; do not add a required check until the protection configuration can be updated safely. Full lint and global coverage remain advisory until a measured debt baseline is available.
 
 **Security limit / Limite :** pull_request_target executes the trusted base-branch guard only; it never executes candidate code or grants secrets. Author-owned PRs that modify protected workflow paths still require manual security review: the trusted check does not prove the changes are safe.
+
+
+## Progressive quality contracts / Contrats qualité progressifs
+
+**FR (12 novembre 2026) :** le job obligatoire ruff-essential exécute désormais un garde statique Python sans réseau (.github/ci/quality_guard.py) contrôlant l'épinglage des actions sur SHA, la désactivation de la conservation des identifiants checkout, le contexte privilégié pull_request_target et les déclencheurs manuels de publication. Les tests unitaires de ce garde s'exécutent dans les jobs Python obligatoires. Le seuil minimum de couverture de la partie pure est fixé à 75 % (base mesurée avant chantier : environ 80 %, 441 tests réussis), et doit être relevé après mesure de dette. Le contrôle Ruff général et le formatage restent indicatifs : 89 fichiers sur 90 étaient signalés comme non formatés sur la base de référence. La politique ne prétend pas éliminer toute vulnérabilité ni couvrir les appels réseau dynamiques.
+
+Le nom affiché du workflow CI est désormais « 🤖 Compatibility and tests ». Les noms des dix statuts exigés par le ruleset ne changent pas. Le vérificateur du workflow de publication reconnaît transitoirement les anciens et nouveaux noms, tout en conservant les vérifications SHA, la confirmation propriétaire et l'interdiction de publication automatique. Il n'est déclenché par aucune des présentes modifications.
+
+**EN (12 November 2026):** the mandatory ruff-essential job now runs an offline Python static guard (.github/ci/quality_guard.py) checking SHA-pinned actions, non-persistent checkout credentials, privileged pull_request_target scope and manual-only prerelease triggers. Its unit tests run in mandatory Python jobs. Pure-project total coverage has a 75% blocking floor (observed reference ~80% over 441 passing tests). Raise this threshold after measuring debt. General Ruff lint and formatting remain advisory (89 of 90 files needed reformatting at baseline). This guard cannot replace review or guarantee absence of vulnerabilities.
+
+The display name of the CI workflow is now « 🤖 Compatibility and tests »; all ten required GitHub status names remain unchanged. The publisher recognizes the previous and updated workflow display names without weakening exact-SHA checks or triggering a release.
