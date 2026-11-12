@@ -94,7 +94,7 @@ pycares==5.2.1
 pycognito==2024.5.1
 pycparser==3.12
 pydantic==2.13.5
-pydantic-core==2.46.5
+pydantic-core==2.50.4
 pygithub==2.10.0
 pygments==2.21.0
 pyjwt==2.15.1
