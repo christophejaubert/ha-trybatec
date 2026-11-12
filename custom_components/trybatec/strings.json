@@ -41,7 +41,7 @@
     "step": {
       "settings": {
         "title": "Trybatec options",
-        "description": "Tariffs are estimates. Verify each meter in 'Verify meter units'. The legacy global heating-unit option is no longer used.\n\nSubmit to save and return to the main menu. To discard changes without saving, close this dialog using ×.",
+        "description": "Shared technical settings. Annual tariffs are edited in a separate visual form: no JSON knowledge is needed. Saving these settings does not change existing rates. Close without submitting to discard changes.",
         "data": {
           "poll_minutes": "Polling interval (minutes, minimum 60)",
           "annual_tariffs": "Annual tariffs (JSON, optional)",
@@ -58,7 +58,9 @@
           "history_overview": "History overview",
           "history_meters": "Meter details",
           "diagnostics": "Diagnostics and logging",
-          "history_smoothing": "Review sparse intervals (linear smoothing)"
+          "history_smoothing": "Review sparse intervals (linear smoothing)",
+          "tariffs": "Annual tariffs (visual editor)",
+          "legacy_tariffs": "Advanced: legacy JSON tariffs (compatibility)"
         },
         "description": "{panel_link}\n\nThe panel contains Trybatec settings, meter units and UUIDs, historical reviews, annual rates and diagnostics. The native options below remain available as a fallback while the new interface is being verified. No data is changed merely by opening the link."
       },
@@ -190,6 +192,63 @@
         "description": "**Interval:** {interval}\\n**Method:** {mode}\\n**Reason:** {reason}\\n\\nConfirmation stores only a local review choice. It does not change Trybatec, Recorder or Energy. Changed source readings invalidate the choice.",
         "data": {
           "confirm": "I explicitly confirm"
+        }
+      },
+      "tariffs": {
+        "title": "Annual tariffs — select scope",
+        "description": "Select a year, fluid and optionally a physical meter. No JSON entry is needed. The chosen meter must match the fluid. This step does not write any changes.",
+        "data": {
+          "year": "Calendar year (2000–2100)",
+          "fluid": "Fluid and billing unit",
+          "meter": "Shared rate or physical meter"
+        },
+        "errors": {
+          "invalid_tariff_scope": "Invalid year, fluid or physical meter. Please check the selection."
+        }
+      },
+      "tariff_edit": {
+        "title": "Edit annual tariff",
+        "description": "**{fluid} · {year}** — {unit}\n\nSaved rate: **{existing}**. Choose Save, Remove or Discard. No change is written until you confirm on the next screen.",
+        "data": {
+          "rate": "Rate (up to six decimal places)",
+          "status": "Tariff status (not billed charges)",
+          "action": "Action"
+        },
+        "errors": {
+          "invalid_tariff_legacy": "The stored legacy tariff data needs manual review; nothing was overwritten.",
+          "invalid_tariff_rate": "Invalid rate: use 0 to 1,000,000, at most six decimal places.",
+          "invalid_tariff_action": "Invalid tariff action or status.",
+          "tariff_not_found": "No stored tariff is available to remove."
+        }
+      },
+      "tariff_confirm": {
+        "title": "Confirm tariff edit",
+        "description": "**{fluid} · {year}** — {rate} {unit}, status: {status}.\n\nCheck the confirmation only if you intend to write this tariff. This does not import Recorder data or change Energy settings.",
+        "data": {
+          "confirm": "Confirm this one tariff change"
+        },
+        "errors": {
+          "confirmation_required": "You must explicitly confirm this change.",
+          "tariff_unavailable": "The Trybatec account is not loaded; no tariff was changed.",
+          "invalid_tariff_scope": "Tariff update rejected (invalid/stale details); restart the form."
+        }
+      },
+      "tariff_done": {
+        "title": "Tariff saved",
+        "description": "The tariff change was confirmed by the backend. Other configuration and historical readings have not been edited.",
+        "menu_options": {
+          "tariffs": "Edit another tariff",
+          "init": "Back to main menu"
+        }
+      },
+      "legacy_tariffs": {
+        "title": "Advanced: legacy JSON tariffs",
+        "description": "Legacy compatibility only (COMPAT-01). The normal visual editor does not require JSON. Existing annual tariffs remain stored under the same option. Do not use this technical screen unless specifically needed.",
+        "data": {
+          "annual_tariffs": "Existing annual tariffs (legacy JSON)"
+        },
+        "errors": {
+          "invalid_tariffs": "Invalid legacy JSON; no change was saved."
         }
       }
     },
