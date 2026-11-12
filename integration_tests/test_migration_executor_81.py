@@ -351,3 +351,20 @@ async def test_two_distinct_meters_cannot_be_mapped_to_one_device():
     with pytest.raises(ValueError, match="Distinct physical meters"):
         await _run(reg, devices, journal, supplier, lookup)
     assert journal.record is None
+
+
+@pytest.mark.asyncio
+async def test_journal_failure_after_device_alias_restores_all_identities():
+    """Persisting a step can fail after HA updated the device registry."""
+    reg, devices, journal, _, supplier, lookup = _fixture()
+    activation = Activation()
+    journal.fail_on_save = 2  # Prepared is durable; device-alias step fails.
+    with pytest.raises(RuntimeError, match="simulated journal failure"):
+        await _run(reg, devices, journal, supplier, lookup, activation=activation)
+    assert reg.row.entity_id == EID
+    assert reg.row.unique_id == OLD
+    assert reg.row.device_id == DID
+    assert devices.device.identifiers == {("trybatec", "legacy-device")}
+    assert activation.enabled is False
+    assert activation.restores == 1
+    assert journal.record["status"] == "rolled_back"
