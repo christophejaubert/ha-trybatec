@@ -45,3 +45,41 @@ Initial `pip-audit` found **40 vulnerability advisory occurrences, all affecting
 **FR — Priorité :** ouvrir un chantier ciblé de compatibilité Home Assistant/Pillow pour lever ces avis ; un constat vulnérable ne devient pas 'corrigé' parce que le scanner est consultatif. Source : https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html.
 
 **EN — Priority:** plan a separate HA/Pillow fixture compatibility update to remediate these advisories; advisory scan status does not imply a vulnerability was fixed. Source: https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html.
+
+---
+
+## FR — Réconciliation du 12 novembre 2026 : environnement et risques résiduels (#99/#105)
+
+Cette section **actualise** les observations historiques ci-dessus : ne pas interpréter l'ancien état « pas de lock SHA256 » ou « 40 avis Pillow » comme l'état actuel de `main`.
+
+**Déjà validé et fusionné :**
+- [PR #106](https://github.com/christophejaubert/ha-trybatec/pull/106) : conteneur navigateur Playwright référencé par digest, installation `npm ci --ignore-scripts` et `package-lock.json` dont l'intégrité est contrôlée lors des téléchargements.
+- [PR #107](https://github.com/christophejaubert/ha-trybatec/pull/107) : migration vers `pytest-homeassistant==2026.11.0`, Pillow 13.0.0 ; quatre fichiers SHA256 vérifiés contre les octets téléchargés et les métadonnées PyPI officielles, installation `pip --require-hashes` dans les environnements pure Python 3.13/3.14, HA 3.14 et persistance HA 3.14. `pip check` et la comparaison des distributions restent actifs.
+- Audits CI de #107 : zéro constat `pip-audit` pour les quatre inventaires ; 20 contrôles de `main` réussis sur le commit `54a1f4b23c42f8773a292a5a2a4f96018504146d`, un job de release manuelle volontairement non exécuté. Cela **ne représente pas une recette métier Home Assistant**.
+
+**PR #109 — fusionnée dans `main` :** les 28 distributions incluant `pip-audit==2.10.1` et `zizmor==1.32.0` sont verrouillées par SHA256 authentifiés depuis PyPI, installées avec `--require-hashes`, `pip check` et contrôle exhaustif de l'inventaire. Commit `2b5dc81471d7d5d62b8a0a65d0c2c2a5f80fe2bd`, 19 contrôles post-fusion réussis (la préparation de release manuelle reste ignorée). Le complément de ce chantier inclut aussi l'**inventaire des scanners eux-mêmes** dans `pip-audit`, sans ignorer les alertes.
+
+**Image des runners GitHub-hosted :** le label `ubuntu-24.04` sélectionne la génération du système, pas une machine immuable. GitHub indique mettre à jour les outils préinstallés approximativement chaque semaine. Les actions sont fixées par SHA et la plupart des dépendances exécutées sont verrouillées par empreinte, ce qui réduit la dérive sans la supprimer. Options étudiées :
+1. **Conserver les runners GitHub-hosted** pour les tests Python, HA et Recorder : faible maintenance et environnement isolé avec `permissions: {}`, au prix d'un hôte et de ses outils système non figés. Choix conservateur à ce stade.
+2. **Utiliser un conteneur référencé par digest** pour un job indépendant, comme le navigateur : reproductibilité améliorée du système utilisateur, mais pas du noyau hôte ni du runner, et migration de chaque fixture HA à tester séparément.
+3. **Images de VM personnalisées / runners auto-hébergés** : meilleur contrôle des images en contrepartie de maintenance, correctifs, isolation et coûts. Aucune bascule automatique sans étude d'impact et décision sur l'exploitation.
+
+**Archives source / sdist :** certains paquets HA (notamment PyRIC 0.1.6.3) n'ont pas de wheel compatible vérifiée. Le SHA256 de l'archive téléchargée est contrôlé, mais le **processus de construction PEP 517 et ses dépendances de build isolées ne sont pas garantis par le seul verrou applicatif `--require-hashes`**. Les jobs concernés restent sans droit d'écriture GitHub ni secrets applicatifs ; cela limite l'exposition, sans produire une reproductibilité cryptographique complète du build. Pistes : wheel construite dans une image/dépendances de build auditées puis vérifiée par hash, ou migration vers une distribution binaire compatible lorsqu'elle existe. Ne pas forcer `--only-binary` si la matrice actuelle ne peut alors pas installer PyRIC.
+
+**`zizmor` / `pull_request_target` :** le diagnostic connu reste visible et consultatif. Le garde chargé depuis la branche de base ne checkout pas et n'exécute pas le code des PR, avec droits de lecture seule. L'alerte ne doit pas être neutralisée sans évaluation documentée du chemin d'exécution et de la politique de permissions. Réévaluer au plus tard **12 décembre 2026**, et après toute modification du garde.
+
+Sources officielles : [GitHub Hosted runners](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners), [GitHub runner images](https://github.com/actions/runner-images), [GitHub jobs in containers](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/run-jobs-in-a-container), [pip secure installs](https://pip.pypa.io/en/stable/topics/secure-installs/), [pip build-system interface](https://pip.pypa.io/en/latest/reference/build-system/).
+
+## EN — 2026-11-12 reconciliation: runner and build integrity (#99/#105)
+
+This supersedes the **historical observations above**, not the underlying evidence. PR #106 merged digest-pinned Playwright/npm-lock installation. PR #107 merged the official HA 2026.11.0 testing fixture/Pillow 13 and four SHA256-verified Python distribution locks consumed through `pip --require-hashes`; the four dependency audits reported zero findings. These were passing automated checks, **not production HA acceptance**.
+
+PR #109 merged the official-SHA256-verified 28-distribution `pip-audit`/`zizmor` toolchain using `--require-hashes`, inventory checks and `pip check`. Its post-merge `main` SHA `2b5dc81471d7d5d62b8a0a65d0c2c2a5f80fe2bd` passed 19 executed checks; the manual release draft remains skipped. This follow-up also audits the scanner tool inventory itself, without hiding reported advisories.
+
+GitHub-hosted `ubuntu-24.04` is an OS-version label rather than an immutable VM build, and GitHub documents weekly image updates. Retaining GitHub-hosted isolated runners is a maintenance/security tradeoff, not an immutable-environment claim. Digest-pinned job containers may improve userland reproducibility, but still share the host kernel; custom VM images/self-hosted runners involve cost, patching and security responsibilities and require a separate decision.
+
+An application-level SHA256 lock authenticates a downloaded **sdist**, but may not lock PEP 517 isolated build dependencies. PyRIC in the HA test graph requires a source artifact under this matrix. The tests use limited runner permissions, but fully hermetic builds would require reviewed build dependencies or audited prebuilt wheels. Do not bypass resolution to claim immutability.
+
+The context-sensitive `zizmor` `pull_request_target` finding stays visible: the trusted workflow uses a protected-base checkout, no candidate-code execution and a read-only token. Reassess by **2026-12-12** or whenever the guard changes, without simply suppressing the warning.
+
+Sources: GitHub Hosted runners and runner-images documentation, GitHub container job guide, pip secure-install and build-system documentation (linked above).

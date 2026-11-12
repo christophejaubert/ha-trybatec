@@ -1,0 +1,9 @@
+{
+  "name": "ha-trybatec-browser-ci",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Synthetic browser tests only / Tests navigateur synthétiques uniquement",
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
