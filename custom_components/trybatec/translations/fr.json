@@ -41,7 +41,7 @@
     "step": {
       "settings": {
         "title": "Options Trybatec",
-        "description": "Les tarifs ne sont que des estimations. L’unité de chaque compteur se vérifie dans « Vérifier les unités des compteurs ». L’ancienne option globale du chauffage n’est plus utilisée.\n\nValidez pour enregistrer et revenir au menu principal. Pour abandonner sans enregistrer, fermez cette fenêtre avec ×.",
+        "description": "Réglages techniques partagés. Les tarifs annuels se modifient dans un formulaire graphique distinct : aucun JSON à connaître. Leur contenu est conservé lorsque vous enregistrez ces réglages. Fermez sans valider pour annuler.",
         "data": {
           "poll_minutes": "Période d'interrogation (minutes, 60 minimum)",
           "annual_tariffs": "Tarifs par exercice (JSON, facultatif)",
@@ -58,7 +58,9 @@
           "history_overview": "Synthèse graphique de l’historique",
           "history_meters": "Détails des compteurs",
           "diagnostics": "Diagnostics et journalisation",
-          "history_smoothing": "Lissage des intervalles historiques"
+          "history_smoothing": "Lissage des intervalles historiques",
+          "tariffs": "Tarifs annuels (éditeur graphique)",
+          "legacy_tariffs": "Avancé : anciens tarifs JSON (compatibilité)"
         },
         "description": "{panel_link}\n\nLe panneau regroupe les réglages Trybatec, les unités et UUID des compteurs, les révisions historiques, les tarifs et les diagnostics. Les options natives ci-dessous restent disponibles comme solution de secours pendant la validation de la nouvelle interface. L’ouverture du lien ne modifie aucune donnée."
       },
@@ -190,6 +192,63 @@
         "description": "**Intervalle :** {interval}\\n**Méthode :** {mode}\\n**Motif déclaré :** {reason}\\n\\nLa confirmation enregistre uniquement le choix local. Elle ne modifie ni Trybatec, ni Recorder, ni le tableau Énergie. Une modification des relevés sources rend le choix caduc.",
         "data": {
           "confirm": "Je confirme explicitement"
+        }
+      },
+      "tariffs": {
+        "title": "Tarifs annuels — choisir le périmètre",
+        "description": "Choisissez un exercice, un fluide et éventuellement un compteur physique. Aucune saisie JSON n'est nécessaire. Le compteur choisi doit correspondre au fluide. Cette étape n'enregistre rien.",
+        "data": {
+          "year": "Exercice annuel (2000–2100)",
+          "fluid": "Fluide et unité tarifaire",
+          "meter": "Tarif commun ou compteur physique"
+        },
+        "errors": {
+          "invalid_tariff_scope": "Exercice, fluide ou compteur invalide : vérifiez votre sélection."
+        }
+      },
+      "tariff_edit": {
+        "title": "Modifier un tarif annuel",
+        "description": "**{fluid} · {year}** — {unit}\n\nTarif enregistré : **{existing}**. Choisissez Enregistrer, Retirer ou Annuler. Aucune donnée n'est écrite avant la confirmation suivante.",
+        "data": {
+          "rate": "Tarif (six décimales maximum)",
+          "status": "Statut du tarif (pas des charges facturées)",
+          "action": "Action"
+        },
+        "errors": {
+          "invalid_tariff_legacy": "Les anciens tarifs enregistrés sont invalides et doivent être revus ; aucune donnée n'a été écrasée.",
+          "invalid_tariff_rate": "Tarif invalide : entre 0 et 1 000 000, six décimales maximum.",
+          "invalid_tariff_action": "Action ou statut tarifaire invalide.",
+          "tariff_not_found": "Aucun tarif enregistré à retirer."
+        }
+      },
+      "tariff_confirm": {
+        "title": "Confirmer le changement de tarif",
+        "description": "**{fluid} · {year}** — {rate} {unit}, statut : {status}.\n\nCochez la confirmation uniquement pour enregistrer ce tarif. Aucune donnée Recorder ni préférence Énergie n'est modifiée.",
+        "data": {
+          "confirm": "Je confirme ce changement de tarif"
+        },
+        "errors": {
+          "confirmation_required": "Confirmez explicitement ce changement.",
+          "tariff_unavailable": "Compte Trybatec non chargé : aucun tarif n'a été modifié.",
+          "invalid_tariff_scope": "Enregistrement refusé (informations invalides ou périmées) ; recommencez le formulaire."
+        }
+      },
+      "tariff_done": {
+        "title": "Tarif enregistré",
+        "description": "L'enregistrement a été confirmé par le serveur. Les autres réglages et les relevés historiques n'ont pas été modifiés.",
+        "menu_options": {
+          "tariffs": "Modifier un autre tarif",
+          "init": "Retour au menu principal"
+        }
+      },
+      "legacy_tariffs": {
+        "title": "Avancé : anciens tarifs JSON",
+        "description": "Compatibilité historique uniquement (COMPAT-01). L'éditeur graphique ordinaire ne nécessite aucun JSON. Les anciens tarifs conservent leur clé de stockage. N'utilisez cet écran technique qu'en cas de nécessité.",
+        "data": {
+          "annual_tariffs": "Tarifs annuels existants (JSON historique)"
+        },
+        "errors": {
+          "invalid_tariffs": "JSON historique invalide : aucune modification enregistrée."
         }
       }
     },
