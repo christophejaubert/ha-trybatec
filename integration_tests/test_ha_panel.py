@@ -251,7 +251,9 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     flow = await hass.config_entries.options.async_init(entry.entry_id)
     assert flow["type"] == "menu"
     assert flow["step_id"] == "init"
-    assert len(flow["menu_options"]) == 7
+    assert len(flow["menu_options"]) == 9
+    assert "tariffs" in flow["menu_options"]
+    assert "legacy_tariffs" in flow["menu_options"]
     assert "panel_link" in flow["description_placeholders"]
     # The headless fixture has no panel, so the fallback link is not broken.
     assert "/trybatec" not in flow["description_placeholders"]["panel_link"]
