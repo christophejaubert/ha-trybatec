@@ -411,10 +411,10 @@ async function runCase(browser, locale, device, dark=false) {
       animations:"disabled",
     });
   }
-  // Narrow-width check: ensure the relevant screens reflow at 320 CSS px.
-  // This is synthetic Chromium coverage, not a real HA theme/zoom audit.
+  // FR/EN: cover all seven screens at 320 CSS px, not just first three.
+  // Synthetic Chromium only: no claim of live HA/mobile WCAG acceptance.
   await page.setViewportSize({width:320,height:760});
-  for (const narrowTab of ["overview","meters","history"]) {
+  for (const narrowTab of tabs) {
     await page.locator('trybatec-panel nav button[data-tab="'+narrowTab+'"]').click();
     const layout=await page.evaluate(()=>{
       const root=document.documentElement,host=document.querySelector("trybatec-panel");
