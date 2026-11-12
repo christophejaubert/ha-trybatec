@@ -2,7 +2,7 @@
 
 ## FR — Périmètre et arbitrages D1/D2/D3
 
-Ce contrôle analyse les nouveaux commits, les messages, les noms de fichiers modifiés et les lignes ajoutées d'une PR publique. Les valeurs détectées, extraits de diff, courriels, chemins et messages Git ne sont **jamais reproduits** dans les journaux du contrôle : seules les catégories et les quantités sont affichées.
+Ce contrôle analyse tous les nouveaux commits, leurs messages, les noms de fichiers et lignes ajoutées à chaque étape d'une PR publique. Les données introduites puis supprimées avant le dernier commit restent contrôlées. Les valeurs détectées, extraits de diff, courriels, chemins et messages Git ne sont **jamais reproduits** dans les journaux du contrôle : seules les catégories et les quantités sont affichées.
 
 **D1 (définitif) : identité Git inchangée.** Les adresses habituelles d'auteur et de commiteur sont **autorisées** ; elles peuvent produire un avertissement informatif, jamais un refus à elles seules. Aucune migration vers une adresse noreply ni changement de réglage Git n'est requis.
 
@@ -30,7 +30,7 @@ Ouvrir Repository → Settings → Rules → Rulesets → Protect main - CI/CD (
 
 ## EN — Purpose, authority and activation gate
 
-The trusted default-branch workflow inspects newly introduced Git metadata, commit messages, changed filenames and added lines of public PRs, never printing matched values or Git errors. It fetches PR commit objects strictly as data, verifies the expected head SHA, and executes only the trusted scanner checked out from main. No PR-supplied workflow, script or dependency is executed; token permission is contents: read only.
+The trusted default-branch workflow inspects all newly reachable commits, including files and lines added and removed in intermediate commits, as well as Git metadata and commit messages. It never prints matched values or Git errors. It fetches PR commit objects strictly as data, verifies the expected head SHA, and executes only the trusted scanner checked out from main. No PR-supplied workflow, script or dependency is executed; token permission is contents: read only.
 
 **D1:** existing personal Git author/committer addresses remain accepted; warnings are strictly advisory and never block merely because an ordinary address is used. No noreply requirement. **D3:** never rewrite, delete or clean historic Git objects. **D2:** make the status check mandatory only after the separately authorized merge, positive/negative tests on the main-sourced workflow, and review of ongoing PR impact. Existing rules remain unchanged.
 
