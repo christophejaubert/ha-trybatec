@@ -195,7 +195,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Consulter l’unité","View unit"],
   ["Vérifier l’unité","Verify unit"],
   ["Conflit d’unité","Unit conflict"],
-  ["Aucun relevé retrouvé dans les données consultées","No readings found in consulted data"],
+  ["Date non établie dans les données consultées","Date not established from consulted data"],
   ["Compteur déposé : vérifier séparément les éventuels index historiques.","Retired meter: review historical indices separately."],
   ["Analyse historique effectuée : aucune date retrouvée dans le périmètre consulté.","History scan completed: no date found in the reviewed scope."],
   ["Origine : unité enregistrée manuellement","Source: unit saved manually"],
@@ -1642,7 +1642,7 @@ class TrybatecPanel extends HTMLElement {
     const coverage=this._tariffCoverage.get(account.entry_id);
     const checkedHistory=coverage?.status==="complete";
     const unavailableObservation=checkedHistory?
-      "Aucun relevé retrouvé dans les données consultées":"Non vérifié";
+      "Date non établie dans les données consultées":"Non vérifié";
     const unitOrigin=option?.selection_origin==="manual"?"Origine : unité enregistrée manuellement":
       option?.selection_origin==="api"?"Origine : unité explicitement fournie par l’API":
       option?.selection_origin==="chart_proposal"?"Origine : proposition du graphique, à confirmer":
