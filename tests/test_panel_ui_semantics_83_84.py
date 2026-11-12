@@ -146,6 +146,7 @@ assert.match(allSummary,/SYNTH-OTHER/);
 assert.equal(localize("Sans index courant","en-US"),"No current index");
 assert.equal(localize("Consulter l’unité","en-US"),"View unit");
 assert.equal(localize("Rechercher les relevés","en-US"),"Search readings");
+assert.equal(localize("Date non établie dans les données consultées","en-US"),"Date not established from consulted data");
 assert.equal(localize("Non vérifié","en-US"),"Not verified");
 console.log("UI state and contextual navigation: PASS");
 '''
