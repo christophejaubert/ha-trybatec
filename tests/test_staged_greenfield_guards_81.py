@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from custom_components.trybatec.meter_identity import (
+    legacy_meter_unique_ids,
     preview_stable_identity_transition,
     stable_meter_unique_id,
 )
@@ -83,3 +84,29 @@ def test_canonical_identity_is_physical_and_version_independent(fluid):
     )
     assert uid.startswith("meter_") and uid.endswith("_index")
     assert "fake-account" not in uid
+
+
+def test_old_version_downgrade_would_change_new_meter_identity():
+    """Prove the compatibility risk; this does not change HA or simulate a restore."""
+    account, lot, fluid, serial = (
+        "synthetic-account", "FAKE-LOT", "EF", "MOCK-DOWNGRADE-01",
+    )
+    stable = stable_meter_unique_id(account, lot, fluid, serial)
+    previous_ids = legacy_meter_unique_ids(
+        account, lot, fluid, serial, allow_unscoped_serial=True,
+    )
+    assert previous_ids
+    assert stable not in previous_ids
+    assert f"{account}_{serial}_b6_m³_index" in previous_ids
+    # Returning to a version that knows only b6 IDs is NOT a safe inverse.
+    assert all(not uid.startswith("meter_") for uid in previous_ids)
+
+
+def test_reinstallation_same_physical_identity_is_deterministic_but_not_proof():
+    """Same account+physical meter gives same ID, not permission to reclaim it."""
+    account, fluid, serial = "synthetic-account", "CET", "MOCK-REINSTALL-01"
+    first = stable_meter_unique_id(account, "LOT-A", fluid, serial)
+    assert stable_meter_unique_id(account, "LOT-A", fluid, serial) == first
+    assert stable_meter_unique_id(account, "LOT-B", fluid, serial) != first
+    assert stable_meter_unique_id("different-account", "LOT-A", fluid, serial) != first
+    # Registry ownership and Recorder history still require separate checks.
