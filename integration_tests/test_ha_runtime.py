@@ -597,3 +597,68 @@ async def test_existing_account_keeps_legacy_meter_identity(hass, monkeypatch):
 
     # Legacy unit transitions retain the pre-existing b6 behavior until an
     # explicitly reviewed migration; no unexpected HA registry rewrite.
+
+
+async def test_legacy_account_reload_preserves_physical_registry_without_migration(
+    hass, monkeypatch,
+):
+    """R3: deploying/reloading a candidate cannot migrate an old HA account."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec import migration_executor_81 as executor
+
+    async def forbidden_migration(**_kwargs):
+        pytest.fail("One-time migration must never be called from ordinary reload")
+
+    monkeypatch.setattr(executor, "async_execute_one_time_migration", forbidden_migration)
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    previous = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(previous) == 1
+    old = previous[0]
+    before = (old.entity_id, old.unique_id, old.device_id)
+    before_data = dict(entry.data)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = registry.async_get(before[0])
+    assert after is not None
+    assert (after.entity_id, after.unique_id, after.device_id) == before
+    assert "_b6_m³_index" in after.unique_id
+    assert dict(entry.data) == before_data
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+
+async def test_legacy_account_reload_on_vendor_outage_never_claims_stable_identity(
+    hass, monkeypatch,
+):
+    """R3: a failed source refresh must not reassign historical identities."""
+    from homeassistant.helpers import entity_registry as er
+    from custom_components.trybatec.api import TrybatecDataError
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3")
+    registry = er.async_get(hass)
+    previous = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.endswith("_index")
+    ]
+    assert len(previous) == 1
+    original = previous[0]
+    identity = (original.entity_id, original.unique_id, original.device_id)
+
+    async def broken_indexes(_self, _deal_id, _start, _end):
+        raise TrybatecDataError("Synthetic supplier outage")
+
+    monkeypatch.setattr(TrybatecClient, "indexes", broken_indexes)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    current = registry.async_get(identity[0])
+    assert current is not None
+    assert (current.entity_id, current.unique_id, current.device_id) == identity
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
