@@ -1312,8 +1312,10 @@ class TrybatecPanel extends HTMLElement {
       '<div class="actions"><button type="button" class="secondary" data-tab="'+
       safe(tab)+'">'+safe(action)+'</button></div></div></div>';
     const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
+    const retiredCoverage=this._tariffCoverage?.get(a.entry_id);
+    // Snapshot dates alone do not prove complete supplier-history verification.
     const retiredStatus=retired.length===0?"na":
-      missingDates.length===0?"passed":"unverified";
+      retiredCoverage?.status==="complete" && missingDates.length===0?"passed":"unverified";
     const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
       "No active meters in this inventory."):
       conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
@@ -1324,8 +1326,13 @@ class TrybatecPanel extends HTMLElement {
       "One or more current readings or units require verification.");
     const retiredText=retired.length===0?t("Aucun compteur déposé connu.",
       "No known retired meter."):missingDates.length===0?
-      t("Dates connues dans l’aperçu ; la couverture historique exhaustive reste distincte.",
-      "Dates are available in this snapshot; full historical coverage is a separate check."):
+      (retiredStatus==="passed"?t(
+        "Bornes vérifiées par une analyse historique complète ; la continuité des relevés demeure un contrôle distinct.",
+        "Boundaries verified by a complete historical scan; reading continuity is a separate check."
+      ):t(
+        "Bornes connues dans l’aperçu, mais recherche historique complète non vérifiée.",
+        "Dates exist in the snapshot, but a complete historical scan has not been verified."
+      )):
       String(missingDates.length)+t(" compteur(s) déposé(s) sans bornes complètes dans cet aperçu. Cela ne prouve pas la perte de relevés.",
         " retired meter(s) lack complete boundaries in this snapshot. This does not prove loss of readings.");
     return '<section class="card" style="margin-bottom:20px" aria-label="'+
@@ -2097,7 +2104,34 @@ class TrybatecPanel extends HTMLElement {
       '<h3>Synthèse historique par fluide</h3>'+
       '<div class="empty">Aucune prévisualisation actuelle. Utilisez « Analyser les relevés » pour calculer les indicateurs à partir des observations source.</div></section>';
     const rows=(summary.by_meter||[]);
-    return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur</h3>'+
+    const selected=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    if (selected) {
+      const rowsForMeter=rows.filter(row=>row.physical_key===selected.physical_key &&
+        row.fluid===selected.fluid && row.lot===selected.lot &&
+        row.serial===selected.serial);
+      return '<section class="card" style="margin-top:16px"><h3>'+
+        safe(this._t("Synthèse du compteur sélectionné","Selected meter summary"))+
+        '</h3><p class="muted">'+safe(
+          this._t("Période analysée (compte) : ","Analyzed period (account): "))+
+          this._date(this._historyPreview.start_date)+" → "+
+          this._date(this._historyPreview.end_date))+'</p>'+
+        (rowsForMeter.length?'<div class="detail-grid">'+
+          rowsForMeter.map(row=>[
+            [this._t("Compteur","Meter"),row.serial],
+            [this._t("Première observation","First observation"),this._date(row.first_observed_at)],
+            [this._t("Dernière observation","Last observation"),this._date(row.last_observed_at)],
+            [this._t("Lacunes","Gaps"),this._number(row.gaps)],
+            [this._t("Baisses","Decreases"),this._number(row.decreases)],
+            [this._t("Conflits","Conflicts"),this._number(row.conflicts)],
+          ].map(([label,value])=>
+            '<div><span class="smallhead">'+safe(label)+'</span><strong>'+
+            safe(value)+'</strong></div>').join("")).join("")+
+          '</div>':'<div class="empty">'+safe(this._t(
+          "Aucun résultat pour ce compteur dans la période analysée.",
+          "No results for this meter in the analyzed period."))+'</div>')+
+        '</section>';
+    }
+    return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur">'+
       '<p class="muted">Période : '+safe(this._date(this._historyPreview.start_date))+
       ' → '+safe(this._date(this._historyPreview.end_date))+
       '. '+safe(this._number(summary.meters))+' compteur(s) physique(s) et '+
