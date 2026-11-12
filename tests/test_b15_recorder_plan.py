@@ -62,6 +62,16 @@ def test_b15_separates_meter_variants_and_dwelling_consumption():
     assert raw_new["logical_id"] != collective["logical_id"]
     again = make_b15_plan(history, units, selected, "FAKE-ACCOUNT")
     assert again["fingerprint"] == plan["fingerprint"]
+    evidence = plan["coverage_evidence"]
+    assert evidence["recorder_writes"] is False
+    assert evidence["groups"][0]["total"] == pytest.approx(306.0)
+    assert evidence["groups"][0]["estimated_total"] == pytest.approx(304.0)
+    assert evidence["groups"][0]["measured_total"] == pytest.approx(2.0)
+    assert evidence["groups"][0]["coverage"] == "qualified_bounds_with_gaps"
+    assert any(day["provenance"] == "estimated" for day in evidence["groups"][0]["rows"])
+    assert any(day["provenance"] == "measured" for day in evidence["groups"][0]["rows"])
+    assert collective["coverage_fingerprint"] == evidence["groups"][0]["fingerprint"]
+    assert collective["coverage_status"] == evidence["groups"][0]["coverage"]
 
 
 def test_b15_unverified_units_block_entire_group():
