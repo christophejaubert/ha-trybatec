@@ -1287,6 +1287,9 @@ class TrybatecPanel extends HTMLElement {
       if (["year","rate","fluid","physical_key","status"].includes(field)) {
         this._costPreview=null;this._costYear=null;
       }
+      // A typed year must refresh saved values and hints without replacing
+      // the focused native number element (keyboard and mobile safety).
+      if (field==="year") this._syncTariffSelection();
       this._finishFieldChange(event);
     }
   }
@@ -1297,6 +1300,31 @@ class TrybatecPanel extends HTMLElement {
     return f.physical_key ?
       ((a.meter_tariffs||{})[year]||{})[f.physical_key]||null :
       ((a.tariffs||{})[year]||{})[f.fluid]||null;
+  }
+  _tariffEffectiveText() {
+    const a=this._current, f=this._tariffInput;
+    if (!a) return "";
+    const effective=trybatecSavedEffectiveTariff(a,f.year,f.fluid,f.physical_key);
+    const unit=f.fluid==="CET"?"EUR/kWh":"EUR/m³";
+    return effective ?
+      this._t("Tarif effectif enregistré","Saved effective rate")+": "+
+        this._number(effective.rate)+" "+unit+" · "+
+        this._t(effective.origin==="meter_override"?"Spécifique au compteur":"Commun au fluide",
+          effective.origin==="meter_override"?"Meter-specific":"Default fluid rate")+" · "+
+        this._t(effective.status==="approved"?"Approuvé":"Provisoire",
+          effective.status==="approved"?"Approved":"Provisional"):
+      this._t("Aucun tarif enregistré pour cet exercice.","No rate saved for this year.");
+  }
+  _syncTariffSelection() {
+    const root=this.shadowRoot;
+    const rate=root.querySelector("#tariff-rate");
+    if (rate) rate.value=this._tariffInput.rate;
+    const status=root.querySelector("#tariff-status");
+    if (status) status.value=this._tariffInput.status;
+    const deletion=root.querySelector("[data-tariff-delete]");
+    if (deletion) deletion.disabled=!this._existingTariff()||this._tariffBusy;
+    const effective=root.querySelector("[data-tariff-effective]");
+    if (effective) effective.textContent=this._tariffEffectiveText();
   }
   _submit(event) {
     if (event.target.dataset.tariffForm !== undefined) {
@@ -2554,16 +2582,8 @@ class TrybatecPanel extends HTMLElement {
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
       current.map(m=>'<option value="'+safe(m.physical_key)+'" '+(f.physical_key===m.physical_key?"selected":"")+'>'+
       safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?this._t(" (déposé)"," (retired)"):""))+'</option>').join("");
-    const effective=trybatecSavedEffectiveTariff(a,f.year,f.fluid,f.physical_key);
     const unit=f.fluid==="CET"?"EUR/kWh":"EUR/m³";
-    const effectiveText=effective ?
-      this._t("Tarif effectif enregistré","Saved effective rate")+": "+
-        this._number(effective.rate)+" "+unit+" · "+
-        this._t(effective.origin==="meter_override"?"Spécifique au compteur":"Commun au fluide",
-          effective.origin==="meter_override"?"Meter-specific":"Default fluid rate")+" · "+
-        this._t(effective.status==="approved"?"Approuvé":"Provisoire",
-          effective.status==="approved"?"Approved":"Provisional"):
-      this._t("Aucun tarif enregistré pour cet exercice.","No rate saved for this year.");
+    const effectiveText=this._tariffEffectiveText();
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
@@ -2586,7 +2606,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="tariff-status">État</label><select id="tariff-status" data-tariff-field="status">'+
       '<option value="provisional" '+(f.status==="provisional"?"selected":"")+'>Provisoire</option>'+
       '<option value="approved" '+(f.status==="approved"?"selected":"")+'>Approuvé</option></select></div>'+
-      '</div><p class="muted" role="status">'+safe(effectiveText)+'</p>'+
+      '</div><p class="muted" role="status" data-tariff-effective>'+safe(effectiveText)+'</p>'+
       '<div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
       '<button class="secondary" type="button" data-tariff-reset '+(this._tariffBusy?"disabled":"")+'>Annuler la saisie</button>'+
       '<button class="secondary" type="button" data-tariff-delete '+(!this._existingTariff()||this._tariffBusy?"disabled":"")+
