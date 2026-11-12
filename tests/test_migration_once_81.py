@@ -182,3 +182,34 @@ def test_fingerprint_accepts_real_coordinator_datetime_and_rejects_state_drift()
     meter["last"] = (datetime(2026, 11, 12, tzinfo=timezone.utc), 16.0)
     changed = _plan(meters=[meter])
     assert first["fingerprint"] != changed["fingerprint"]
+
+
+def test_retired_meter_retains_entity_and_never_activates_statistics():
+    meter = _meter()
+    meter.update({
+        "deposed": True,
+        "service_status_known": True,
+        "last": (datetime(2026, 1, 15, tzinfo=timezone.utc), 12.5),
+    })
+    inactive = _state(
+        reading="unknown", deposed=True,
+        historical_reading_only=True, state_class=None,
+    )
+    plan = _plan(meters=[meter], states={"sensor.fake_index": inactive})
+    assert plan["ready"] is True
+    row = plan["mappings"][0]
+    assert row["preserved_entity_id"] == "sensor.fake_index"
+    assert row["other_legacy_entity_ids_preserved"] == []
+    assert row["legacy_cleanup_permitted"] is False
+
+
+def test_retired_meter_without_proven_flag_or_observation_fails_closed():
+    meter = _meter()
+    meter["deposed"] = True
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _state(
+        reading="unknown", deposed=True,
+        historical_reading_only=True, state_class=None,
+    )})
+    assert plan["ready"] is False
+    assert "retired_status_unverified" in plan["mappings"][0]["blockers"]
+    assert "retired_missing_verified_source_reading" in plan["mappings"][0]["blockers"]
