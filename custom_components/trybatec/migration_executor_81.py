@@ -163,6 +163,10 @@ async def async_execute_one_time_migration(
             raise ValueError("Duplicated source entity in migration plan")
         if len({item["new_unique_id"] for item in items}) != len(items):
             raise ValueError("Duplicated target identity in migration plan")
+        if len({item["device_id"] for item in items}) != len(items):
+            # Physical replacements must never be silently merged into a
+            # single device when their legacy registration was ambiguous.
+            raise ValueError("Distinct physical meters share a registered device")
         record = {
             "status": "prepared", "entry_id": entry_id,
             "fingerprint": expected_fingerprint, "backup_id": backup_id,
