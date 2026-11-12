@@ -54,10 +54,13 @@ class Devices:
     def async_get(self, device_id):
         return self.device if device_id == DID else None
 
-    def async_get_device(self, *, identifiers):
-        return self.other if self.other is not None else (
-            self.device if self.device.identifiers.intersection(identifiers) else None
-        )
+    def async_get_device_by_identifier(self, identifier, entry_id):
+        if self.other is not None:
+            return self.other
+        return self.device if (
+            self.device.config_entry_id == entry_id
+            and identifier in self.device.identifiers
+        ) else None
 
     def async_update_device(self, device_id, *, new_identifiers):
         if self.fail:
