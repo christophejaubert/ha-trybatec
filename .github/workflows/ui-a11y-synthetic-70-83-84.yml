@@ -1,0 +1,42 @@
+name: "UI accessibility evidence / Preuves accessibilité"
+
+on:
+  pull_request:
+    paths:
+      - "scripts/browser-ci/a11y_independent_70_83_84.cjs"
+      - ".github/workflows/ui-a11y-synthetic-70-83-84.yml"
+      - "custom_components/trybatec/panel/**"
+  workflow_dispatch:
+
+# FR/EN: zero repository write permission; synthetic-only, no HA credentials.
+permissions: {}
+
+concurrency:
+  group: trybatec-ui-a11y-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  chromium-a11y-probe:
+    name: "Seven-view synthetic accessibility evidence (not real HA)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble@sha256:f1e7e01021efd65dd1a2c56064be399f3e4de00fd021ac561325f2bfbb2b837a
+      options: --user 1001
+    steps:
+      - name: "Checkout exact SHA without credentials"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: "Install version-locked Playwright, no lifecycle scripts"
+        run: npm ci --prefix scripts/browser-ci --ignore-scripts --no-audit --fund=false
+      - name: "Inspect 56 synthetic screen configurations, never live HA"
+        run: node scripts/browser-ci/a11y_independent_70_83_84.cjs
+      - name: "Retain only synthetic JSON findings"
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trybatec-ui-a11y-synthetic
+          path: ui-a11y-synthetic-report.json
+          if-no-files-found: warn
+          retention-days: 7
