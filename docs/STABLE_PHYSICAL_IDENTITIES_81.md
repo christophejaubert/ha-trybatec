@@ -9,7 +9,7 @@
 - `meter_identity.py` calcule un `unique_id` opaque stable à partir du compte, du lot/logement, du fluide et du numéro de série physique, sans inclure ni unité de mesure ni version logicielle.
 - **Nouveaux comptes uniquement** : le flux d'installation crée `stable_meter_identities: true`. Le capteur utilise cet identifiant stable. Un registre de contrôle local conserve la première unité de source vérifiée avant toute publication d'index cumulatif ; l'état « unité inconnue » est également mémorisé.
 - Si l'unité source change après validation (par exemple de L vers m³), le capteur **conserve le même identifiant**, mais son index et ses statistiques deviennent indisponibles jusqu'à revue. Il ne reconvertit ni n'écrase silencieusement les statistiques historiques.
-- **Comptes existants** : en l'absence de l'option, ils restent dans le mode b6. Si une génération b6 enregistrée est identifiable sans ambiguïté, son identifiant et son unité initiale sont conservés au rechargement, même après changement d'unité. Si plusieurs générations ne peuvent être départagées, aucun nouveau capteur n'est créé automatiquement.
+- **Comptes existants** : en l'absence de l'option, ils conservent **strictement le comportement b6 préexistant**, y compris les éventuelles générations liées aux corrections d'unité. Le module pur sait proposer la résolution des anciennes générations, mais cette résolution n'est **pas appliquée aux capteurs actifs** tant que la migration explicite n'est pas disponible.
 - Les appareils physiques déposés et les séries Recorder versionnées restent distincts ; aucune consolidation ni suppression n'est tentée dans ce correctif.
 - Le panneau administrateur expose uniquement une **prévisualisation en lecture seule** du passage aux identifiants canoniques. Les références Recorder/automatisations/tableaux de bord ne sont **pas** considérées comme exhaustivement vérifiées. L'absence de référence dans Énergie ne prouve pas qu'une entité est inutilisée.
 
@@ -32,7 +32,7 @@
 - `meter_identity.py` derives an opaque, deterministic `unique_id` from account scope, dwelling/lot, fluid and physical serial; never from source units or release numbers.
 - **New accounts only:** the config flow enables `stable_meter_identities: true`. An internal, durable local scale guard stores the first verified source unit before permitting cumulative statistics, including a stored initial "unverified" marker.
 - After a correction (for example L to m³), the sensor **keeps its identity**, but its value and long-term statistic eligibility are withheld until separately reviewed. Existing cumulative statistics are never silently reinterpreted.
-- **Existing accounts:** absent the flag, the b6 identity remains. A uniquely proven registered b6 generation keeps its original ID and source scale across restarts; ambiguous old generations never cause an automatic replacement sensor.
+- **Existing accounts:** without the flag, the **original b6 runtime behavior is unchanged**, including possible unit-specific generations. The pure helper can inspect known b6 generations, but its resolution is **not applied to active sensors** until an explicit migration flow is implemented.
 - Retired physical devices and versioned Recorder statistics stay separate. This change performs no historical merging or cleanup.
 - The administrator snapshot shows a **read-only** preview of future canonical IDs. Recorder, automation and dashboard references are explicitly **not** comprehensively audited; a missing Energy reference is not proof of an unused entity.
 
