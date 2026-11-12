@@ -3,6 +3,7 @@
 import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 from custom_components.trybatec import api
 from custom_components.trybatec.api import (
@@ -12,7 +13,7 @@ from custom_components.trybatec.api import (
     TrybatecDataError,
 )
 
-DEAL = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+DEAL = str(UUID(int=0xAABBCCDD000044448888123456789ABC))
 USER = "synthetic-only@example.invalid"
 PASSWORD = "SYNTHETIC_NOT_A_SECRET"
 
@@ -83,7 +84,7 @@ class DiscoveryQualification(unittest.IsolatedAsyncioTestCase):
             [{}], [{"dealUid": None}], [{"dealUid": 4}],
             [{"dealUid": "not-a-uuid"}],
             [{"dealUid": "a" * 36}],
-            [{"dealUid": "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"}],
+            [{"dealUid": DEAL.upper()}],
         ]
         for item in payloads[:-1]:
             with self.subTest(item=item):
