@@ -47,27 +47,9 @@ jobs:
         run: |
           python -m pip install -r .github/ci/requirements-audit.txt
           python -m pip check
-      # FR/EN: temporary resolved dependency graph; remove after vetted hash lock.
-      - name: Report resolved security audit inventory (temporary)
-        run: |
-          python - <<'PY'
-          from importlib import metadata
-          import re
-          inventory = {}
-          for item in metadata.distributions():
-              name = item.metadata.get("Name")
-              if not name:
-                  raise ValueError("Unnamed distribution")
-              name = re.sub(r"[-_.]+", "-", name).lower()
-              if name not in {"pip", "setuptools", "wheel"}:
-                  if name in inventory:
-                      raise ValueError("Duplicate distribution: " + name)
-                  inventory[name] = item.version
-          print("CI_AUDIT_SNAPSHOT_BEGIN")
-          for name, version in sorted(inventory.items()):
-              print(f"{name}=={version}")
-          print("CI_AUDIT_SNAPSHOT_END")
-          PY
+      # FR/EN: temporary authenticating audit tool archives against official PyPI.
+      - name: Authenticate audit tool distributions (temporary)
+        run: python -I scripts/ci_hash_lock_generate.py audit314
       - name: Audit pinned CI dependencies against public vulnerability advisories
         run: |
           python -I scripts/ci_supply_chain_audit.py dependencies
