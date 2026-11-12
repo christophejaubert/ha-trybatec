@@ -41,7 +41,6 @@ from .const import (
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
-from .panel_tariffs import change_tariff
 from .tariff_validation import tariff_fingerprint, validate_meter_tariffs
 from .history_devices_b15 import load_historical_inventory
 from .units import meter_key, portal_display_unit, resolve_meter_unit, validate_meter_units, _ALLOWED
@@ -726,6 +725,10 @@ class TrybatecOptionsFlow(OptionsFlow):
                     errors["base"] = "tariff_unavailable"
                 else:
                     try:
+                        # Avoid loading websocket_api in lightweight options
+                        # unit tests; runtime HA imports the guarded backend.
+                        from .panel_tariffs import change_tariff
+
                         await change_tariff(
                             self.hass, coordinator,
                             year=pending["year"], fluid=pending["fluid"],
