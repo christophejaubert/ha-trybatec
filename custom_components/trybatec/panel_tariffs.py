@@ -94,7 +94,12 @@ async def change_tariff(
                 raise ValueError("Cannot delete a tariff that does not exist")
             exercise.pop(key)
         else:
-            exercise[key] = {"rate": amount, "status": status}
+            # Preserve ancillary fields of a pre-existing legacy common record.
+            # Only the explicitly edited rate/status may change; bare numbers
+            # become structured records only when the user edits that rate.
+            previous_record = exercise.get(key) if physical_key is None else None
+            retained = previous_record if isinstance(previous_record, dict) else {}
+            exercise[key] = {**retained, "rate": amount, "status": status}
         if exercise:
             selected[str(year)] = exercise
         else:
