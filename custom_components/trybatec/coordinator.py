@@ -25,6 +25,7 @@ from .api import (
 from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, CONF_METER_UNITS, CONF_DEVICE_UUIDS, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
 from .units import resolve_meter_unit, validate_meter_units
 from .parsing import known_lots, parse_lines, summarize_annual
+from .stable_identity_runtime import StableUnitGuard, STABLE_IDENTITY_FLAG
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.entry = entry
+        self.stable_unit_guard = (
+            StableUnitGuard(hass, entry)
+            if entry.data.get(STABLE_IDENTITY_FLAG) is True else None
+        )
         self._normal_update_interval = timedelta(
             minutes=int(entry.options.get(CONF_POLL_MINUTES, DEFAULT_POLL_MINUTES))
         )
@@ -140,6 +145,8 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         today = date.fromisoformat(self.data["date"])
         updated = self._build_state(self._last_index_payload, today)
+        if self.stable_unit_guard is not None:
+            await self.stable_unit_guard.async_prepare(updated)
         self._applied_options = dict(self.entry.options)
         self.async_set_updated_data(updated)
         _LOGGER.info("Trybatec meter units updated locally without a portal request")
@@ -163,6 +170,8 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             phase = "parse_and_units"
             data = self._build_state(payload, today)
+            if self.stable_unit_guard is not None:
+                await self.stable_unit_guard.async_prepare(data)
             self._last_index_payload = payload
             self._applied_options = dict(self.entry.options)
             self._clear_access_issue()
