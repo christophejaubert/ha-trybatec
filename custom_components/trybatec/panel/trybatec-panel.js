@@ -1764,7 +1764,8 @@ class TrybatecPanel extends HTMLElement {
     const missing=meters.filter(m=>m.status==="depose" &&
       (!m.first_observed_at || !m.last_source_observed_at));
     const coverage=this._tariffCoverage.get(this._current.entry_id);
-    const historyHelp='<div class="notice'+(missing.length?' warning':'')+'" role="status">'+
+    // Missing dates are unverified, not a proven anomaly or warning.
+    const historyHelp='<div class="notice" role="status">'+
       (coverage?.status==="loading"?"Lecture en cours des relevés historiques du fournisseur…":
        coverage?.status==="error"?"Vérification historique incomplète : aucun relevé inventé.":
        coverage?.status==="complete"?(missing.length?String(missing.length)+
