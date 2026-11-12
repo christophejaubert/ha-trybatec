@@ -189,6 +189,22 @@ Le nom affiché du workflow CI est désormais « 🤖 Compatibility and tests »
 
 The display name of the CI workflow is now « 🤖 Compatibility and tests »; all ten required GitHub status names remain unchanged. The publisher recognizes the previous and updated workflow display names without weakening exact-SHA checks or triggering a release.
 
+## FR — Contraintes transitives de la CI (12 novembre 2026)
+
+Les quatre fichiers de contraintes enregistrent les versions réellement installées et vérifiées dans le run GitHub Actions 43186060507 (Linux x86_64) : tests purs sous Python 3.13/3.14, Ruff, Home Assistant 2026.10.4 pour le runtime isolé et Home Assistant 2026.11.0 pour la persistance physique. Chaque job reproductible utilise maintenant ses contraintes et le script hors réseau `.github/ci/lock_check.py`, qui exige exactement les distributions et les versions approuvées (hors les outils de démarrage pip, setuptools et wheel). `pip check` reste obligatoire.
+
+**Limites :** les versions sont figées, mais les fichiers ne contiennent pas de sommes SHA256 des roues/sources ; ce verrouillage n'est pas une vérification cryptographique des distributions. Les versions retenues n'ont été démontrées que sur les plateformes et interpréteurs de la CI. Le job `latest-homeassistant-import` reste intentionnellement non verrouillé pour tester la compatibilité future.
+
+**Actualisation :** une mise à jour Dependabot ne doit pas conduire à supprimer les vérifications. Régénérer le fichier correspondant à partir d'une exécution d'installation isolée, comparer toutes les versions, faire relire le changement et vérifier la matrice CI complète. Les contraintes ajoutées ne constituent pas une garantie de sécurité ou de recette métier.
+
+## EN — Transitive CI constraints (12 November 2026)
+
+Four version snapshots record the exact packages installed by successful GitHub Actions run 43186060507 on Linux x86_64: Python 3.13/3.14 pure tests, Ruff, Home Assistant 2026.10.4 isolated runtime and Home Assistant 2026.11.0 persistent storage. Reproducible jobs now install under full constraints and use the offline `.github/ci/lock_check.py` to reject missing, unexpected or drifted distributions, excluding only bootstrap pip/setuptools/wheel. `pip check` remains mandatory.
+
+**Limits:** versions are pinned, but package artifacts are **not** SHA256 hash-pinned; this is not a cryptographic lock. The snapshots cover the reviewed CI platforms and interpreters only. `latest-homeassistant-import` intentionally remains floating as a forward compatibility signal.
+
+**Updates:** review Dependabot proposals against these snapshots. Regenerate with a clean runner and a reviewed package inventory before rerunning every mandatory CI job. Do not weaken the verifier to obtain a successful status. Pinning is not production acceptance.
+
 ## FR — Recette synthétique de sauvegarde et restauration (12 novembre 2026)
 
 La matrice bloquante de persistance exécute maintenant un **troisième processus Home Assistant Core** après la séquence écriture/redémarrage déjà existante. Le script de CI `scripts/ci_backup_restore.py` réalise une copie ciblée et contrôlée du fichier physique de décisions synthétiques dans `RUNNER_TEMP`, écrit une empreinte SHA256 et restaure vers une **autre configuration Home Assistant vierge**. Le troisième processus recharge ensuite les décisions, vérifie leur attribution et confirme qu'une correction de la source doit repasser en revue.

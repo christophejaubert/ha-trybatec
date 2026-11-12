@@ -1,6 +1,5 @@
 """b15 Recorder plans: Paris civil days, stable physical identities, no index merge."""
-from datetime import date, datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import date
 
 import pytest
 
@@ -10,7 +9,6 @@ from custom_components.trybatec.history_reconstruction import preview_sparse_int
 
 
 def test_dst_day_buckets_are_unique_and_ordered():
-    paris = ZoneInfo("Europe/Paris")
     output = statistic_rows({
         date(2022, 3, 26): 1,
         date(2022, 3, 27): 2,
