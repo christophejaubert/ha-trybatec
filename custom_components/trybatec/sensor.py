@@ -136,20 +136,13 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
     def __init__(
         self, coordinator: TrybatecCoordinator, account_key: str, serial: str,
         *, stable: bool = False,
-        legacy_unique_id: str | None = None,
-        legacy_source_unit: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._serial = serial
         meter = coordinator.data["meters"][serial]
         physical_serial = meter["serial"]
         self._stable_identity_mode = stable
-        # For an already-registered b6 identity, freeze the source scale
-        # encoded when that entity was created, even after a HA restart.
-        self._source_unit = (
-            legacy_source_unit if legacy_unique_id is not None
-            else meter.get("verified_unit")
-        )
+        self._source_unit = meter.get("verified_unit")
         suffix = ("_" + sha256(json.dumps([meter["lot"], meter["fluid"], physical_serial], separators=(",", ":")).encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
         fluid = meter["fluid"]
         # Legacy b6 identities remain untouched. Greenfield entries use a
@@ -157,7 +150,7 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
         tag = self._source_unit or "unverified"
         self._attr_unique_id = (
             stable_meter_unique_id(account_key, meter["lot"], fluid, physical_serial)
-            if stable else legacy_unique_id or f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
+            if stable else f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
         )
         self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (
             " (unit unverified)" if not stable and not self._source_unit else ""
