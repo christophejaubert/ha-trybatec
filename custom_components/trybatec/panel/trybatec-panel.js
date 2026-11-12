@@ -2543,45 +2543,56 @@ class TrybatecPanel extends HTMLElement {
       'elle peut solliciter plusieurs années de relevés fournisseur. '+
       '<button type="button" data-tariff-years-retry>'+
       'Rechercher les exercices historiques</button></p>';
-    if (!range.years.includes(Number(f.year))) {
-      f.year=range.years.includes(new Date().getFullYear())?
-        new Date().getFullYear():range.years[0];
-      f.rate="";f.status="provisional";f.physical_key="";
-    }
+    // Historical years are suggestions, never a restriction on new exercises.
     const yearOptions=range.years.map(year=>
-      '<option value="'+year+'" '+(Number(f.year)===year?"selected":"")+'>'+year+'</option>').join("");
+      '<option value="'+year+'"></option>').join("");
     const current=a.meters.filter(m=>m.fluid===f.fluid);
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
       current.map(m=>'<option value="'+safe(m.physical_key)+'" '+(f.physical_key===m.physical_key?"selected":"")+'>'+
-      safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?" (déposé)":""))+'</option>').join("");
+      safe(FLUID[m.fluid]+" · "+m.serial+" · "+m.lot+(m.status==="depose"?this._t(" (déposé)"," (retired)"):""))+'</option>').join("");
+    const effective=trybatecSavedEffectiveTariff(a,f.year,f.fluid,f.physical_key);
+    const unit=f.fluid==="CET"?"EUR/kWh":"EUR/m³";
+    const effectiveText=effective ?
+      this._t("Tarif effectif enregistré","Saved effective rate")+": "+
+        this._number(effective.rate)+" "+unit+" · "+
+        this._t(effective.origin==="meter_override"?"Spécifique au compteur":"Commun au fluide",
+          effective.origin==="meter_override"?"Meter-specific":"Default fluid rate")+" · "+
+        this._t(effective.status==="approved"?"Approuvé":"Provisoire",
+          effective.status==="approved"?"Approved":"Provisional"):
+      this._t("Aucun tarif enregistré pour cet exercice.","No rate saved for this year.");
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
       coverageNotice+
       (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
-      (this._message?'<div class="notice">'+safe(this._message)+'</div>':"")+
-      (this._error?'<div class="notice warning">'+safe(this._error)+'</div>':"")+
+      (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
+      (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
-      '<div><label for="tariff-year">Exercice annuel</label><select id="tariff-year" data-tariff-field="year">'+yearOptions+'</select></div>'+
+      '<div><label for="tariff-year">Exercice annuel</label>'+
+      '<input id="tariff-year" type="number" min="2000" max="2100" step="1" required data-tariff-field="year" list="tariff-year-options" value="'+safe(f.year)+'">'+
+      '<datalist id="tariff-year-options">'+yearOptions+'</datalist>'+
+      '<div class="muted">Exercices suggérés ci-dessous ; toute année entre 2000 et 2100 peut être saisie.</div></div>'+
       '<div><label for="tariff-fluid">Fluide</label><select id="tariff-fluid" data-tariff-field="fluid">'+
       Object.entries(FLUID).filter(([key])=>key!=="unknown").map(([key,label])=>
         '<option value="'+key+'" '+(f.fluid===key?"selected":"")+'>'+safe(label)+'</option>').join("")+'</select></div>'+
       '<div><label for="tariff-scope">Portée</label><select id="tariff-scope" data-tariff-field="physical_key">'+meterOptions+'</select></div>'+
-      '<div><label for="tariff-rate">Tarif ('+safe(f.fluid==="CET"?"EUR/kWh":"EUR/m³")+')</label>'+
-      '<input id="tariff-rate" type="number" min="0" max="1000000" step="any" value="'+safe(f.rate)+
-      '" data-tariff-field="rate" placeholder="0,000000" required></div>'+
+      '<div><label for="tariff-rate">'+safe(this._t("Tarif","Rate"))+' ('+safe(unit)+')</label>'+
+      '<input id="tariff-rate" type="number" min="0" max="1000000" step="0.000001" value="'+safe(f.rate)+
+      '" data-tariff-field="rate" placeholder="0.000000" required></div>'+
       '<div><label for="tariff-status">État</label><select id="tariff-status" data-tariff-field="status">'+
       '<option value="provisional" '+(f.status==="provisional"?"selected":"")+'>Provisoire</option>'+
       '<option value="approved" '+(f.status==="approved"?"selected":"")+'>Approuvé</option></select></div>'+
-      '</div><div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
+      '</div><p class="muted" role="status">'+safe(effectiveText)+'</p>'+
+      '<div class="actions"><button class="primary" type="submit" '+(this._tariffBusy?"disabled":"")+'>Enregistrer ce tarif</button>'+
+      '<button class="secondary" type="button" data-tariff-reset '+(this._tariffBusy?"disabled":"")+'>Annuler la saisie</button>'+
       '<button class="secondary" type="button" data-tariff-delete '+(!this._existingTariff()||this._tariffBusy?"disabled":"")+
       '>Retirer ce tarif</button></div></form>'+
       '<div class="notice">L’état « Approuvé » qualifie le tarif saisi, pas une facture validée. Modifier un tarif ne démarre aucun import Recorder et ne modifie pas Énergie.</div></div>'+
       '<div class="grid-two" style="margin-top:16px"><section class="card"><h3>Tarifs communs</h3>'+
-      (rows.length?'<table><thead><tr><th>Année</th><th>Fluide</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+rows.join("")+'</tbody></table>':
+      (rows.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Fluide</th><th>Tarif</th><th>État</th><th>Action</th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':
       '<div class="empty">Aucun tarif commun enregistré.</div>')+'</section>'+
       '<section class="card"><h3>Tarifs spécifiques aux compteurs</h3>'+
-      (overrides.length?'<table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table>':
+      (overrides.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Compteur</th><th>Tarif</th><th>État</th><th>Action</th></tr></thead><tbody>'+overrides.join("")+'</tbody></table></div>':
       '<div class="empty">Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.</div>')+
       '</section></div>'+this._annualCostsView();
   }
