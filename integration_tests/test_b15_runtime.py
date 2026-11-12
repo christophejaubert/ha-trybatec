@@ -184,6 +184,75 @@ async def test_b15_retry_of_already_persisted_batch_is_idempotent(hass, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_b15_partial_two_meter_batch_verifies_independently(hass, monkeypatch):
+    """One fully persisted series is verified while the partial one stays pending."""
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, meta, _rows: queued.append(meta["statistic_id"]),
+    )
+    first = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    rows = [
+        {"start": first, "state": 0.0, "sum": 0.0},
+        {"start": first.replace(day=2), "state": 3.0, "sum": 3.0},
+    ]
+    series = [{
+        "logical_id": "trybatec:logical_meter_ef_raw_partial_" + suffix,
+        "kind": "physical", "fluid": "EF", "unit": "m³",
+        "rows": rows, "source_fingerprint": ("a" if suffix == "a" else "b") * 64,
+    } for suffix in ("a", "b")]
+    plan = {"fingerprint": "f" * 64, "series": series}
+    await recorder.queue_b15_plan(
+        hass, "synthetic-two-meter", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+    assert len(queued) == 2
+    is_complete = {"b": False}
+
+    async def staged_recorder(call):
+        requested = call.data["statistic_ids"][0]
+        observations = [
+            {"start": row["start"].isoformat(), "sum": row["sum"]}
+            for row in rows
+        ]
+        if requested.endswith("_b_v1") and not is_complete["b"]:
+            observations = observations[:1]
+        return {"statistics": {requested: observations}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", staged_recorder,
+        supports_response=SupportsResponse.ONLY,
+    )
+    first_verify = await recorder.verify_b15_recorder(hass, "synthetic-two-meter")
+    assert first_verify["status"] == "pending_recorder_readback"
+    assert len(first_verify["verified"]) == len(first_verify["pending"]) == 1
+    decisions = {
+        item["statistic_id"]: item["outcome"]
+        for item in first_verify["read_only_recovery"]["decisions"]
+    }
+    assert decisions[queued[0]] == "persisted_verified_no_requeue"
+    assert decisions[queued[1]] == "partial_or_mismatched_no_retry"
+    with pytest.raises(ValueError, match="writer-quiescence proof"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-two-meter", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert len(queued) == 2
+
+    is_complete["b"] = True
+    verified = await recorder.verify_b15_recorder(hass, "synthetic-two-meter")
+    assert verified["status"] == "recorder_verified"
+    assert len(verified["verified"]) == 1
+    ledger = await recorder.ledger_store(hass, "synthetic-two-meter").async_load()
+    assert ledger["pending"] == {}
+    assert all(
+        item["versions"][0]["state"] == "verified"
+        for item in ledger["series"].values()
+    )
+    assert len(queued) == 2  # Never re-enqueued either persisted version.
+
+
+@pytest.mark.asyncio
 async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeypatch):
     old = "trybatec:old_ef"
     new = "trybatec:logical_ef_synthetic_v1"
