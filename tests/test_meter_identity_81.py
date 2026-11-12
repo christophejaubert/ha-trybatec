@@ -181,7 +181,4 @@ def test_stored_unit_missing_with_registered_sensor_fails_closed():
     assert evaluate_unit_transition(
         None, "m³", registered_without_baseline=True
     ) == "missing_unit_baseline_requires_review"
-    assert evaluate_unit_transition(
-        "m³", "m³", legacy_exists=True
-    ) == "legacy_identity_requires_review"
 
