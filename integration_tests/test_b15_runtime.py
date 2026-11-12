@@ -68,6 +68,10 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
     verified = await recorder.verify_b15_recorder(hass, "synthetic-entry")
     assert verified["status"] == "recorder_verified"
     assert verified["verified"][0]["verified_rows"] == 2
+    assert verified["read_only_recovery"]["all_persisted"] is True
+    assert verified["read_only_recovery"]["safe_to_offer_retry"] is False
+    assert verified["read_only_recovery"]["recorder_writes"] is False
+    assert verified["read_only_recovery"]["energy_writes"] is False
     ledger = await recorder.ledger_store(hass, "synthetic-entry").async_load()
     assert ledger["series"][identity]["versions"][0]["state"] == "verified"
     again = await recorder.queue_b15_plan(
