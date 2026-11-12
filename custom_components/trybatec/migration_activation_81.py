@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .const import CONF_STABLE_METER_IDENTITIES
+from .const import CONF_STABLE_METER_IDENTITIES, DOMAIN
+from .meter_identity import stable_meter_unique_id
 from .stable_identity_runtime import StableUnitGuard
 
 
@@ -28,6 +29,24 @@ class StableMigrationActivation:
             raise ValueError("Account is already using stable identities")
         if not items:
             raise ValueError("Empty one-time migration")
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if coordinator is None or not isinstance(getattr(coordinator, "data", None), dict):
+            raise ValueError("Source meter inventory unavailable")
+        loaded = coordinator.data.get("meters")
+        if not isinstance(loaded, dict) or not loaded:
+            raise ValueError("Source meter inventory incomplete")
+        account = self.entry.unique_id or self.entry.entry_id
+        target_set = {
+            stable_meter_unique_id(account, meter["lot"], meter["fluid"], meter["serial"])
+            for meter in loaded.values()
+        }
+        if len(target_set) != len(loaded) or target_set != {
+            item["new_unique_id"] for item in items
+        }:
+            # With a single per-account switch, ALL physical meters must have
+            # a proven identity. In particular a retired meter cannot receive
+            # a newly created canonical ID without an explicit archive plan.
+            raise ValueError("All physical meters must be migrated together")
         units: dict[str, str] = {}
         for item in items:
             uid, unit = item["new_unique_id"], item.get("source_unit")
@@ -57,8 +76,14 @@ class StableMigrationActivation:
         data = dict(self.entry.data)
         data[CONF_STABLE_METER_IDENTITIES] = True
         self.hass.config_entries.async_update_entry(self.entry, data=data)
-        if not await self.hass.config_entries.async_reload(self.entry.entry_id):
-            raise ValueError("HA rejected stable-mode integration reload")
+        await self.hass.async_block_till_done()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if coordinator is None or coordinator.stable_unit_guard is None:
+            if not await self.hass.config_entries.async_reload(self.entry.entry_id):
+                raise ValueError("HA rejected stable-mode integration reload")
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if coordinator is None or coordinator.stable_unit_guard is None:
+            raise ValueError("Stable-mode runtime failed verification")
 
     async def async_disable(self) -> None:
         # Update the config-entry flag first, but do not reload until the
@@ -73,5 +98,11 @@ class StableMigrationActivation:
         self.hass.config_entries.async_update_entry(self.entry, data=data)
 
     async def async_restore_runtime(self) -> None:
-        if not await self.hass.config_entries.async_reload(self.entry.entry_id):
-            raise ValueError("HA rejected legacy-mode restore reload")
+        await self.hass.async_block_till_done()
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if coordinator is None or coordinator.stable_unit_guard is not None:
+            if not await self.hass.config_entries.async_reload(self.entry.entry_id):
+                raise ValueError("HA rejected legacy-mode restore reload")
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if coordinator is None or coordinator.stable_unit_guard is not None:
+            raise ValueError("Legacy runtime restore failed verification")
