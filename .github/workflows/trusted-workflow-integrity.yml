@@ -15,7 +15,8 @@ jobs:
   trusted-workflow-integrity:
     name: trusted-workflow-integrity
     if: ${{ github.event.pull_request.base.ref == 'main' }}
-    runs-on: ubuntu-latest
+    # FR/EN: OS version label, not an immutable runner VM digest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
