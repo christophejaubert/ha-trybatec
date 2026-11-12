@@ -223,3 +223,55 @@ def test_tariff_websocket_commands_retain_server_side_admin_guards() -> None:
         ]
         assert "websocket_api.require_admin" in decorators
         assert any("websocket_api.websocket_command" in d for d in decorators)
+
+
+@pytest.mark.asyncio
+async def test_legacy_structures_unchanged_on_unrelated_common_rate_edit() -> None:
+    """Unmodified bare numbers and legacy metadata survive a new year."""
+    import json
+
+    hass, coord, key = _case()
+    coord.entry.options["annual_tariffs"] = (
+        '{"2020":{"ECS":1.23456789,'
+        '"CET":{"rate":0.04,"status":"approved","legacy_note":"retained"}},'
+        '"2022":{"EF":{"rate":2.5,"status":"approved"}}}'
+    )
+    previous = json.loads(coord.entry.options["annual_tariffs"])
+    result = await change_tariff(
+        hass, coord, year=2040, fluid="EF", rate=3.0,
+        status="approved", physical_key=None, remove=False,
+        expected_fingerprint=tariff_fingerprint(coord.entry.options),
+        confirmed=True,
+    )
+    stored = json.loads(coord.entry.options["annual_tariffs"])
+    assert stored["2020"] == previous["2020"]
+    assert type(stored["2020"]["ECS"]) is float
+    assert stored["2020"]["CET"]["legacy_note"] == "retained"
+    assert stored["2022"] == previous["2022"]
+    assert stored["2040"]["EF"]["rate"] == 3.0
+    assert result["status"] == "saved"
+    assert hass.config_entries.async_update_entry.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_meter_override_never_reserializes_legacy_json_tariffs() -> None:
+    """Override-only changes must retain the exact original option text."""
+    hass, coord, key = _case()
+    raw = '{ "2022" : { "EF" : 2.5 }, "2021":{"ECS":3.125} }'
+    coord.entry.options["annual_tariffs"] = raw
+    fingerprint = tariff_fingerprint(coord.entry.options)
+    result = await change_tariff(
+        hass, coord, year=2022, fluid="EF", rate=4.123456,
+        status="provisional", physical_key=key, remove=False,
+        expected_fingerprint=fingerprint, confirmed=True,
+    )
+    assert coord.entry.options["annual_tariffs"] == raw
+    assert coord.entry.options["annual_meter_tariffs"]["2022"][key]["rate"] == 4.123456
+    await change_tariff(
+        hass, coord, year=2022, fluid="EF", rate=None,
+        status="provisional", physical_key=key, remove=True,
+        expected_fingerprint=result["options_fingerprint"], confirmed=True,
+    )
+    assert coord.entry.options["annual_tariffs"] == raw
+    assert coord.entry.options["annual_meter_tariffs"] == {}
+    assert hass.config_entries.async_update_entry.call_count == 2
