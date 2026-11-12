@@ -30,6 +30,8 @@ def preview_one_time_migration(
     states: Mapping[str, Mapping[str, Any]],
     recorder_metadata: Mapping[str, Mapping[str, Any] | None],
     *,
+    registry_inventory_complete: bool,
+    device_inventory_complete: bool,
     recorder_inventory_complete: bool,
     energy_inventory_complete: bool,
     dependency_inventory_complete: bool,
@@ -133,6 +135,8 @@ def preview_one_time_migration(
         winner = state_candidates[0] if len(state_candidates) == 1 else None
         if winner is not None:
             entity_id = winner["entity_id"]
+            if not isinstance(winner.get("device_id"), str) or not winner["device_id"]:
+                blockers.append("source_device_identity_missing")
             if entity_id not in recorder_metadata:
                 blockers.append("recorder_metadata_not_inspected")
             else:
@@ -142,6 +146,10 @@ def preview_one_time_migration(
                             or recorded.get("unit_of_measurement") != normalized_unit(fluid)
                             or recorded.get("has_sum") is not True):
                         blockers.append("recorder_unit_or_sum_mismatch")
+        if not registry_inventory_complete:
+            blockers.append("registry_inventory_incomplete")
+        if not device_inventory_complete:
+            blockers.append("device_inventory_incomplete")
         if not recorder_inventory_complete:
             blockers.append("recorder_inventory_incomplete")
         if not energy_inventory_complete:
