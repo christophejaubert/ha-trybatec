@@ -217,4 +217,5 @@ def build_coverage_evidence(
             "fingerprint": fingerprint,
             "recorder_writes": False, "energy_writes": False,
         })
-    return {"status": "preview_only", "groups": result, "recorder_writes": False}
+    return {"status": "preview_only", "groups": result,
+            "recorder_writes": False, "energy_writes": False}
