@@ -232,18 +232,24 @@ async def test_reauth_preserves_future_stable_identity_and_tariff_contract(
 async def test_reauth_403_never_clears_future_account_or_tariff_options(
     hass, monkeypatch
 ):
-    entry = fake_entry()
-    entry.data = {
-        **entry.data,
-        "stable_meter_identities": True,
-    }
-    entry.options = {
-        **entry.options,
-        "annual_tariffs": '{"2026":{"EF":{"rate":2.5,"status":"approved"}}}',
-        "annual_meter_tariffs": {"2026": {"b" * 24: {
-            "rate": 4.0, "status": "approved",
-        }}},
-    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Synthetic stable account with tariffs",
+        unique_id=sha256(f"{USER.lower()}|{DEAL}".encode()).hexdigest(),
+        data={
+            CONF_USERNAME: USER,
+            CONF_PASSWORD: PASSWORD,
+            CONF_DEAL_ID: DEAL,
+            "stable_meter_identities": True,
+        },
+        options={
+            "poll_minutes": 180,
+            "annual_tariffs": '{"2026":{"EF":{"rate":2.5,"status":"approved"}}}',
+            "annual_meter_tariffs": {"2026": {"b" * 24: {
+                "rate": 4.0, "status": "approved",
+            }}},
+        },
+    )
     before_data, before_options = dict(entry.data), dict(entry.options)
     entry.add_to_hass(hass)
 
