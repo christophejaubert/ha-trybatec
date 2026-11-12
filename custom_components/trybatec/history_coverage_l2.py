@@ -192,7 +192,12 @@ def build_coverage_evidence(
                 missing = [start + timedelta(days=i) for i in range(1, span + 1)
                            if start + timedelta(days=i) not in by_date]
                 gaps = _group_gaps(missing)
-                coverage = "qualified_bounds_with_gaps" if gaps else "qualified_bounds_no_gaps"
+                # A single observed index has no measured interval to cover.
+                # An empty day-range is not proof of complete consumption.
+                if span == 0:
+                    coverage = "unknown"
+                else:
+                    coverage = "qualified_bounds_with_gaps" if gaps else "qualified_bounds_no_gaps"
         measured_total = sum((item["measured"] for item in contributions), Decimal(0))
         estimated_total = sum((item["estimated"] for item in contributions), Decimal(0))
         fingerprint_input = {
