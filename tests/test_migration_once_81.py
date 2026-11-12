@@ -1,5 +1,6 @@
 """Issue #81: one-off legacy migration preflight uses synthetic data only."""
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import pytest
 
@@ -170,3 +171,14 @@ def test_missing_source_device_identity_prevents_implicit_recreation():
     plan = _plan(registry=[old])
     assert plan["ready"] is False
     assert "source_device_identity_missing" in plan["mappings"][0]["blockers"]
+
+
+def test_fingerprint_accepts_real_coordinator_datetime_and_rejects_state_drift():
+    meter = _meter()
+    meter["last"] = (datetime(2026, 11, 12, tzinfo=timezone.utc), 15.0)
+    first = _plan(meters=[meter])
+    second = _plan(meters=[meter])
+    assert first["fingerprint"] == second["fingerprint"]
+    meter["last"] = (datetime(2026, 11, 12, tzinfo=timezone.utc), 16.0)
+    changed = _plan(meters=[meter])
+    assert first["fingerprint"] != changed["fingerprint"]
