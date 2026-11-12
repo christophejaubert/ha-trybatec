@@ -1,12 +1,10 @@
 """Synthetic cross-customer safety scenarios. No real user data or identifiers."""
 from datetime import date, timedelta
-from itertools import count
 
 import pytest
 
 from custom_components.trybatec.history import (
     build_history,
-    combine_payloads,
     physical_statistic_id,
     summarize_preview,
 )

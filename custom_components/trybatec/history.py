@@ -11,7 +11,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 import json
-from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 

@@ -2,7 +2,6 @@
 
 All fixtures are synthetic; no portal account or production HA database.
 """
-from datetime import datetime
 
 import pytest
 

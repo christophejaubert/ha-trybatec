@@ -1,6 +1,5 @@
 """b15: vendor-discovery safety checks with synthetic responses only."""
 import asyncio
-from datetime import date
 
 import pytest
 
