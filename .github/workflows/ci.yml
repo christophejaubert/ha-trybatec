@@ -2,6 +2,7 @@ name: 🤖 Compatibility and tests
 
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "21 7 * * *" # Daily compatibility check with latest published HA
@@ -20,10 +21,16 @@ on:
 permissions:
   contents: read
 
+# FR : annuler seulement les anciennes CI de la même PR ; préserver les autres déclenchements.
+# EN: cancel only superseded CI runs for the same PR; preserve all other triggers.
+concurrency:
+  group: trybatec-ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   pure-tests:
     name: pure-tests (Python ${{ matrix.python_label }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     strategy:
       fail-fast: false
@@ -31,8 +38,10 @@ jobs:
         include:
           - python_label: "3.13"
             python_version: "3.13.18"
+            lock_file: pure-py313.txt
           - python_label: "3.14"
             python_version: "3.14.10"
+            lock_file: pure-py314.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +51,8 @@ jobs:
           python-version: ${{ matrix.python_version }}
       - name: Install pure Python test dependencies
         run: |
-          python -m pip install -r .github/ci/requirements-pure.txt
+          python -m pip install --require-hashes -r ".github/ci/locks/${{ matrix.lock_file }}"
+          python -I .github/ci/lock_check.py .github/ci/constraints-pure.txt
           python -m pip check
       - name: Compile sources
         run: python -m compileall -q custom_components/trybatec
@@ -93,7 +103,7 @@ jobs:
 
   lint:
     name: ruff-essential
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,12 +114,27 @@ jobs:
           python-version: "3.14.10"
       - name: Install Ruff
         run: |
-          python -m pip install -r .github/ci/requirements-lint.txt
+          python -m pip install --require-hashes --only-binary=:all: -r .github/ci/requirements-lint.txt -c .github/ci/constraints-lint.txt
+          python -I .github/ci/lock_check.py .github/ci/constraints-lint.txt
           python -m pip check
       - name: Enforce high-confidence lint errors
         run: ruff check --output-format=github --select E9,F63,F7,F82 custom_components/trybatec tests
       - name: Verify pinned workflow actions and manual-only publication
         run: python3 -I .github/ci/quality_guard.py
+      - name: Enforce zero unused imports and locals in cleaned source and test modules
+        run: |
+          ruff check --output-format=github --select F401,F841 \
+            custom_components/trybatec/historical_costs.py \
+            custom_components/trybatec/history.py \
+            custom_components/trybatec/panel_tariffs.py \
+            custom_components/trybatec/history_services.py \
+            tests/test_b15_discovery.py \
+            tests/test_b15_recorder_plan.py \
+            tests/test_b6_units_and_recorder.py \
+            tests/test_history_b3.py \
+            tests/test_b7_device_units.py \
+            tests/test_b7_final_acceptance.py \
+            tests/test_history_review_b4.py
       - name: Report general lint debt (not blocking initially)
         continue-on-error: true
         run: ruff check --output-format=github custom_components/trybatec tests
@@ -119,7 +144,7 @@ jobs:
 
   hassfest:
     name: hassfest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -128,7 +153,7 @@ jobs:
 
   hacs:
     name: hacs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -140,7 +165,7 @@ jobs:
 
   secrets:
     name: gitleaks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -153,9 +178,10 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
+  # FR/EN: four verified SHA256 locks are consumed by the test jobs below.
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     timeout-minutes: 20
     steps:
@@ -167,14 +193,15 @@ jobs:
           python-version: "3.14.10"
       - name: Install Home Assistant test framework
         run: |
-          python -m pip install -r .github/ci/requirements-ha-runtime.txt
+          python -m pip install --require-hashes -r .github/ci/locks/ha-runtime-py314.txt
+          python -I .github/ci/lock_check.py .github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Test entities, services and persistent decisions on isolated Home Assistant
         run: python -m pytest -q -o asyncio_mode=auto integration_tests
 
   resolve-test-refs:
     name: resolve-test-refs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Even if the PR edits its own workflow, this job never receives GITHUB_TOKEN
     # permissions or repository secrets. Trusted executable source is a fixed SHA.
@@ -208,7 +235,7 @@ jobs:
   decision-persistence-process-restart:
     name: decision-persistence (${{ matrix.case }})
     needs: resolve-test-refs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     timeout-minutes: 20
     strategy:
@@ -248,7 +275,8 @@ jobs:
           python-version: "3.14.10"
       - name: Install pinned Home Assistant Core for physical storage tests
         run: |
-          python -m pip install 'homeassistant==2026.11.0'
+          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-persistence-py314.txt
+          python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-persistence.txt
           python -m pip check
       - name: Process 1 - start HA and persist synthetic review decision
         working-directory: tested-writer
@@ -261,11 +289,22 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/tested-reader
         run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-decision-${{ matrix.case }}"
 
+      - name: Snapshot and restore isolated synthetic Home Assistant storage
+        working-directory: tested-reader
+        run: |
+          python ../ci-harness/scripts/ci_backup_restore.py snapshot "$RUNNER_TEMP/ha-decision-${{ matrix.case }}" "$RUNNER_TEMP/ha-backup-${{ matrix.case }}"
+          python ../ci-harness/scripts/ci_backup_restore.py restore "$RUNNER_TEMP/ha-backup-${{ matrix.case }}" "$RUNNER_TEMP/ha-restored-${{ matrix.case }}"
+      - name: Process 3 - verify restored storage in a fresh Home Assistant Core
+        working-directory: tested-reader
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tested-reader
+        run: python ../ci-harness/scripts/ci_decision_restart.py verify "$RUNNER_TEMP/ha-restored-${{ matrix.case }}"
+
   decision-persistence-gate:
     name: decision-persistence-gate
     if: ${{ always() }}
     needs: [resolve-test-refs, decision-persistence-process-restart, recorder-e2e]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Block failed or skipped persistence and Recorder E2E matrix cases
         env:
@@ -284,7 +323,7 @@ jobs:
   recorder-e2e:
     name: recorder-e2e (${{ matrix.target }})
     needs: resolve-test-refs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     timeout-minutes: 25
     strategy:
@@ -309,7 +348,8 @@ jobs:
           python-version: "3.14.10"
       - name: Install pinned, isolated HA Recorder fixtures
         run: |
-          python -m pip install -r ci-harness/.github/ci/requirements-ha-runtime.txt
+          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-runtime-py314.txt
+          python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Exercise historical preview, import, Recorder SQLite, retry and verification
         working-directory: tested-integration
@@ -318,7 +358,7 @@ jobs:
         run: python -m pytest -q -o asyncio_mode=auto ../ci-harness/integration_tests/recorder_pipeline_spec.py
 
   latest-homeassistant-import:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions: {}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -343,7 +383,7 @@ jobs:
     name: Prepare unpublished release draft (manual only)
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_type != 'none'
     needs: [pure-tests, lint, hassfest, hacs, secrets, homeassistant-runtime-tests, decision-persistence-gate, latest-homeassistant-import]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     concurrency:

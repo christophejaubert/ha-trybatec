@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from custom_components.trybatec.units import (
-    meter_key, portal_index_unit, normalize_unit,
+    meter_key, portal_index_unit,
     resolve_meter_unit, unit_factor, validate_meter_units,
 )
 from custom_components.trybatec.recorder_guard import (

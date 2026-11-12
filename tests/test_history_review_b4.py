@@ -4,7 +4,7 @@ import pytest
 
 from custom_components.trybatec.history import build_history
 from custom_components.trybatec.history_review import (
-    apply_review_to_meter, parse_local_time, reading_key, review_candidates,
+    parse_local_time, reading_key,
     store_payload, validate_decision, validate_decision_store,
 )
 from custom_components.trybatec.history_v4 import (
