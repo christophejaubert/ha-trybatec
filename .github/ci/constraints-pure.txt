@@ -1,0 +1,19 @@
+# CI pure dependency versions observed in verified run 43186060507
+# Pinned versions, not SHA256 distribution hashes; Linux x86_64 snapshot.
+# Refresh only with review and full passing CI.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aiosignal==1.4.0
+attrs==26.1.0
+coverage==7.17.2
+frozenlist==1.8.0
+idna==3.20
+iniconfig==2.3.1
+multidict==7.2.1
+packaging==26.3
+pluggy==1.7.0
+propcache==0.5.4
+pygments==2.21.0
+pytest==9.2.0
+pytest-cov==7.1.0
+yarl==1.25.1

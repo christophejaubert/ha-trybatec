@@ -7,7 +7,7 @@ Imports cannot change an established cumulative origin or delete a series.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 from hmac import compare_digest
 import logging
