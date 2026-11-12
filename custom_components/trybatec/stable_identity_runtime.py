@@ -14,11 +14,11 @@ from typing import Any
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_STABLE_METER_IDENTITIES
 from .meter_identity import legacy_meter_unique_ids, stable_meter_unique_id
 from .units import normalized_unit
 
-STABLE_IDENTITY_FLAG = "stable_meter_identities"
+STABLE_IDENTITY_FLAG = CONF_STABLE_METER_IDENTITIES
 
 
 def evaluate_unit_transition(
