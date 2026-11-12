@@ -7,6 +7,7 @@ statistics, modify Energy preferences, or write vendor data.
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from hashlib import sha256
 import json
 from math import isfinite
@@ -18,7 +19,20 @@ from .units import normalized_unit
 
 
 def _fingerprint(rows: list[dict[str, Any]]) -> str:
-    payload = json.dumps(rows, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    def serializable(value: Any) -> Any:
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, (tuple, list)):
+            return [serializable(item) for item in value]
+        if isinstance(value, (set, frozenset)):
+            return sorted([serializable(item) for item in value], key=repr)
+        if isinstance(value, dict):
+            return {str(key): serializable(item) for key, item in value.items()}
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        raise ValueError("Unsupported migration fingerprint evidence")
+    payload = json.dumps(serializable(rows), sort_keys=True, allow_nan=False,
+                         ensure_ascii=True, separators=(",", ":"))
     return sha256(payload.encode()).hexdigest()
 
 
