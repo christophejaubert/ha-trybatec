@@ -46,7 +46,7 @@ class Devices:
     def __init__(self):
         self.device = SimpleNamespace(
             id=DID, identifiers={("trybatec", "legacy-device")},
-            config_entries={ENTRY},
+            config_entry_id=ENTRY,
         )
         self.other = None
         self.fail = False
@@ -59,15 +59,11 @@ class Devices:
             self.device if self.device.identifiers.intersection(identifiers) else None
         )
 
-    def async_update_device(self, device_id, *, add_identifiers=None,
-                            remove_identifiers=None):
+    def async_update_device(self, device_id, *, new_identifiers):
         if self.fail:
             raise RuntimeError("simulated device failure")
         assert device_id == DID
-        if add_identifiers:
-            self.device.identifiers |= set(add_identifiers)
-        if remove_identifiers:
-            self.device.identifiers -= set(remove_identifiers)
+        self.device.identifiers = set(new_identifiers)
 
 
 class Journal:
@@ -216,7 +212,7 @@ async def test_backup_must_include_recorder_and_real_backup_location():
 @pytest.mark.asyncio
 async def test_unverified_registry_or_foreign_device_rejected():
     reg, devices, journal, _, supplier, lookup = _fixture()
-    devices.device.config_entries = {"foreign"}
+    devices.device.config_entry_id = "foreign"
     with pytest.raises(ValueError, match="ownership"):
         await _run(reg, devices, journal, supplier, lookup)
     assert journal.record is None
