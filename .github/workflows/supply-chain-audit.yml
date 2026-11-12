@@ -1,0 +1,65 @@
+name: 🤖 Supply-chain security audit / Audit chaîne de livraison
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/ci/constraints-*.txt"
+      - ".github/dependabot.yml"
+      - "scripts/ci_supply_chain_audit.py"
+      - "tests/test_ci_supply_chain_audit.py"
+      - "docs/SUPPLY_CHAIN_AUDIT_2026-11-12.md"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/ci/constraints-*.txt"
+      - ".github/dependabot.yml"
+      - "scripts/ci_supply_chain_audit.py"
+      - "tests/test_ci_supply_chain_audit.py"
+  schedule:
+    - cron: "13 6 * * 1"
+  workflow_dispatch:
+
+# FR : aucune permission de dépôt, ni secret ; annuler uniquement les PR dépassées.
+# EN: no repository permissions or secrets; cancel only superseded PR runs.
+permissions: {}
+concurrency:
+  group: trybatec-security-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  supply-chain-audit:
+    name: supply-chain-audit (baseline advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions: {}
+    steps:
+      - name: Checkout untrusted candidate with no retained credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select known Python runtime
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14.10"
+      - name: Install version-pinned audit tools
+        run: |
+          python -m pip install 'pip-audit==2.10.1' 'zizmor==1.32.0'
+          python -m pip check
+      - name: Audit pinned CI dependencies against public vulnerability advisories
+        run: |
+          python -I scripts/ci_supply_chain_audit.py dependencies
+      - name: Audit workflow YAML and Dependabot without network or a token
+        env:
+          ZIZMOR_OFFLINE: "1"
+        run: |
+          python -I scripts/ci_supply_chain_audit.py workflows
+      - name: Retain public dependency vulnerability reports for review
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: supply-chain-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/trybatec-security-reports/*.json
+          if-no-files-found: warn
+          retention-days: 14
