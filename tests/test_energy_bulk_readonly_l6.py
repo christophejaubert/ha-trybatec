@@ -150,6 +150,10 @@ def test_ha_adapter_direct_server_collector(monkeypatch):
         return {"live":prefs(),"persisted":prefs()}
     monkeypatch.setattr(adapter,"async_collect_ha_energy_evidence",fake_collect)
     monkeypatch.setattr(adapter,"_energy_without_initializing",fake_native)
+    from custom_components.trybatec import energy_bulk_contract_ha_l6 as contract
+    async def crosscheck(*args, **kwargs):
+        return {"status":"insufficient_evidence", "complete":False, "activation_authorized":False}
+    monkeypatch.setattr(contract, "async_crosscheck_native_l6", crosscheck)
     coordinator=SimpleNamespace(entry=SimpleNamespace(unique_id=ACCOUNT))
     report=asyncio.run(adapter.async_preview_l6_energy(object(),coordinator,user=object(),lot=LOT))
     assert calls["collect"]==1

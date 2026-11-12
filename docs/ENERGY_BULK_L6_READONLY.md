@@ -46,3 +46,24 @@ Outputs always preserve `writes=False`, `activation_authorized=False`, `blocked=
 **Future integration gates:** trustworthy account/lot/physical lineage (#37), persistent per-window Recorder and consolidated series proof (#36), stable identity interface without #82 migration (#120), exhaustive alternatives, matching installed HA schema and CET semantic approval. Execute real #92 planner and HA/native/browser CI before integration. Synthetic isolated tests are not production acceptance.
 
 **References:** [Issue #88](https://github.com/christophejaubert/ha-trybatec/issues/88), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36), [#37](https://github.com/christophejaubert/ha-trybatec/issues/37), [PR #121](https://github.com/christophejaubert/ha-trybatec/pull/121), [HA Core 2026.11.1 Energy schema](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py).
+
+---
+
+## FR — Extension de qualification L6 (PR #129, itération 2)
+
+Le raccordement évolue **sans changement de registre, de Recorder ou d'Énergie** :
+
+- `energy_bulk_contract_l6.py` est un comparateur pur du registre de versions B15 issu de #36, des compteurs courants, et de l'archive des compteurs déposés issue de #37. Chaque identité physique comporte lot, fluide et numéro de série ; les collisions, statuts incertains, références manquantes, versions concurrentes, unités incompatibles et consolidations multiples sont refusés. Une génération déposée observée mais absente du registre B15 est **bloquante**.
+- `energy_bulk_contract_ha_l6.py` vérifie de nouveau le contexte administrateur via le collecteur L3 puis lit uniquement des enveloppes JSON `.storage` bornées, en respectant l'interdiction de `Store.async_load()` pour la lecture ; aucune écriture ni appel fournisseur. Les noms des stockages sont calculés localement depuis l'ID de la configuration.
+- `energy_bulk_readonly_ha.py` annexe désormais ce diagnostic à la réponse L6, sans jamais transformer une attestation d'inventaire partiel en admissibilité.
+- Le contrat `meter_identity.py` de #120, encore non intégré à `main`, est vérifié **sur sa branche** comme référence technique ; aucune migration, aucun changement d'`entity_id` ou de `unique_id` historique n'est introduit.
+
+**Limite déterminante :** ni le cache du coordinateur ni l'archive des compteurs déposés ni le registre B15, considérés isolément, ne prouvent l'exhaustivité de toutes les années. La persistance Recorder **bucket par bucket**, la concordance de la couverture cumulée/physique, la sélection des variantes et le recensement externe restent nécessaires. `complete=False` et `admissible=False` sont constants dans le nouveau contrôle. Le statut `already_configured` n'est qu'une observation de sélection effective dans les préférences ; il n'autorise aucune réécriture.
+
+Validation : tests synthétiques ajoutés pour compteur déposé, identité ambiguë, archive falsifiée, série manquante, unité incompatible, registre versionné incorrect, versions concurrencées et absence de modification des entrées. Exécuter les tests sur le SHA de PR #129 en CI et distinguer cette preuve de toute recette HA réelle.
+
+## EN — L6 qualification extension (PR #129, iteration 2)
+
+The new pure `energy_bulk_contract_l6.py` cross-checks the B15 version ledger (#36), current physical-meter observations and archived retired meters (#37). It detects ambiguous identities, retired meters missing from the B15 ledger, conflicting consolidated series/versions, invalid archival keys and incompatible units. `energy_bulk_contract_ha_l6.py` reconstructs evidence from **read-only**, size-bounded HA storage-envelope reads, after independently enforcing L3 administrator authentication. The L6 HA preview attaches this diagnostic; it never grants admission.
+
+**Gate remains closed:** a coordinator cache, retained retired-meter archive and B15 version ledger do not prove exhaustive multi-year coverage, source provenance, all Recorder buckets, complete alternatives or the independent #120 new-account stable-identity contract. Accordingly `complete=False`, `admissible=False`, no new Energy insertion and no implicit migration. The standalone source-selection observation `already_configured` is not permission to mutate Energy. CI must run on PR #129's exact head; live acceptance is separate.
