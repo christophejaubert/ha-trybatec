@@ -2804,7 +2804,7 @@ class TrybatecPanel extends HTMLElement {
         '<div class="scroll">'+rows.slice(0,20).map(x=>'<div class="line">'+
         safe(x.fluid+" · "+x.variant+" · "+x.rows+" points · "+x.unit)+'</div>').join("")+'</div>':"")+
       '<div class="actions"><label><input type="checkbox" data-version-field="importBackup" '+
-      (this._versionImportBackup?"checked":"")+'> Une sauvegarde récupérable de HA/Recorder existe</label>'+
+      (this._versionImportBackup?"checked":"")+'>'+safe(this._t("Une sauvegarde récupérable de HA/Recorder existe","A recoverable HA/Recorder backup is available"))+'</label>'+
       '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'>'+safe(this._t("J’approuve une nouvelle version","I approve a new version"))+'</label>'+
       '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'>'+safe(this._t("Reprendre une importation en attente","Resume a pending import"))+'</label></div>'+
       '<div class="actions"><button class="primary" type="button" data-version-import '+
@@ -2838,9 +2838,9 @@ class TrybatecPanel extends HTMLElement {
       safe(this._versionEnergyPlan.old_statistic_id)+" → "+safe(this._versionEnergyPlan.new_statistic_id)+
       '. Une seule source sera remplacée.</div>':"")+
       '<div class="actions"><label><input type="checkbox" data-version-field="energyBackup" '+
-      (this._versionEnergyBackup?"checked":"")+'> Sauvegarde Énergie confirmée</label>'+
+      (this._versionEnergyBackup?"checked":"")+'>'+safe(this._t("Sauvegarde Énergie confirmée","Energy backup confirmed"))+'</label>'+
       '<label><input type="checkbox" data-version-field="rollback" '+
-      (this._versionRollback?"checked":"")+'> J’approuve le retour vers une version archivée</label></div>'+
+      (this._versionRollback?"checked":"")+'>'+safe(this._t("J’approuve le retour vers une version archivée","I approve rollback to an archived version"))+'</label></div>'+
       '<div class="actions"><button type="button" class="primary" data-version-energy-apply '+
       (!this._versionEnergyPlan||!this._versionEnergyBackup||this._versionBusy?"disabled":"")+
       '>5. Confirmer le basculement Énergie</button></div></fieldset></section>'+
