@@ -1,0 +1,32 @@
+# FR: inventaire des outils de sécurité isolés, observé sur le runner Python 3.14.10.
+# EN: security scanning environment resolved snapshot, Python 3.14.10 / Ubuntu x86_64.
+# Evidence: job 131202623456, run 43223470824 (2026-11-12).
+# SHA256 artifact lock to be independently verified before enabling --require-hashes.
+boolean-py==5.0
+cachecontrol==0.14.4
+certifi==2026.10.23
+charset-normalizer==3.5.2
+cyclonedx-python-lib==11.12.0
+defusedxml==0.7.1
+filelock==4.2.10
+idna==3.20
+license-expression==30.4.4
+markdown-it-py==4.3.0
+mdurl==0.1.2
+msgpack==1.2.4
+packageurl-python==0.17.6
+packaging==26.3
+pip-api==0.0.35
+pip-audit==2.10.1
+pip-requirements-parser==32.0.1
+platformdirs==4.14.5
+py-serializable==2.2.0
+pygments==2.21.0
+pyparsing==3.3.3
+requests==2.34.2
+rich==15.0.0
+sortedcontainers==2.4.0
+tomli==2.5.0
+tomli-w==1.2.0
+urllib3==2.8.0
+zizmor==1.32.0
