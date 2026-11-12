@@ -183,3 +183,102 @@ untested. Never auto-clean historical meters.
 
 Final merge and release require their own approval; a green automated
 CI result is not a substitute for real migration or rollback testing.
+
+
+## FR — Contrats inter-chantiers et ordre d'intégration (0.3.4b1)
+
+**Propriété temporaire :** #120 détient les adaptations d'identité dans
+`config_flow.py`, `coordinator.py`, `__init__.py` et `sensor.py`.
+Les modifications de #132/#35 doivent être **réconciliées**, et jamais
+écrasées par copie intégrale d'un ancien fichier.
+
+| Chantier | Contrat entrant / sortant | Vérification requise avant intégration |
+|---|---|---|
+| #35 — Installation et accès (PR #132) | La découverte du lot et la réauthentification conservent `config_entry.entry_id`, `unique_id`, options, associations et `stable_meter_identities` existant. Le drapeau stable est créé **uniquement** pour une nouvelle entrée éligible, jamais ajouté lors d'une réauthentification ou d'une reprise. Le coordinateur conserve la catégorisation 401/403, les notifications persistantes et leur clôture sans modifier les identités. | Combinaison ciblée des changements `config_flow.py` et `coordinator.py`, tests nouveaux comptes, erreurs API, retour à l'accès, rechargement et absence de réattribution. PR #137 est une **preuve de combinaison non livrable**, à reconstruire sur les SHA finaux de #120 et #132. |
+| #42 — Tarifs (PR #118) | Les tarifs et dérogations restent dans `entry.options` ; le flux natif doit conserver les données historiques COMPAT-01, les options inconnues et le drapeau `entry.data` stable. La tarification YTD n'est **pas** une identité physique ni un `statistic_id` de compteur. | Vérifier conservation des options à la réauthentification/reload, sans supprimer les tarifs et sans altérer les `unique_id` physiques. |
+| #36 — Recorder | Identité canonique physique indépendante de l'unité = `meter_<empreinte>_index` pour nouveaux comptes éligibles ; `entity_id` déterminé par HA et **non** calculé comme preuve de propriété. Seules les mesures actives avec unité vérifiée peuvent porter `total_increasing`. Le `statistic_id` n'est pas rebaptisé automatiquement ; provenance, corrections d'index et reprises Recorder appartiennent à #36. | Contrôler les méta-statistiques, unités, générations et sommes sur fixtures, aucune écriture historique automatique, aucune assimilation de séries mesurées/estimées. |
+| #37 — Compteurs déposés | Identité physique = portée compte + lot + fluide + série ; générations successives distinctes. Anciennes archives `b15` et variantes `b6` préservées. Un compteur déposé garde son entité de lecture mais ne porte pas de statistique croissante active. Aucun nettoyage, transfert ou fusion d'appareil dans #120. | Recharger prédécesseur déposé et successeur actif sans changement de références ; bloquer les séries ambiguës ou anciennes références résiduelles. |
+| #88 — Énergie | #120 livre des identités et un état de validation d'unité, **aucun permis d'inscription**. Les preuves de #36/#37 et le contrôle des unités restent nécessaires avant de choisir des `statistic_id` pour Énergie. Aucune configuration Énergie écrite au démarrage ou sur changement d'unité. | Les adaptateurs #88 restent inactifs par défaut ; test des sentinelles Recorder/Énergie, idempotence et absence de double comptage après autorisation distincte. |
+
+### Contrats invariants à ne pas affaiblir
+
+1. Aucun ancien `unique_id` ne doit être automatiquement renommé.
+   Les suffixes d'entité `_2` appartiennent au registre HA et **ne
+   démontrent pas** qu'un ancien compteur peut être migré ou supprimé.
+2. Le garde refuse les anciens `b6`, les archives `b15`, les collisions
+   de portée et les comptes dont le registre d'unité stable a été perdu.
+   Un `b6` non localisé lors d'une réutilisation de série bloque par
+   prudence **toutes** les attributions concurrentes.
+3. Les absences de résultats dans Entity Registry ne certifient pas
+   l'absence de métadonnées Recorder orphelines ou de consommateurs tiers.
+   Ne pas activer de migration ni de récupération automatique.
+4. `dependency_inventory_complete=False` et `safe_to_apply=False`
+   sont imposés dans les diagnostics. Une nouvelle inscription éligible
+   n'est pas une migration d'ancienne identité.
+5. Toute combinaison doit passer les tests et la CI du **SHA résultant**,
+   les validations isolées #120/#132 ne suffisent pas ; #137 constitue
+   une validation de compatibilité sur ses seuls SHA de composition.
+
+### Procédure de repli et risques restant non prouvés
+
+Un compte historique non migré peut être envisagé pour une restauration
+de code, **après** comparaison exhaustive de ses `entity_id`, `unique_id`,
+`device_id`, `statistic_id` et options. Un compte **créé avec un ID stable**
+ne doit pas revenir aveuglément à `0.3.3b1`, qui calcule une identité
+`b6` différente ; préférer une correction en avant conservant la clé
+physique. Une ancienne série Recorder non présente dans le registre HA
+reste inconnue. Réparation et restauration réelles exigent autorisation
+distincte ; une restauration peut effacer les évolutions postérieures à
+l'archive. Aucun test de restauration réelle n'a été exécuté.
+
+**Séquence de livraison suggérée :** synchronisation de #120 sur `main`,
+réconciliation du contrat partagé avec #132 et reprise de la preuve
+combinée #137 à partir des SHA finaux, CI complète, revue MOE des
+risques, autorisation de fusion séparée, recette réelle contrôlée,
+puis décision de publication `0.3.4b1`. Aucun de ces jalons
+ne confère automatiquement une permission d'installation ou de migration.
+
+## EN — Cross-workstream contracts and release gates
+
+**Shared-file ownership:** #120 temporarily owns identity behavior in
+`config_flow.py`, `coordinator.py`, `__init__.py` and `sensor.py`.
+Reconcile #132/#35 changes carefully; never overwrite authentication
+or access notifications with an older copy.
+
+- **#35 / PR #132:** discovery/reauth must preserve the existing config
+  entry, stable-mode flag, entity/device mappings and options. Activate
+  canonical identity only on an **eligible new entry**. Preserve HTTP
+  401/403 classification and notification lifecycle. PR #137 is an
+  intentionally non-mergeable compatibility experiment tied to its
+  recorded source SHAs, not an approved release artifact.
+- **#42 / PR #118:** tariff options and overrides remain persistent and
+  independent of physical IDs and Recorder statistic IDs; retain
+  COMPAT-01 on flow edits and preserve unknown options.
+- **#36:** current physical-meter keys are independent of version and
+  unit, but HA owns `entity_id` and Recorder owns its metadata. Never
+  rewrite historical statistics or equate actual and estimated data.
+  Only approved-scale active meters may publish `total_increasing`.
+- **#37:** retired and replacement physical generations are distinct;
+  b6 and archived b15 references are preserved, never cleaned or
+  reassigned in #120. Retired sensors do not publish cumulative statistics.
+- **#88:** validated unit and physical identity are inputs to later
+  eligibility decisions, **not authorization** to enroll Energy.
+  No Energy preference updates or Recorder imports during setup/reload.
+
+**Invariant guards:** never rename a legacy ID, infer ownership from
+`_2` suffixes, or treat missing registry rows as proof of absent orphan
+statistics or third-party consumers. Diagnostics always return
+`dependency_inventory_complete=False` and `safe_to_apply=False`.
+Reused ambiguous serials fail closed.
+
+**Downgrade:** a new stable-account ID is incompatible with the old
+b6 calculation. Do not automatically roll back such an account to
+`0.3.3b1`. Prefer compatible forward fixes; any entity repair,
+historical DB changes or restore require separate explicit approval.
+Real restore and live HA acceptance remain unproven.
+
+**Integration order:** synchronize #120 with current main, reconcile
+#132's shared-file changes and repeat a combined qualification on the
+actual final SHAs, rerun CI, obtain separate merge authorization,
+perform a separately authorized live acceptance, then decide release
+`0.3.4b1`. No automatic installation or migration is authorized.
