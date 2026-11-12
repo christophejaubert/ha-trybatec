@@ -406,6 +406,9 @@ async function runCase(browser, locale, device, dark=false) {
   }
   // Keyboard focus must have a visible, nonzero outline independent of color.
   const focusTarget=page.locator('trybatec-panel nav button[data-tab="meters"]');
+  // Use keyboard modality before focusing: :focus-visible is deliberately
+  // not applied to pointer-initiated/programmatic focus.
+  await page.keyboard.press("Tab");
   await focusTarget.focus();
   const focusStyle=await focusTarget.evaluate(button=>{
     const s=getComputedStyle(button);
