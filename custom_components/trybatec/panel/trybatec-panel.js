@@ -1502,7 +1502,9 @@ class TrybatecPanel extends HTMLElement {
       '<div><strong>'+safe(title)+'</strong><p>'+safe(description)+'</p>'+
       '<div class="actions"><button type="button" class="secondary" data-tab="'+
       safe(tab)+'">'+safe(action)+'</button></div></div></div>';
-    const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
+    // An unloaded inventory is unverified, not proof that no meter applies.
+    const sourceStatus=a.data_loaded!==true?"unverified":
+      active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
     const retiredCoverage=this._tariffCoverage?.get(a.entry_id);
     // An account-wide scan does not prove a particular retired meter was observed.
     // Require exact physical identity and two verified supplier bounds for each.
@@ -1512,9 +1514,13 @@ class TrybatecPanel extends HTMLElement {
           row.physical_key===m.physical_key);
         return Boolean(bound?.first_observed_at && bound?.last_source_observed_at);
       });
-    const retiredStatus=retired.length===0?"na":
+    const retiredStatus=a.data_loaded!==true?"unverified":
+      retired.length===0?"na":
       retiredBoundsVerified && missingDates.length===0?"passed":"unverified";
-    const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
+    const sourceText=a.data_loaded!==true?t(
+      "Inventaire non chargé : l’état des compteurs ne peut pas être vérifié.",
+      "Inventory not loaded: meter status cannot be verified."):
+      active.length===0?t("Aucun compteur en service dans cet inventaire.",
       "No active meters in this inventory."):
       conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
       "A source-unit contradiction was reported for an active meter."):
@@ -1522,7 +1528,10 @@ class TrybatecPanel extends HTMLElement {
       "Current readings and units are present; this is not an exhaustive audit."):
       t("Un ou plusieurs relevés courants ou unités restent à vérifier.",
       "One or more current readings or units require verification.");
-    const retiredText=retired.length===0?t("Aucun compteur déposé connu.",
+    const retiredText=a.data_loaded!==true?t(
+      "Inventaire non chargé : les compteurs déposés ne sont pas vérifiables.",
+      "Inventory not loaded: retired meters cannot be verified."):
+      retired.length===0?t("Aucun compteur déposé connu.",
       "No known retired meter."):missingDates.length===0?
       (retiredStatus==="passed"?t(
         "Bornes vérifiées par une analyse historique complète ; la continuité des relevés demeure un contrôle distinct.",
