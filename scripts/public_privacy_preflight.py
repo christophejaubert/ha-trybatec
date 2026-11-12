@@ -117,15 +117,19 @@ def audit(base: str, head: str) -> tuple[list[tuple[str, Finding]], int]:
     messages = git("log", "--format=%B", f"{ancestor}..{head}")
     for line in messages.splitlines():
         records.extend(("commit message", finding) for finding in inspect_text(line))
+    # FR/EN: inspect the whole newly reachable history, not just the final
+    # tree diff. An added-and-removed secret or machine name is still public
+    # in the intermediate PR commit and must be caught.
+    history_range = f"{ancestor}..{head}"
     names = git(
-        "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-        "--diff-filter=ACMRT", "--name-only", "-z", ancestor, head, "--",
+        "log", "-m", "--format=", "--name-only", "-z", "--no-renames",
+        "--diff-filter=ACMRT", history_range, "--",
     )
     for path in filter(None, names.split("\x00")):
-        records.extend(("changed filename", finding) for finding in inspect_text(path))
+        records.extend(("changed filename", finding) for finding in inspect_text(path.strip("\n")))
     diff = git(
-        "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-        "--no-color", "--unified=0", ancestor, head, "--",
+        "log", "-m", "-p", "--format=", "--no-ext-diff", "--no-textconv",
+        "--no-renames", "--no-color", "--unified=0", history_range, "--",
     )
     for line in diff.splitlines():
         if line.startswith("+") and not line.startswith("+++ "):
