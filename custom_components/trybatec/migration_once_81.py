@@ -172,10 +172,26 @@ def preview_one_time_migration(
             "energy_not_modified": True,
             "legacy_cleanup_permitted": False,
         })
+    # Fingerprint every safety-relevant input, not only the proposed mappings.
+    # Any state, ownership, statistics or unit change requires a fresh preview.
+    evidence = {
+        "account": account, "entry_id": entry_id,
+        "meters": [dict(meter) for meter in meters],
+        "registry": [dict(record) for record in registry],
+        "states": {key: dict(value) for key, value in states.items()},
+        "recorder": {key: dict(value) if value is not None else None
+                     for key, value in recorder_metadata.items()},
+        "audit_flags": [
+            registry_inventory_complete, device_inventory_complete,
+            recorder_inventory_complete, energy_inventory_complete,
+            dependency_inventory_complete,
+        ],
+        "mappings": rows,
+    }
     return {
         "status": "read_only_one_time_migration_preview",
         "ready": bool(rows) and all(row["status"] == "ready_for_separate_confirmation" for row in rows),
-        "fingerprint": _fingerprint(rows),
+        "fingerprint": _fingerprint([evidence]),
         "mappings": rows,
         "registry_changes_applied": False,
         "recorder_changes_applied": False,
