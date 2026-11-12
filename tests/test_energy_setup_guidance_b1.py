@@ -68,7 +68,8 @@ const matchingFluid={...otherFluid,ledger:{pending:0,series:[{
   scope:{kind:"consolidated",lot:"synthetic",fluid:"EF"},
   versions:[{state:"verified"}]
 }]}};
-assert.equal(guide(matchingFluid,available).mode,"not_implemented");
+assert.equal(guide(matchingFluid,available).mode,"verification_needed");
+assert.equal(guide(matchingFluid,available).reasons[0].level,"unverified");
 const fixture={_current:incomplete,_data:{energy:available},_t:(fr,en)=>fr};
 const html=Panel.prototype._energySetupHelp.call(fixture);
 assert.ok(html.includes("Assistant de configuration / Vue d’ensemble"));
@@ -78,6 +79,29 @@ assert.match(html,/data-tab="tariffs"/);
 assert.match(html,/data-open-energy/);
 assert.match(html,/À faire/);
 assert.match(html,/Tarifs annuels facultatifs/);
+assert.match(html,/planificateur groupé fonctionne en lecture seule/);
+assert.doesNotMatch(html,/data-bulk-energy-apply/);
+const single={...account,meters:[{...meter,physical_key:"meter-one",unit_verified:false,last_index:null}]};
+const focused=Panel.prototype._energySetupHelp.call({...fixture,_current:single});
+assert.match(focused,/data-energy-meter="meter-one"/);
+assert.match(focused,/data-energy-history="meter-one"/);
+let routeRenders=0;
+const route={_current:single,_meters:()=>single.meters,_meter:0,_tab:"energy",
+  _query:"old",_render:()=>{routeRenders++;}};
+Panel.prototype._click.call(route,{target:{closest:()=>({dataset:{energyMeter:"meter-one"}})}});
+assert.equal(route._tab,"meters");
+assert.equal(route._meter,0);
+assert.equal(route._query,"");
+Panel.prototype._click.call(route,{target:{closest:()=>({dataset:{energyHistory:"meter-one"}})}});
+assert.equal(route._tab,"history");
+assert.equal(route._historyContextKey,"meter-one");
+assert.equal(route._originMeter,"meter-one");
+assert.equal(routeRenders,2);
+const unknown={...route,_tab:"energy",_query:"old"};
+Panel.prototype._click.call(unknown,{target:{closest:()=>({dataset:{energyHistory:"missing-key"}})}});
+assert.equal(unknown._tab,"meters");
+assert.equal(unknown._historyContextKey,undefined);
+
 const english=Panel.prototype._energySetupHelp.call({...fixture,_t:(fr,en)=>en});
 assert.ok(english.includes("Setup assistant / Overview"));
 assert.match(english,/Action required/);
@@ -96,3 +120,26 @@ assert.equal(renders,1);
         check=False, timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_pr90_regression_contract_survives_pr91_merge():
+    script = PANEL.read_text(encoding="utf-8")
+    # Verify the combined source still contains the existing physical-meter controls.
+    for required in (
+        "_statusIndicator(kind, value)",
+        "_openMeterContext(action)",
+        "trybatecMergeHistoricalObservationDates(account, coverage)",
+        "data-history-context-clear",
+        "data-meter-context=",
+        "selection_origin",
+        'this._historyContextKey=meter.physical_key',
+        "this._energySetupHelp()",
+        "data-energy-history",
+    ):
+        assert required in script
+    guidance = script.split("function trybatecEnergySetupGuidance(", 1)[1].split(
+        "/* Scoped annual tariffs", 1
+    )[0]
+    # Never treat the mere existence of a ledger version as continuity evidence.
+    assert 'row.versions.some' not in guidance
+    assert 'retired[0].physical_key' in guidance

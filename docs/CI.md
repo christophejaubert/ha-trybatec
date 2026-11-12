@@ -12,8 +12,7 @@ not the functional Home Assistant integration. Workflow source:
 - **Manual workflow dispatch:** optionally prepare an **unpublished release draft**,
   only from `main` and only after all mandatory jobs have succeeded.
   A normal push, a PR or a scheduled job **never publishes a release**.
-- **Unit tests:** Python 3.13 and 3.14; coverage report uploaded but the minimum
-  coverage and full Ruff formatting are still advisory.
+- **Unit tests:** Python 3.13 and 3.14; coverage report uploaded; a minimum 75% global project coverage is enforced in both Python jobs beginning with the quality-contracts CI change. Full Ruff lint and formatting remain advisory.
 - **Home Assistant runtime:** isolated test fixture, synthetic portal data,
   real sensor/service behavior and a separate SQLite Recorder backend.
 - **Physical decision storage:** two independent HA Core/Python processes share
@@ -151,7 +150,7 @@ appear releasable. Code/manifest corrections belong in the functional PR.
 1. Validate the functional version and merge authorized changes through PRs.
 2. Merge the updated delivery workflow into `main` using required checks.
 3. Set the intended version in `manifest.json` through the functional workflow.
-4. From **GitHub → Actions → Compatibility and tests → Run workflow**, select
+4. From **GitHub → Actions → 🤖 Compatibility and tests → Run workflow**, select
    `main`, then choose `release_type=prerelease` or `stable`.
 5. After all required tests pass, GitHub prepares **an unpublished draft**.
 6. Publication remains a **separate, explicitly authorized step**. The current
@@ -178,3 +177,56 @@ an installed Home Assistant instance.
 **EN:** cross-cutting requirements appear in [SECURE_DEVELOPMENT_POLICY.md](SECURE_DEVELOPMENT_POLICY.md), and the evidence baseline in [SECURITY_AUDIT_2026-11-12.md](SECURITY_AUDIT_2026-11-12.md). The PR template keeps implementation, exact-SHA CI, live acceptance and publication separate. Preserve all ten active required-status identifiers during incremental hardening; do not add a required check until the protection configuration can be updated safely. Full lint and global coverage remain advisory until a measured debt baseline is available.
 
 **Security limit / Limite :** pull_request_target executes the trusted base-branch guard only; it never executes candidate code or grants secrets. Author-owned PRs that modify protected workflow paths still require manual security review: the trusted check does not prove the changes are safe.
+
+
+## Progressive quality contracts / Contrats qualité progressifs
+
+**FR (12 novembre 2026) :** le job obligatoire ruff-essential exécute désormais un garde statique Python sans réseau (.github/ci/quality_guard.py) contrôlant l'épinglage des actions sur SHA, la désactivation de la conservation des identifiants checkout, le contexte privilégié pull_request_target et les déclencheurs manuels de publication. Les tests unitaires de ce garde s'exécutent dans les jobs Python obligatoires. Le seuil minimum de couverture de la partie pure est fixé à 75 % (base mesurée avant chantier : environ 80 %, 441 tests réussis), et doit être relevé après mesure de dette. Le contrôle Ruff général et le formatage restent indicatifs : 89 fichiers sur 90 étaient signalés comme non formatés sur la base de référence. La politique ne prétend pas éliminer toute vulnérabilité ni couvrir les appels réseau dynamiques.
+
+Le nom affiché du workflow CI est désormais « 🤖 Compatibility and tests ». Les noms des dix statuts exigés par le ruleset ne changent pas. Le vérificateur du workflow de publication reconnaît transitoirement les anciens et nouveaux noms, tout en conservant les vérifications SHA, la confirmation propriétaire et l'interdiction de publication automatique. Il n'est déclenché par aucune des présentes modifications.
+
+**EN (12 November 2026):** the mandatory ruff-essential job now runs an offline Python static guard (.github/ci/quality_guard.py) checking SHA-pinned actions, non-persistent checkout credentials, privileged pull_request_target scope and manual-only prerelease triggers. Its unit tests run in mandatory Python jobs. Pure-project total coverage has a 75% blocking floor (observed reference ~80% over 441 passing tests). Raise this threshold after measuring debt. General Ruff lint and formatting remain advisory (89 of 90 files needed reformatting at baseline). This guard cannot replace review or guarantee absence of vulnerabilities.
+
+The display name of the CI workflow is now « 🤖 Compatibility and tests »; all ten required GitHub status names remain unchanged. The publisher recognizes the previous and updated workflow display names without weakening exact-SHA checks or triggering a release.
+
+## FR — Contraintes transitives de la CI (12 novembre 2026)
+
+Les quatre fichiers de contraintes enregistrent les versions réellement installées et vérifiées dans le run GitHub Actions 43186060507 (Linux x86_64) : tests purs sous Python 3.13/3.14, Ruff, Home Assistant 2026.10.4 pour le runtime isolé et Home Assistant 2026.11.0 pour la persistance physique. Chaque job reproductible utilise maintenant ses contraintes et le script hors réseau `.github/ci/lock_check.py`, qui exige exactement les distributions et les versions approuvées (hors les outils de démarrage pip, setuptools et wheel). `pip check` reste obligatoire.
+
+**Limites :** les versions sont figées, mais les fichiers ne contiennent pas de sommes SHA256 des roues/sources ; ce verrouillage n'est pas une vérification cryptographique des distributions. Les versions retenues n'ont été démontrées que sur les plateformes et interpréteurs de la CI. Le job `latest-homeassistant-import` reste intentionnellement non verrouillé pour tester la compatibilité future.
+
+**Actualisation :** une mise à jour Dependabot ne doit pas conduire à supprimer les vérifications. Régénérer le fichier correspondant à partir d'une exécution d'installation isolée, comparer toutes les versions, faire relire le changement et vérifier la matrice CI complète. Les contraintes ajoutées ne constituent pas une garantie de sécurité ou de recette métier.
+
+## EN — Transitive CI constraints (12 November 2026)
+
+Four version snapshots record the exact packages installed by successful GitHub Actions run 43186060507 on Linux x86_64: Python 3.13/3.14 pure tests, Ruff, Home Assistant 2026.10.4 isolated runtime and Home Assistant 2026.11.0 persistent storage. Reproducible jobs now install under full constraints and use the offline `.github/ci/lock_check.py` to reject missing, unexpected or drifted distributions, excluding only bootstrap pip/setuptools/wheel. `pip check` remains mandatory.
+
+**Limits:** versions are pinned, but package artifacts are **not** SHA256 hash-pinned; this is not a cryptographic lock. The snapshots cover the reviewed CI platforms and interpreters only. `latest-homeassistant-import` intentionally remains floating as a forward compatibility signal.
+
+**Updates:** review Dependabot proposals against these snapshots. Regenerate with a clean runner and a reviewed package inventory before rerunning every mandatory CI job. Do not weaken the verifier to obtain a successful status. Pinning is not production acceptance.
+
+## FR — Recette synthétique de sauvegarde et restauration (12 novembre 2026)
+
+La matrice bloquante de persistance exécute maintenant un **troisième processus Home Assistant Core** après la séquence écriture/redémarrage déjà existante. Le script de CI `scripts/ci_backup_restore.py` réalise une copie ciblée et contrôlée du fichier physique de décisions synthétiques dans `RUNNER_TEMP`, écrit une empreinte SHA256 et restaure vers une **autre configuration Home Assistant vierge**. Le troisième processus recharge ensuite les décisions, vérifie leur attribution et confirme qu'une correction de la source doit repasser en revue.
+
+Des tests unitaires refusent notamment les archives altérées, les manifestes étrangers, les liens symboliques, l'absence de fichier, les enregistrements corrompus et toute invocation en dehors des dossiers synthétiques de GitHub Actions. Les trois scénarios `baseline-self`, `candidate-self` et `baseline-to-candidate` restent obligatoires.
+
+**Limite essentielle :** cette vérification couvre la restauration physique du magasin des décisions Trybatec, **pas** une restauration complète de sauvegarde Home Assistant, ni la base Recorder de production. Le backend Recorder est testé séparément en CI avec SQLite synthétique. Aucun fichier réel de l'utilisateur n'est lu ou modifié.
+
+## EN — Synthetic backup/restore verification (12 November 2026)
+
+Each mandatory persistence matrix case now verifies a **third, fresh Home Assistant Core process**. A CI-only script snapshots the known synthetic Trybatec decision Store in `RUNNER_TEMP`, writes an SHA256 manifest, verifies it before restoring into a separate clean HA configuration, and then checks persisted decisions and source-change invalidation through the real Store reader.
+
+Unit tests reject tampered backup bytes, foreign manifest keys, symlinks, missing/corrupt files and paths outside GitHub Actions synthetic temporary directories.
+
+**Scope limit:** this proves physical restoration of the synthetic Trybatec decisions Store, **not** full Home Assistant backup restore or a production Recorder database recovery. Recorder is independently tested against isolated SQLite in the existing E2E suite. No real user data is touched.
+
+### FR — Reprise de la file SQLite synthétique
+
+La suite integration_tests/test_ha_recorder_multimeter.py sauvegarde également, après arrêt complet du processus interrompu, le magasin physique .storage et une base SQLite de file d'attente adaptatrice (via l'API de sauvegarde SQLite). Les interruptions avant la deuxième écriture et après la troisième écriture sont restaurées dans un répertoire distinct, puis vérifiées par un nouveau processus HA Core : neuf tranches horaires uniques, aucune duplication et copie source inchangée.
+
+Ce scénario ne constitue pas un test de restauration d'une véritable base Home Assistant Recorder. La validation complète d'une sauvegarde système reste distincte et nécessite un chantier autorisé.
+
+### EN — Synthetic SQLite queue recovery
+
+The multimeter integration test backs up the physical .storage ledger and the synthetic SQLite queue adapter after the interrupted process stops, using the SQLite backup API. It restores them into another configuration; a new HA Core process resumes to nine unique time buckets, with no duplicates and an unchanged source. This is not full backup/restore testing of an actual Home Assistant Recorder database.

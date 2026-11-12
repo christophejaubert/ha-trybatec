@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 

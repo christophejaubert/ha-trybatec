@@ -12,8 +12,8 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import CoreState
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
+from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.components.recorder.common import async_wait_recording_done
 
 from custom_components.trybatec.api import TrybatecClient
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN

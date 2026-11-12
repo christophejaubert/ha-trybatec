@@ -76,3 +76,9 @@ The reference policy is [docs/SECURE_DEVELOPMENT_POLICY.md](docs/SECURE_DEVELOPM
 - Record the candidate SHA and actual check conclusions. Never equate automatic tests with Home Assistant acceptance, business sign-off or publication.
 - After each merge, reconcile the main SHA, its CI, issues/PRs and documentation. A merge is neither a tag nor a release.
 - Never bypass or weaken a failing control merely to obtain a green result.
+
+## Référentiel obligatoire IHM / Mandatory UI guidelines
+
+**FR :** toute contribution modifiant une interface, un parcours ou un composant doit se conformer à [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md) (comportement, disponibilité, risque, navigation, données et accessibilité) et à [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) (palette, pictogrammes, tokens, contrastes). La couleur d'une action ne reprend pas automatiquement celle d'un état. Un bouton neutre actif doit rester distinct d'un bouton désactivé ; le vert de marque ne signifie pas « sans danger ». Référencer ces documents dans les PR et justifier les écarts. Respecter les contrôles CI exacts et la recette métier distincte.
+
+**EN:** Any contribution changing an interface, journey or component must follow [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md) (behavior, availability, risk, navigation, provenance and accessibility) and [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) (palette, icons, tokens and contrast). Button colors never automatically inherit nearby check status; neutral enabled controls must not resemble disabled controls; brand green is not a safety assertion. Cite these documents in UI PRs, justify exceptions, and keep exact-SHA CI and real HA acceptance distinct.

@@ -20,7 +20,7 @@ function trybatecEnergySetupGuidance(account, energy) {
   const active=meters.filter(m=>m.status==="en_service");
   const retired=meters.filter(m=>m.status==="depose");
   const ledger=a.ledger||{}, reasons=[];
-  const add=(code,level,tab,fr,en)=>reasons.push({code,level,tab,fr,en});
+  const add=(code,level,tab,fr,en,physical_key=null)=>reasons.push({code,level,tab,fr,en,physical_key});
   if (energy?.status==="unconfigured")
     add("energy_initial_setup","required","overview",
       "Initialiser la configuration du tableau Énergie.",
@@ -34,26 +34,24 @@ function trybatecEnergySetupGuidance(account, energy) {
     const missing=active.filter(m=>m.last_index===null||m.last_index===undefined).length;
     if (units) add("meter_units","required","meters",
       units+" compteur(s) en service avec une unité non vérifiée.",
-      units+" active meter(s) with an unverified unit.");
+      units+" active meter(s) with an unverified unit.",
+      units===1?active.find(m=>m.unit_verified!==true)?.physical_key:null);
     if (missing) add("meter_indexes","required","meters",
       missing+" compteur(s) en service sans dernier index exploitable dans cet aperçu.",
-      missing+" active meter(s) without a usable latest index in this view.");
+      missing+" active meter(s) without a usable latest index in this view.",
+      missing===1?active.find(m=>m.last_index===null||m.last_index===undefined)?.physical_key:null);
   }
   if (Number(ledger.pending)>0)
     add("recorder_pending","required","energy",
       "Des imports Recorder restent en attente de vérification.",
       "Recorder imports are pending verification.");
-  const versioned=Array.isArray(ledger.series)?ledger.series:[];
-  // A verified physical or unrelated-fluid revision does NOT establish
-  // consolidated historical coverage for a retired meter of another scope.
-  const retiredWithoutConsolidation=retired.filter(m=>!versioned.some(row=>
-    row.scope?.kind==="consolidated"&&row.scope?.lot===m.lot&&
-    row.scope?.fluid===m.fluid&&Array.isArray(row.versions)&&
-    row.versions.some(v=>["verified","active","archived"].includes(v.state))));
-  if (retiredWithoutConsolidation.length)
+  // The read-only ledger is not independent proof of physical-meter continuity.
+  // Even a matching, "verified" consolidated revision cannot authorize bulk Energy insertion.
+  if (retired.length)
     add("retired_history","unverified","history",
-      "La consolidation Recorder de "+retiredWithoutConsolidation.length+" compteur(s) déposé(s) n’est pas confirmée pour le bon lot et fluide.",
-      "Recorder consolidation for "+retiredWithoutConsolidation.length+" retired meter(s) is not confirmed for the matching dwelling and utility.");
+      "La continuité historique de "+retired.length+" compteur(s) déposé(s) n’est pas démontrée par cet aperçu.",
+      "Historical continuity for "+retired.length+" retired meter(s) is not proven by this view.",
+      retired.length===1?retired[0].physical_key:null);
   const hasSources=Array.isArray(energy?.sources)&&energy.sources.length>0;
   const mode=energy?.status==="not_loaded"?"technical_unavailable":
     reasons.some(r=>r.level==="required")?"configuration_incomplete":
@@ -241,6 +239,20 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Dernière observation source","Latest source observation"],
   ["Dernier index exploitable","Latest usable meter index"],
   ["Statut de l’unité","Unit verification status"],
+  ["Sans index courant","No current index"],
+  ["Consulter l'historique","Review history"],
+  ["Rechercher les relevés","Search readings"],
+  ["Analyser les index","Analyze indices"],
+  ["Consulter l’unité","View unit"],
+  ["Vérifier l’unité","Verify unit"],
+  ["Conflit d’unité","Unit conflict"],
+  ["Date non établie dans les données consultées","Date not established from consulted data"],
+  ["Compteur déposé : vérifier séparément les éventuels index historiques.","Retired meter: review historical indices separately."],
+  ["Analyse historique effectuée : aucune date retrouvée dans le périmètre consulté.","History scan completed: no date found in the reviewed scope."],
+  ["Origine : unité enregistrée manuellement","Source: unit saved manually"],
+  ["Origine : unité explicitement fournie par l’API","Source: unit explicitly provided by API"],
+  ["Origine : proposition du graphique, à confirmer","Source: chart suggestion, awaiting confirmation"],
+  ["Origine de l’unité non vérifiée","Unit source not verified"],
   ["Vérifiée","Verified"],
   ["À vérifier","To verify"],
   ["Non renseigné","Not provided"],
@@ -678,13 +690,13 @@ const style = [
   ".shell{grid-template-columns:1fr;gap:14px}.nav{position:static;display:flex;flex-direction:row;overflow-x:auto;border:0;padding:4px 0;white-space:nowrap}",
   ".nav button{padding:10px 12px}.nav button span{white-space:nowrap}.intro{display:block}.columns,.grid-two,.detail-grid,.form-grid{grid-template-columns:1fr}",
   ".card{padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.stat strong{font-size:23px}}",
-  ":host{--trybatec-action-bg:#286C32;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#286C32}",
-  ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#8ADD8F;--trybatec-action-text:#152D1A;--trybatec-action-border:#8ADD8F}",
+  ":host{--trybatec-action-bg:#25364A;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#25364A;--trybatec-neutral-bg:#F8FAFC;--trybatec-neutral-fg:#1D2939;--trybatec-neutral-border:#64748B;--trybatec-status-success:#286C32;--trybatec-status-warning:#865100;--trybatec-status-neutral:#475569;--trybatec-status-na:#59687A}",
+  ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#DAE5F0;--trybatec-action-text:#172334;--trybatec-action-border:#DAE5F0;--trybatec-neutral-bg:#213244;--trybatec-neutral-fg:#F1F5F9;--trybatec-neutral-border:#9FB2C7;--trybatec-status-success:#8ADD8F;--trybatec-status-warning:#FFD166;--trybatec-status-neutral:#CBD5E1;--trybatec-status-na:#AAB7C4}",
   ".nav-wrap{position:relative;min-width:0}.nav-forward{display:none}.menu-toggle{display:none}",
   ".primary{background:var(--trybatec-action-bg);color:var(--trybatec-action-text);border-color:var(--trybatec-action-border)}",
-  ".secondary{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg);border-color:var(--trybatec-green-fg)}",
-  ".nav button.active{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}.nav button.active ha-icon{color:var(--trybatec-green-fg)}",
-  ".stat ha-icon,.link{color:var(--trybatec-green-fg)}.badge{background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
+  ".secondary{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border-color:var(--trybatec-neutral-border)}",
+  ".nav button.active{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);box-shadow:inset 3px 0 var(--trybatec-neutral-border)}.nav button.active ha-icon{color:var(--trybatec-neutral-fg)}",
+  ".stat ha-icon{color:var(--trybatec-neutral-fg)}.link{color:var(--trybatec-neutral-fg);text-decoration:underline}.badge{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border:1px solid var(--trybatec-neutral-border)}",
   ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
   ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
   ".poll-duration{grid-column:span 2;min-width:0}.duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
@@ -695,10 +707,28 @@ const style = [
   ".readiness-row:first-child{border-top:0;padding-top:0}.readiness-row ha-icon{--mdc-icon-size:23px;flex-shrink:0}",
   ".readiness-row.ok ha-icon{color:var(--trybatec-green-fg)}.readiness-row.pending ha-icon{color:var(--warning-color,#A46A0C)}",
   ".readiness-row p{font-size:13px;color:var(--secondary-text-color);margin-top:4px}.readiness-row .actions{margin-top:8px}",
+
+  ".primary:hover:not(:disabled),.secondary:hover:not(:disabled){box-shadow:0 0 0 1px var(--trybatec-neutral-border)}",
+  "button:disabled{cursor:not-allowed;opacity:.40;filter:grayscale(.45);box-shadow:none}",
+  ".readiness-row.ok ha-icon{color:var(--trybatec-status-success)}.readiness-row.pending ha-icon{color:var(--trybatec-status-neutral)}",
+  ".readiness-row.issue ha-icon{color:var(--trybatec-status-warning)}.readiness-row.na ha-icon{color:var(--trybatec-status-na)}",
+  ".readiness-optional{border-top:1px solid var(--divider-color,#ddd);margin-top:12px;padding-top:12px}",
+  ".readiness-optional h4{font-size:14px;margin:4px 0 10px}.readiness-optional .readiness-row{border:0;padding:8px 0}",
+  ".status-indicator{display:inline-flex;align-items:center;gap:7px;vertical-align:middle;font-weight:650}",
+  ".status-indicator ha-icon{--mdc-icon-size:18px;flex-shrink:0}",
+  ".status-indicator.passed ha-icon{color:var(--trybatec-status-success)}",
+  ".status-indicator.issue ha-icon{color:var(--trybatec-status-warning)}",
+  ".status-indicator.unverified ha-icon{color:var(--trybatec-status-neutral)}",
+  ".status-indicator.na ha-icon{color:var(--trybatec-status-na)}",
+  ".status-indicator.known ha-icon{color:var(--trybatec-status-neutral)}",
+  ".meter-detail-field .field-context{margin-top:7px;color:var(--secondary-text-color);font-size:12px;line-height:1.4}",
+  ".meter-detail-field .context-button{display:inline-flex;align-items:center;gap:6px;margin-top:9px;padding:7px 10px;font-size:12px;max-width:100%}",
+  ".meter-detail-field .context-button ha-icon{--mdc-icon-size:17px}",
+  ".meter-history-context{margin:0 0 15px;padding:12px;border:1px solid var(--trybatec-section-border);border-radius:10px}",
   "button[data-tariff-delete]{color:var(--error-color,#AF263A);background:transparent;border-color:currentColor}",
-  "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-green-bg);color:var(--trybatec-green-fg)}",
+  "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border:1px solid var(--trybatec-neutral-border)}",
   ".nav-wrap{padding-inline-end:34px}.nav{scrollbar-width:none;scroll-behavior:smooth}.nav::-webkit-scrollbar{display:none}",
-  ".nav-forward{display:flex;align-items:center;justify-content:center;position:absolute;inset-inline-end:0;top:0;bottom:0;min-width:38px;border:0;color:var(--trybatec-green-fg);background:linear-gradient(to right,transparent,var(--card-background-color,#fff) 35%)}",
+  ".nav-forward{display:flex;align-items:center;justify-content:center;position:absolute;inset-inline-end:0;top:0;bottom:0;min-width:38px;border:0;color:var(--trybatec-neutral-fg);background:linear-gradient(to right,transparent,var(--card-background-color,#fff) 35%)}",
   ".nav-forward[hidden]{display:none}.nav-forward ha-icon{--mdc-icon-size:24px}.poll-duration,.meter-options-grid>div,.logging-field{grid-column:1/-1}.duration-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}",
 ].join("");
 
@@ -709,6 +739,7 @@ class TrybatecPanel extends HTMLElement {
     this._tab = "overview";
     this._account = 0;
     this._meter = 0;
+    this._historyContextKey=null;
     this._query = "";
     this._data = null;
     this._loading = false;
@@ -964,15 +995,30 @@ class TrybatecPanel extends HTMLElement {
       if (nav) nav.scrollBy({left:Math.max(140,nav.clientWidth*0.75),behavior:"smooth"});
       return;
     }
+    if (btn.dataset.energyMeter!==undefined || btn.dataset.energyHistory!==undefined) {
+      const key=btn.dataset.energyMeter??btn.dataset.energyHistory;
+      const index=this._meters().findIndex(m=>m.physical_key===key);
+      if (index<0) {this._tab="meters";this._query="";this._render();return;}
+      this._meter=index;this._query="";
+      if (btn.dataset.energyHistory!==undefined) {
+        this._historyContextKey=key;this._originMeter=key;
+        this._historySelected="";this._readingSelected="";this._tab="history";
+      } else {
+        this._historyContextKey=null;this._tab="meters";
+      }
+      this._render();return;
+    }
+    if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
+    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {
-      this._meter=Number(btn.dataset.meter);this._meterAudit=null;
+      this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
       this._energyHandoffPreview=null;this._render();return;
     }
     if (btn.dataset.account !== undefined) {
-      this._account=Number(btn.dataset.account);this._meter=0;this._settingsInput=null;this._durationInput=null;
+      this._account=Number(btn.dataset.account);this._meter=0;this._historyContextKey=null;this._settingsInput=null;this._durationInput=null;
       this._loggingInput=null;this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
       this._historyPreview=null;this._historySelected="";
       this._tariffInput={year:new Date().getFullYear(),fluid:"EF",physical_key:"",rate:"",status:"provisional"};
@@ -990,7 +1036,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._render();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffDelete !== undefined) {this._sendTariff(true);return;}
     if (btn.dataset.costPreview !== undefined) {this._previewAnnualCosts();return;}
@@ -1268,7 +1314,9 @@ class TrybatecPanel extends HTMLElement {
     return '<article class="card stat"><ha-icon icon="'+icon+'"></ha-icon><div><strong>'+safe(number)+'</strong><span>'+safe(label)+'</span></div></article>';
   }
   _badge(m) {
-    const labels={en_service:"En service",depose:"Déposé",inconnu:"Statut à vérifier"};
+    const labels={en_service:this._t("En service","Active"),
+      depose:this._t("Déposé","Retired"),
+      inconnu:this._t("Statut à vérifier","Status to verify")};
     return '<span class="pill '+(m.status==="en_service"?"on":m.status==="depose"?"off":"unknown")+'">'+labels[m.status]+'</span>';
   }
   _meters() {return this._current ? this._current.meters : [];}
@@ -1283,7 +1331,9 @@ class TrybatecPanel extends HTMLElement {
       '<ha-icon class="fluid-icon" icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':"";
     const line='<span class="meter-name">'+fluidIcon+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
       '<span class="meter-sub">'+safe(m.lot||"Lot non renseigné")+' · '+safe(m.unit||"Unité à vérifier")+
-      ' · '+(m.status==="depose"?"Déposé":m.status==="en_service"?"En service":"Statut inconnu")+'</span>';
+      ' · '+(m.status==="depose"?this._t("Déposé","Retired"):
+        m.status==="en_service"?this._t("En service","Active"):
+          this._t("Statut inconnu","Unknown status"))+'</span>';
     if (action==="detail") {
       const selected=i===this._meter;
       return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
@@ -1300,56 +1350,105 @@ class TrybatecPanel extends HTMLElement {
     const active=meters.filter(m=>m.status==="en_service");
     const retired=meters.filter(m=>m.status==="depose");
     const missingDates=retired.filter(m=>!m.first_observed_at||!m.last_source_observed_at);
-    const tariffsConfigured=Object.keys(a.tariffs||{}).length+
-      Object.keys(a.meter_tariffs||{}).length>0;
     const ledger=a.ledger||{};
     const verified=(ledger.series||[]).flatMap(row=>
       (row.versions||[]).filter(v=>v.state==="verified"||v.state==="archived"));
     const energySources=(this._data?.energy?.sources||[]).filter(src=>
-      typeof src.statistic_id==="string" && src.statistic_id.startsWith("trybatec:"));
-    const activeReady=active.length>0 && active.every(m=>
+      typeof src.statistic_id==="string"&&src.statistic_id.startsWith("trybatec:"));
+    const tariffsConfigured=Object.keys(a.tariffs||{}).length+
+      Object.keys(a.meter_tariffs||{}).length>0;
+    const activeReady=a.data_loaded===true && active.length>0 && active.every(m=>
       m.last_index!==null && m.last_index!==undefined && m.unit_verified);
-    const item=(ok,title,description,tab,action,optional=false)=>
-      '<div class="readiness-row '+(ok?"ok":"pending")+'">'+
-      '<ha-icon icon="'+(ok?"mdi:check-circle-outline":
-        optional?"mdi:information-outline":"mdi:alert-circle-outline")+
-      '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
-      '<p>'+safe(description)+'</p>'+
-      (!ok?'<div class="actions"><button type="button" class="secondary" data-tab="'+safe(tab)+'">'+
-        safe(action)+'</button></div>':"")+'</div></div>';
+    const conflict=(a.meter_options||[]).some(o=>
+      o.source_unit==="conflict" &&
+      active.some(m=>m.physical_key===o.physical_key));
+    const check=(kind,title,description,tab,action)=>{
+      const className=kind==="passed"?"ok":kind==="issue"?"issue":kind==="na"?"na":"pending";
+      const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
+        unverified:"mdi:help-circle-outline",na:"mdi:minus-circle-outline"}[kind];
+      const label={passed:t("Conforme","Passed"),issue:t("Anomalie détectée","Issue detected"),
+        unverified:t("Non vérifié","Not verified"),na:t("Non applicable","Not applicable")}[kind];
+      return '<div class="readiness-row '+className+'"><ha-icon icon="'+icon+
+        '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
+        '<p class="muted">'+safe(label)+'</p><p>'+safe(description)+'</p>'+
+        (action?'<div class="actions"><button type="button" class="secondary" data-tab="'+
+          safe(tab)+'">'+safe(action)+'</button></div>':"")+'</div></div>';
+    };
+    const feature=(title,description,tab,action)=>
+      '<div class="readiness-row"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
+      '<div><strong>'+safe(title)+'</strong><p>'+safe(description)+'</p>'+
+      '<div class="actions"><button type="button" class="secondary" data-tab="'+
+      safe(tab)+'">'+safe(action)+'</button></div></div></div>';
+    const sourceStatus=active.length===0?"na":conflict?"issue":activeReady?"passed":"unverified";
+    const retiredCoverage=this._tariffCoverage?.get(a.entry_id);
+    // An account-wide scan does not prove a particular retired meter was observed.
+    // Require exact physical identity and two verified supplier bounds for each.
+    const retiredBoundsVerified=retiredCoverage?.status==="complete" &&
+      Array.isArray(retiredCoverage.meters) && retired.every(m=>{
+        const bound=retiredCoverage.meters.find(row=>
+          row.physical_key===m.physical_key);
+        return Boolean(bound?.first_observed_at && bound?.last_source_observed_at);
+      });
+    const retiredStatus=retired.length===0?"na":
+      retiredBoundsVerified && missingDates.length===0?"passed":"unverified";
+    const sourceText=active.length===0?t("Aucun compteur en service dans cet inventaire.",
+      "No active meters in this inventory."):
+      conflict?t("Une contradiction d’unité source a été signalée pour un compteur en service.",
+      "A source-unit contradiction was reported for an active meter."):
+      activeReady?t("Relevés courants présents et unités renseignées ; ce contrôle n’est pas un audit exhaustif.",
+      "Current readings and units are present; this is not an exhaustive audit."):
+      t("Un ou plusieurs relevés courants ou unités restent à vérifier.",
+      "One or more current readings or units require verification.");
+    const retiredText=retired.length===0?t("Aucun compteur déposé connu.",
+      "No known retired meter."):missingDates.length===0?
+      (retiredStatus==="passed"?t(
+        "Bornes vérifiées par une analyse historique complète ; la continuité des relevés demeure un contrôle distinct.",
+        "Boundaries verified by a complete historical scan; reading continuity is a separate check."
+      ):t(
+        "Bornes connues dans l’aperçu, mais recherche historique complète non vérifiée.",
+        "Dates exist in the snapshot, but a complete historical scan has not been verified."
+      )):
+      String(missingDates.length)+t(" compteur(s) déposé(s) sans bornes complètes dans cet aperçu. Cela ne prouve pas la perte de relevés.",
+        " retired meter(s) lack complete boundaries in this snapshot. This does not prove loss of readings.");
     return '<section class="card" style="margin-bottom:20px" aria-label="'+
       safe(t("État de la configuration","Configuration status"))+'">'+
       '<h3>'+safe(t("État de la configuration","Configuration status"))+'</h3>'+
-      '<p class="muted" style="margin-bottom:16px">'+
-      safe(t("Contrôles disponibles, prérequis et actions possibles. Une configuration facultative absente ne constitue pas une panne.",
-      "Available checks, prerequisites and actions. Missing optional settings are not system failures."))+'</p>'+
+      '<p class="muted" style="margin-bottom:16px">'+safe(t(
+        "Les contrôles constatés sont séparés des fonctionnalités facultatives et des diagnostics avancés.",
+        "Verified checks are separate from optional workflows and advanced diagnostics."))+'</p>'+
       '<div class="readiness-list">'+
-      item(activeReady,t("Synchronisation des compteurs","Meter synchronization"),
-        activeReady?t("Relevés courants présents, unités vérifiées.","Current readings available, units verified."):
-        t("Vérifier les derniers relevés et les unités des compteurs en service.","Check readings and units of active meters."),
-        "meters",t("Vérifier les compteurs","Review meters"))+
-      item(missingDates.length===0,t("Historique des compteurs déposés","Retired-meter history"),
-        missingDates.length===0?t("Bornes historiques disponibles pour les compteurs déposés.","Historical reading dates are available."):
-        String(missingDates.length)+t(" compteur(s) déposé(s) sans observations historiques complètes dans cet aperçu."," retired meter(s) without complete historical observations in this view."),
-        "meters",t("Vérifier les relevés historiques","Review historical readings"))+
-      item(verified.length>0 && !ledger.pending,t("Versions historiques Recorder","Recorder history versions"),
-        verified.length?String(verified.length)+t(" version(s) vérifiée(s) ; import(s) en attente : "," verified version(s); pending imports: ")+
-          String(ledger.pending||0)+".":t("Aucune version historique vérifiée. L’import nécessite une prévisualisation, une sauvegarde et une vérification.","No verified version. Import requires a preview, recoverable backup and persistence check."),
-        "energy",t("Préparer et vérifier Recorder","Prepare and verify Recorder"))+
-      item(energySources.length>0,t("Sources Trybatec dans Énergie","Trybatec Energy sources"),
-        energySources.length?String(energySources.length)+t(" source(s) Trybatec référencée(s)."," Trybatec source(s) configured."):
-        t("Aucune source Trybatec référencée. La première activation est distincte du remplacement d’une version.","No Trybatec source configured. First activation is separate from version replacement."),
-        "energy",t("Examiner les prérequis Énergie","Review Energy prerequisites"))+
-      item(tariffsConfigured,t("Tarifs annuels","Annual tariffs"),
-        tariffsConfigured?t("Tarifs renseignés ; leurs exercices et leur couverture restent à vérifier.","Tariffs entered; years and coverage still require checking."):
-        t("Aucun tarif annuel renseigné : coûts estimés indisponibles (option facultative).","No annual tariffs: cost estimates unavailable (optional)."),
-        "tariffs",t("Renseigner les tarifs","Enter tariffs"),true)+
-      '<div class="readiness-row pending"><ha-icon icon="mdi:information-outline" aria-hidden="true"></ha-icon>'+
-      '<div><strong>'+safe(t("Audit des identités techniques","Technical identity audit"))+'</strong><p>'+
-      safe(t("Un résultat nul dans les compteurs d’erreurs ne prouve pas un audit exhaustif. Aucune suppression sans vérifications de dépendances.",
-        "Zero reported errors does not prove a complete audit. No deletion without dependency checks."))+
-      '</p><div class="actions"><button type="button" class="secondary" data-tab="diagnostics">'+
-      safe(t("Consulter les diagnostics","Review diagnostics"))+'</button></div></div></div>'+
+      check(sourceStatus,t("Synchronisation des compteurs","Meter synchronization"),
+        sourceText,"meters",activeReady?"":t("Vérifier les compteurs","Review meters"))+
+      check(retiredStatus,t("Historique des compteurs déposés","Retired-meter history"),
+        retiredText,"meters",retiredStatus==="na"||retiredStatus==="passed"?"":t(
+          "Rechercher les relevés historiques","Search historical readings"))+
+      '</div><div class="readiness-optional"><h4>'+safe(t(
+        "Parcours disponibles selon vos besoins","Workflows available when needed"))+'</h4>'+
+      feature(t("Versions historiques Recorder","Recorder history versions"),
+        verified.length?String(verified.length)+t(" version(s) historisée(s) vérifiée(s). Import(s) à vérifier : ",
+          " verified historical version(s). Pending imports: ")+String(ledger.pending||0)+"."
+          :t("Aucune version Recorder vérifiée. La préparation et l’importation sont facultatives.",
+             "No verified Recorder version. Preparing and importing one is optional."),
+        "energy",t("Examiner Recorder","Review Recorder"))+
+      feature(t("Sources Trybatec dans Énergie","Trybatec Energy sources"),
+        energySources.length?String(energySources.length)+t(
+          " source(s) identifiée(s), sans validation exhaustive du double comptage.",
+          " source(s) found, without an exhaustive double-counting audit.") :
+          t("Aucune source Trybatec configurée. La première activation utilise un parcours distinct.",
+            "No Trybatec source configured. First activation uses a separate workflow."),
+        "energy",t("Consulter Énergie","Review Energy"))+
+      feature(t("Tarifs annuels (facultatifs)","Annual tariffs (optional)"),
+        tariffsConfigured?t("Tarifs présents ; leur couverture reste à examiner.",
+          "Tariffs are present; their coverage still needs review."):
+          t("Aucun tarif : seules les estimations de coûts correspondantes sont indisponibles.",
+            "No tariffs: only the corresponding cost estimates are unavailable."),
+        "tariffs",t("Consulter les tarifs","Review tariffs"))+
+      '</div><div class="readiness-optional"><h4>'+safe(t(
+        "Diagnostics avancés","Advanced diagnostics"))+'</h4>'+
+      feature(t("Audit des identités techniques","Technical identity audit"),
+        t("Audit non exhaustif. Les anciennes entités ne sont jamais déclarées supprimables sur ce seul constat.",
+          "The audit is not exhaustive. Old entities are never considered safe to delete on this evidence alone."),
+        "diagnostics",t("Consulter les diagnostics","Review diagnostics"))+
       '</div></section>';
   }
   _overview() {
@@ -1554,11 +1653,83 @@ class TrybatecPanel extends HTMLElement {
       this._meterOptionError="Enregistrement refusé ou recharge en cours. Actualisez les données et vérifiez l’unité source et l’UUID.";
     } finally {this._meterOptionBusy=false;this._render();}
   }
+
+  _statusIndicator(kind, value) {
+    const icons={
+      passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
+      unverified:"mdi:help-circle-outline",na:"mdi:minus-circle-outline",
+      known:"mdi:information-outline"
+    };
+    const choice=Object.hasOwn(icons,kind)?kind:"unverified";
+    return '<span class="status-indicator '+choice+'"><ha-icon icon="'+
+      icons[choice]+'" aria-hidden="true"></ha-icon><span>'+safe(value)+
+      '</span></span>';
+  }
+  _meterField(label, value, kind="known", context="", action="", explanation="") {
+    return '<div class="meter-detail-field"><span class="smallhead">'+safe(label)+'</span>'+
+      '<strong>'+this._statusIndicator(kind,value)+'</strong>'+
+      (explanation?'<p class="field-context">'+safe(explanation)+'</p>':"")+
+      (context?'<button type="button" class="secondary context-button" data-meter-context="'+
+        safe(context)+'"><ha-icon icon="mdi:arrow-right-circle-outline" aria-hidden="true"></ha-icon>'+
+        safe(action)+'</button>':"")+'</div>';
+  }
+  _openMeterContext(action) {
+    const meter=this._meters()[this._meter];
+    if (!meter) return;
+    if (action==="history") {
+      this._historyContextKey=meter.physical_key;
+      this._originMeter=meter.physical_key;
+      this._historySelected="";this._readingSelected="";
+      this._tab="history";this._query="";
+      this._render();
+      this.shadowRoot.querySelector("[data-history-preview]")?.focus();
+      return;
+    }
+    // Focus the scan button, but do not start supplier traffic on navigation.
+    if (action==="scan") {
+      this._tab="meters";this._render();
+      const button=this.shadowRoot.querySelector("[data-historical-scan]");
+      button?.focus();button?.scrollIntoView?.({block:"nearest"});
+      return;
+    }
+    if (action==="unit") {
+      this._tab="meters";this._render();
+      const input=this.shadowRoot.querySelector("[data-meter-option-field='unit']");
+      const fallback=this.shadowRoot.querySelector("[data-open-options]");
+      (input||fallback)?.focus();
+      (input||fallback)?.scrollIntoView?.({block:"nearest"});
+    }
+  }
+
   _meterDetail(m) {
     if(!m) return '<div class="card empty">Sélectionnez un compteur pour consulter ses informations.</div>';
     const account=this._current;
     const related=account.entities.filter(e=>
       e.unique_id && (e.unique_id.includes("_"+m.serial+"_")||e.unique_id.endsWith("_"+m.serial+"_index")));
+    const option=(account.meter_options||[]).find(row=>row.physical_key===m.physical_key);
+    const coverage=this._tariffCoverage.get(account.entry_id);
+    // A complete account-level query is not evidence for every physical meter.
+    const meterCoverage=coverage?.status==="complete" && Array.isArray(coverage.meters)?
+      coverage.meters.find(row=>row.physical_key===m.physical_key):null;
+    const checkedHistory=Boolean(meterCoverage);
+    const unmatchedAccountScan=coverage?.status==="complete" && !checkedHistory;
+    const unavailableObservation=checkedHistory?
+      this._t("Date non établie dans les données consultées",
+        "Date not established from consulted data"):
+      this._t("Non vérifié","Not verified");
+    const historyExplanation=unmatchedAccountScan?
+      this._t("Analyse globale terminée, sans preuve attribuable à ce compteur physique.",
+        "Account-wide scan finished without evidence linked to this physical meter."):
+      this._t("Analyse historique effectuée : aucune date retrouvée pour ce compteur dans le périmètre consulté.",
+        "Historical scan complete: no date found for this meter in the queried scope.");
+    const unitOrigin=option?.selection_origin==="manual"?
+      this._t("Origine : unité enregistrée manuellement","Source: manually recorded unit"):
+      option?.selection_origin==="api"?
+      this._t("Origine : unité explicitement fournie par l’API","Source: unit explicitly supplied by API"):
+      option?.selection_origin==="chart_proposal"?
+      this._t("Origine : proposition du graphique, à confirmer","Source: chart proposal, pending confirmation"):
+      this._t("Origine de l’unité non vérifiée","Unit provenance not verified");
+    const conflict=option?.source_unit==="conflict";
     return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2 class="meter-title">'+
       (FLUID_ICON[m.fluid]?'<ha-icon icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':'')+
       safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
@@ -1567,17 +1738,45 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
       '<div><span class="smallhead">Unité</span><strong>'+safe(m.unit||"À vérifier")+'</strong></div>'+
-      '<div><span class="smallhead">Dernier index disponible</span><strong>'+safe(m.last_index===null?"Indisponible":this._number(m.last_index))+'</strong></div>'+
-      '<div><span class="smallhead">Première observation connue</span><strong>'+safe(this._date(m.first_observed_at)||"Non disponible")+'</strong></div>'+
-      '<div><span class="smallhead">Dernière observation source</span><strong>'+safe(this._date(m.last_source_observed_at)||"Non disponible")+'</strong></div>'+
-      '<div><span class="smallhead">Date du dernier index exploitable</span><strong>'+safe(this._date(m.last_observed_at)||"Non vérifié")+'</strong></div>'+
+      this._meterField(this._t("Dernier index disponible","Latest available index"),
+        m.last_index===null||m.last_index===undefined?
+          (m.status==="depose"?this._t("Sans index courant","No current index"):
+            this._t("Non vérifié","Not verified")):this._number(m.last_index),
+        m.last_index!==null&&m.last_index!==undefined?"known":m.status==="depose"?"na":"unverified",
+        "history",this._t("Consulter l'historique","Review history"),
+        m.status==="depose"?this._t(
+          "Compteur déposé : vérifier séparément les éventuels index historiques.",
+          "Retired meter: check historical readings separately."):"")+
+      this._meterField(this._t("Première observation connue","First known observation"),
+        this._date(m.first_observed_at)||unavailableObservation,
+        m.first_observed_at?"known":"unverified",
+        m.first_observed_at?"":"scan",m.first_observed_at?"":this._t(
+          "Rechercher les relevés","Search readings"),
+        !m.first_observed_at&&(checkedHistory||unmatchedAccountScan)?historyExplanation:"")+
+      this._meterField(this._t("Dernière observation source","Last source observation"),
+        this._date(m.last_source_observed_at)||unavailableObservation,
+        m.last_source_observed_at?"known":"unverified",
+        m.last_source_observed_at?"":"scan",m.last_source_observed_at?"":this._t(
+          "Rechercher les relevés","Search readings"),
+        !m.last_source_observed_at&&(checkedHistory||unmatchedAccountScan)?historyExplanation:"")+
+      this._meterField(this._t("Date du dernier index exploitable","Date of latest usable index"),
+        this._date(m.last_observed_at)||this._t("Non vérifié","Not verified"),
+        m.last_observed_at?"known":"unverified",
+        m.last_observed_at?"":"history",m.last_observed_at?"":this._t(
+          "Analyser les index","Review readings"))+
       (m.status==="depose" && m.historical_last_index_raw!==undefined?
         '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
         safe(this._number(m.historical_last_index_raw))+
         '</strong><span class="muted">'+safe(this._date(m.historical_last_index_at))+
         (m.historical_index_conflict?" · conflit de relevés à vérifier":" · relevé historique à qualifier")+
         '</span></div>':"")+
-      '<div><span class="smallhead">Statut de l’unité</span><strong>'+safe(m.unit_verified?"Vérifiée":"À vérifier")+'</strong></div>'+
+      this._meterField(this._t("Statut de l’unité","Unit status"),
+        m.unit_verified?this._t("Vérifiée","Verified"):
+          conflict?this._t("Conflit d’unité","Unit conflict"):
+          this._t("À vérifier","Not verified"),
+        m.unit_verified?"passed":conflict?"issue":"unverified",
+        "unit",m.unit_verified?this._t("Consulter l’unité","View unit"):
+          this._t("Vérifier l’unité","Verify unit"),unitOrigin)+
       '</div><h3>Relations techniques Home Assistant</h3>'+
       '<p class="muted">Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.</p>'+
       (related.length?related.map(e=>'<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span> '+
@@ -1585,7 +1784,8 @@ class TrybatecPanel extends HTMLElement {
       '<button type="button" class="secondary" data-entity-audit="'+safe(e.entity_id)+'" '+
       (this._meterAuditBusy?"disabled":"")+'>Auditer</button></div>').join(""):
       '<div class="empty">Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.</div>')+
-      '<div class="actions"><button type="button" class="secondary" data-tab="history">Historique & lissage</button>'+
+      '<div class="actions"><button type="button" class="secondary" data-meter-context="history">'+
+      safe(this._t("Historique & lissage","History & smoothing"))+'</button>'+
       '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
       this._auditDetails(m)+this._meterHistoricalMetrics(m)+this._meterOptionsEditor(m)+'</div>';
   }
@@ -1628,7 +1828,8 @@ class TrybatecPanel extends HTMLElement {
     const missing=meters.filter(m=>m.status==="depose" &&
       (!m.first_observed_at || !m.last_source_observed_at));
     const coverage=this._tariffCoverage.get(this._current.entry_id);
-    const historyHelp='<div class="notice'+(missing.length?' warning':'')+'" role="status">'+
+    // Missing dates are unverified, not a proven anomaly or warning.
+    const historyHelp='<div class="notice" role="status">'+
       (coverage?.status==="loading"?"Lecture en cours des relevés historiques du fournisseur…":
        coverage?.status==="error"?"Vérification historique incomplète : aucun relevé inventé.":
        coverage?.status==="complete"?(missing.length?String(missing.length)+
@@ -1947,7 +2148,9 @@ class TrybatecPanel extends HTMLElement {
     } finally {this._readingBusy=false;this._render();}
   }
   _readingReview() {
-    const list=this._historyPreview?.review_candidates||[];
+    const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    const list=(this._historyPreview?.review_candidates||[]).filter(c=>
+      !meter || (c.fluid===meter.fluid && c.meter_serial===meter.serial && c.lot===meter.lot));
     const item=list.find(x=>x.key===this._readingSelected);
     const explanation={
       sparse_interval:"Intervalle espacé (pas une erreur avérée)",
@@ -2001,6 +2204,41 @@ class TrybatecPanel extends HTMLElement {
       '<h3>Synthèse historique par fluide</h3>'+
       '<div class="empty">Aucune prévisualisation actuelle. Utilisez « Analyser les relevés » pour calculer les indicateurs à partir des observations source.</div></section>';
     const rows=(summary.by_meter||[]);
+    const selected=this._historyContextKey?
+      this._meters().find(m=>m.physical_key===this._historyContextKey):null;
+    if (this._historyContextKey && !selected) {
+      return '<section class="card" style="margin-top:16px" role="status"><h3>'+
+        safe(this._t("Compteur introuvable","Meter not found"))+'</h3><p>'+
+        safe(this._t("Le contexte du compteur sélectionné ne correspond plus à cet inventaire. Aucun résultat global n’est affiché.",
+          "The selected meter no longer belongs to this inventory. Account-wide results are hidden."))+
+        '</p></section>';
+    }
+    if (selected) {
+      const rowsForMeter=rows.filter(row=>row.physical_key===selected.physical_key &&
+        row.fluid===selected.fluid && row.lot===selected.lot &&
+        row.serial===selected.serial);
+      return '<section class="card" style="margin-top:16px"><h3>'+
+        safe(this._t("Synthèse du compteur sélectionné","Selected meter summary"))+
+        '</h3><p class="muted">'+safe(
+          this._t("Période analysée (compte) : ","Analyzed period (account): "))+
+          this._date(this._historyPreview.start_date)+" → "+
+          this._date(this._historyPreview.end_date)+'</p>'+
+        (rowsForMeter.length?'<div class="detail-grid">'+
+          rowsForMeter.map(row=>[
+            [this._t("Compteur","Meter"),row.serial],
+            [this._t("Première observation","First observation"),this._date(row.first_observed_at)],
+            [this._t("Dernière observation","Last observation"),this._date(row.last_observed_at)],
+            [this._t("Lacunes","Gaps"),this._number(row.gaps)],
+            [this._t("Baisses","Decreases"),this._number(row.decreases)],
+            [this._t("Conflits","Conflicts"),this._number(row.conflicts)],
+          ].map(([label,value])=>
+            '<div><span class="smallhead">'+safe(label)+'</span><strong>'+
+            safe(value)+'</strong></div>').join("")).join("")+
+          '</div>':'<div class="empty">'+safe(this._t(
+          "Aucun résultat pour ce compteur dans la période analysée.",
+          "No results for this meter in the analyzed period."))+'</div>')+
+        '</section>';
+    }
     return '<section class="card" style="margin-top:16px"><h3>Synthèse historique par fluide et compteur</h3>'+
       '<p class="muted">Période : '+safe(this._date(this._historyPreview.start_date))+
       ' → '+safe(this._date(this._historyPreview.end_date))+
@@ -2025,11 +2263,23 @@ class TrybatecPanel extends HTMLElement {
         '</tbody></table></div></details>':"")+'</section>';
   }
   _history() {
+    const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    if (this._historyContextKey && !meter) {
+      return this._heading(this._t("Historique & lissage","History & smoothing"),
+        this._t("Contexte de compteur non disponible","Meter context unavailable"))+
+        '<section class="card" role="status"><p>'+safe(this._t(
+          "Le compteur sélectionné ne figure plus dans ce logement. Aucun résultat d’un autre compteur n’est présenté.",
+          "The selected physical meter no longer belongs to this dwelling. No other meter results are shown."))+
+        '</p><div class="actions"><button type="button" class="secondary" data-history-context-clear>'+
+        safe(this._t("Afficher tous les compteurs","Show all meters"))+
+        '</button></div></section>';
+    }
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
       x=>x.interval_key===this._historySelected
     );
     const ready=proposal&&proposal.status==="linear_available_after_explicit_confirmation";
-    const list=this._historyPreview?.proposals?.intervals||[];
+    const list=(this._historyPreview?.proposals?.intervals||[]).filter(x=>
+      !meter || (x.fluid===meter.fluid && x.meter_serial===meter.serial && x.lot===meter.lot));
     const blockers={
       blocked_source_conflict:"Conflit d’index à examiner",
       blocked_unverified_unit:"Unité non vérifiée",
@@ -2039,6 +2289,16 @@ class TrybatecPanel extends HTMLElement {
     };
     return this._heading("Historique & lissage",
       "Répartition linéaire contrôlée, sans modification des relevés bruts.")+
+      (meter?'<section class="meter-history-context"><strong>'+
+        safe(this._t("Compteur sélectionné : ","Selected meter: ")+
+          (FLUID[meter.fluid]||meter.fluid)+" · "+meter.serial+" · "+meter.lot)+'</strong>'+
+        '<p class="muted">'+safe(this._t(
+          "L’analyse est lancée séparément et couvre le compte ; seuls les résultats de ce compteur sont affichés ici.",
+          "The analysis must be started separately and covers the account; only this meter's results are displayed here."))+
+        '</p><div class="actions"><button type="button" class="secondary" data-tab="meters">'+
+        safe(this._t("Retour au compteur","Back to meter"))+'</button>'+
+        '<button type="button" class="secondary" data-history-context-clear>'+
+        safe(this._t("Afficher tous les compteurs","Show all meters"))+'</button></div></section>':"")+
       '<section class="card"><div class="panel-title"><h3>Charger une période</h3>'+
       '<span class="pill audit">Aperçu en lecture seule</span></div>'+
       '<div class="form-grid">'+
@@ -2460,7 +2720,13 @@ class TrybatecPanel extends HTMLElement {
         'mdi:information-outline':'mdi:help-circle-outline')+
       '" aria-hidden="true"></ha-icon> <strong>'+safe(reason.level==="required"?
         t("À faire","Action required"):t("Non vérifié","Not verified"))+
-      ' :</strong> '+safe(t(reason.fr,reason.en))+'</div>').join("");
+      ' :</strong> '+safe(t(reason.fr,reason.en))+
+      (typeof reason.physical_key==="string" && reason.physical_key?
+        '<div class="actions"><button type="button" class="secondary" data-energy-meter="'+
+          safe(reason.physical_key)+'">'+safe(t("Fiche du compteur","Meter details"))+'</button>'+
+        '<button type="button" class="secondary" data-energy-history="'+safe(reason.physical_key)+
+          '">'+safe(t("Historique du compteur","Meter history"))+'</button></div>':"")+
+      '</div>').join("");
     const tabs=[...new Set(guidance.reasons.map(reason=>reason.tab)
       .filter(tab=>tab!=="overview"&&tab!=="energy"))];
     const tabLabel={
@@ -2470,7 +2736,10 @@ class TrybatecPanel extends HTMLElement {
     };
     return '<div class="notice" role="status">'+
       '<strong>'+safe(t("Configuration du tableau Énergie","Energy dashboard setup"))+'</strong>'+
-      '<p>'+safe(explanation[guidance.mode])+'</p>'+reasonRows+
+      '<p>'+safe(explanation[guidance.mode])+'</p>'+
+      '<p class="muted">'+safe(t(
+        "Le planificateur groupé fonctionne en lecture seule à partir d’assertions : sans diagnostic indépendant de Recorder et des registres, aucun ajout n’est autorisé.",
+        "The bulk planner is read-only and relies on assertions: without independent Recorder and registry evidence, enrollment is not authorized."))+'</p>'+reasonRows+
       (guidance.optionalTariffsMissing?
         '<p class="muted">'+safe(t(
           "Tarifs annuels facultatifs non renseignés : seuls les coûts correspondants sont indisponibles, pas la configuration des consommations.",
@@ -2487,12 +2756,12 @@ class TrybatecPanel extends HTMLElement {
       '</button></div></div>';
   }
   _energy() {
-    const data=this._data.energy;
+    const data=this._data.energy||{status:"not_loaded",sources:[]};
     const a=this._current;
     const rows=a.ledger.series||[];
     return this._heading("Énergie & versions","Références configurées et versions historiques vérifiables.")+
       '<div class="grid-two"><section class="card"><h3>Sources Trybatec dans Énergie</h3>'+
-      (data.sources.length?data.sources.map(x=>'<div class="line"><strong>'+safe(x.type)+'</strong> · <span class="mono">'+safe(x.statistic_id)+'</span></div>').join(""):
+      ((data.sources||[]).length?data.sources.map(x=>'<div class="line"><strong>'+safe(x.type)+'</strong> · <span class="mono">'+safe(x.statistic_id)+'</span></div>').join(""):
         '<div class="empty">Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.</div>')+
       this._energySetupHelp()+'</section>'+
       '<section class="card"><h3>Séries historiques versionnées</h3><p class="muted">Registre Recorder b15 : '+safe(a.ledger.status)+

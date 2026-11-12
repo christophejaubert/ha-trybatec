@@ -1,4 +1,4 @@
-name: Publish approved experimental Trybatec prerelease
+name: 🤖 Publish approved experimental Trybatec prerelease
 
 # An explicit owner workflow_dispatch is required for each version and exact SHA.
 # Pushes, PRs, issue comments, tags and schedules can never trigger publication.
@@ -27,7 +27,7 @@ jobs:
       github.actor == 'christophejaubert' &&
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -38,6 +38,12 @@ jobs:
       VERSION: ${{ inputs.version }}
       APPROVED_SHA: ${{ inputs.approved_sha }}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout exact approved main revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -100,7 +106,7 @@ jobs:
           if not any(r.get("name") == "Protect main - CI/CD" and r.get("enforcement") == "active" for r in rules):
               raise SystemExit("Mandatory branch-protection ruleset missing or inactive")
           runs = json.loads((root / "runs.json").read_text(encoding="utf-8")).get("workflow_runs", [])
-          valid = [r for r in runs if r.get("name") == "Compatibility and tests"
+          valid = [r for r in runs if r.get("name") in {"🤖 Compatibility and tests", "Compatibility and tests"}
                    and r.get("event") == "push" and r.get("head_branch") == "main"
                    and r.get("head_sha") == os.environ["APPROVED_SHA"]
                    and r.get("status") == "completed" and r.get("conclusion") == "success"]

@@ -10,6 +10,20 @@ const {mkdirSync} = require("node:fs");
 const {createHash} = require("node:crypto");
 const assert = require("node:assert/strict");
 
+function renderedContrast(foreground, background) {
+  const luminance = value => {
+    const rgb=(value.match(/\d+(?:\.\d+)?/g)||[]).slice(0,3).map(Number);
+    assert.equal(rgb.length,3,"Expected an RGB color: "+value);
+    const linear=rgb.map(component=>{
+      const n=component/255;
+      return n<=0.04045?n/12.92:((n+0.055)/1.055)**2.4;
+    });
+    return linear[0]*0.2126+linear[1]*0.7152+linear[2]*0.0722;
+  };
+  const a=luminance(foreground),b=luminance(background);
+  return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+}
+
 const repository = resolve(__dirname, "../..");
 const panelJS = join(repository, "custom_components/trybatec/panel/trybatec-panel.js");
 const artifacts = join(repository, "browser-acceptance-artifacts");
@@ -96,9 +110,14 @@ const snapshot = {
   no_automatic_cleanup:true,no_automatic_recorder_or_energy_changes:true,
 };
 const tabs=["overview","meters","history","tariffs","energy","diagnostics","settings"];
-const destinations = ["FR-desktop","EN-desktop","FR-mobile","EN-mobile"];
+const destinations = [
+  ["FR","desktop",false],["EN","desktop",false],
+  ["FR","mobile",false],["EN","mobile",false],
+  ["FR","desktop",true],["EN","desktop",true],
+  ["FR","mobile",true],["EN","mobile",true],
+];
 
-async function runCase(browser, locale, device) {
+async function runCase(browser, locale, device, dark=false) {
   const mobile=device==="mobile";
   const context=await browser.newContext({
     viewport:mobile?{width:390,height:844}:{width:1440,height:900},
@@ -118,12 +137,14 @@ async function runCase(browser, locale, device) {
   await page.goto("about:blank");
   await page.setContent('<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main id="fixture"></main></body></html>');
   await page.addScriptTag({path:panelJS});
-  await page.evaluate(({snapshot,language})=>{
+  await page.evaluate(({snapshot,language,dark})=>{
     const element=document.createElement("trybatec-panel");
     document.querySelector("#fixture").appendChild(element);
     const host=element;
     host.hass={
       language,
+      themes:{darkMode:dark},
+      config:{time_zone:"Europe/Paris"},
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
@@ -147,7 +168,7 @@ async function runCase(browser, locale, device) {
         throw new Error("Network and writes disabled in synthetic browser harness");
       },
     };
-  },{snapshot,language:locale==="FR"?"fr-FR":"en-US"});
+  },{snapshot,language:locale==="FR"?"fr-FR":"en-US",dark});
   await page.waitForFunction(()=>{
     const root=document.querySelector("trybatec-panel")?.shadowRoot;
     return Boolean(root?.querySelector("nav button[data-tab='settings']") && root.querySelector(".stat"));
@@ -249,6 +270,23 @@ async function runCase(browser, locale, device) {
     if(tab==="overview"){
       const text=await page.locator("trybatec-panel main").innerText();
       assert.match(text,locale==="FR"?/État de la configuration/:/Configuration status/);
+      const falseWarnings=page.locator("trybatec-panel .readiness-row.issue");
+      assert.equal(await falseWarnings.count(),0,
+        "Missing optional configuration and retired-meter dates are not proven errors");
+      const activeNeutral=await page.locator("trybatec-panel .readiness-optional button.secondary")
+        .first().evaluate(button=>({
+          disabled:button.disabled,
+          opacity:Number(getComputedStyle(button).opacity),
+          cursor:getComputedStyle(button).cursor,
+          color:getComputedStyle(button).color,
+          background:getComputedStyle(button).backgroundColor
+        }));
+      assert.equal(activeNeutral.disabled,false);
+      assert.ok(activeNeutral.opacity>=0.95,"Enabled neutral button must not look disabled");
+      assert.equal(activeNeutral.cursor,"pointer");
+      assert.ok(renderedContrast(activeNeutral.color,activeNeutral.background)>=4.5,
+        "Active neutral button text must meet 4.5:1 contrast on "+locale+"/"+device+
+        (dark?"/dark":"/light")+": "+JSON.stringify(activeNeutral));
     }
     if(tab==="meters"){
       const header=page.locator("trybatec-panel .meter-title").first();
@@ -261,6 +299,30 @@ async function runCase(browser, locale, device) {
       assert.equal(await page.locator("trybatec-panel select[data-meter-option-field='unit']").inputValue(),"m³");
       assert.equal(await page.locator("trybatec-panel input[data-meter-option-field='device_uuid']").inputValue(),"");
       assert.equal(await page.locator("trybatec-panel button[data-meter-options-save]").count(),1);
+      assert.equal(await page.locator('trybatec-panel .notice[role="status"].warning:visible').count(),0,
+        "An unverified missing date must not become a proven warning");
+      await page.locator('trybatec-panel button[data-meter="1"]').click();
+      const retired=await page.locator("trybatec-panel .meter-title").first().innerText();
+      assert.match(retired,/SYNTH-EF-OLD/);
+      const detail=await page.locator("trybatec-panel main").innerText();
+      assert.match(detail,locale==="FR"?/Non vérifié/:/Not verified/,
+        "Retired meter missing history must not be presented as a proven error");
+      await page.locator('trybatec-panel .meter-detail-field button[data-meter-context="history"]')
+        .first().click();
+      const context=await page.locator("trybatec-panel .meter-history-context").innerText();
+      assert.match(context,/SYNTH-EF-OLD/,
+        "History navigation must preserve the selected physical meter");
+      await page.locator('trybatec-panel .meter-history-context button[data-tab="meters"]').click();
+      const again=await page.locator("trybatec-panel .meter-title").first().innerText();
+      assert.match(again,/SYNTH-EF-OLD/,"Back navigation must preserve the meter");
+      await page.locator('trybatec-panel .meter-detail-field button[data-meter-context="scan"]')
+        .first().click();
+      const focused=await page.evaluate(()=>{
+        const root=document.querySelector("trybatec-panel").shadowRoot;
+        return root.activeElement?.dataset.historicalScan!==undefined;
+      });
+      assert.equal(focused,true,
+        "Scan link must focus the explicit scan action without starting it");
     }
     if(tab==="energy"){
       const locked=page.locator("trybatec-panel fieldset.prerequisite-locked");
@@ -324,11 +386,41 @@ async function runCase(browser, locale, device) {
       assert.match(content,/EUR\/m³/);
     }
     await page.screenshot({
-      path:join(artifacts,locale+"-"+device+"-"+tab+".png"),
+      path:join(artifacts,locale+"-"+device+"-"+(dark?"dark":"light")+"-"+tab+".png"),
       fullPage:true,
       animations:"disabled",
     });
   }
+  // Narrow-width check: ensure the relevant screens reflow at 320 CSS px.
+  // This is synthetic Chromium coverage, not a real HA theme/zoom audit.
+  await page.setViewportSize({width:320,height:760});
+  for (const narrowTab of ["overview","meters","history"]) {
+    await page.locator('trybatec-panel nav button[data-tab="'+narrowTab+'"]').click();
+    const layout=await page.evaluate(()=>{
+      const root=document.documentElement,host=document.querySelector("trybatec-panel");
+      return {viewport:innerWidth,documentWidth:root.scrollWidth,
+        hostWidth:Math.ceil(host?.getBoundingClientRect().width||0)};
+    });
+    assert.ok(layout.documentWidth<=layout.viewport+2,
+      "320 CSS px reflow failed for "+locale+"/"+narrowTab+": "+JSON.stringify(layout));
+  }
+  // Keyboard focus must have a visible, nonzero outline independent of color.
+  const focusTarget=page.locator('trybatec-panel nav button[data-tab="meters"]');
+  // Use keyboard modality before focusing: :focus-visible is deliberately
+  // not applied to pointer-initiated/programmatic focus.
+  await page.keyboard.press("Tab");
+  await focusTarget.focus();
+  const focusStyle=await focusTarget.evaluate(button=>{
+    const s=getComputedStyle(button);
+    return {width:s.outlineWidth,style:s.outlineStyle};
+  });
+  assert.notEqual(focusStyle.style,"none","Keyboard focus outline must be visible");
+  assert.ok(Number.parseFloat(focusStyle.width)>=2,"Keyboard focus outline must be substantial");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(()=>
+    document.querySelector("trybatec-panel")._tab),"meters");
+  await page.setViewportSize({width:mobile?390:1440,height:mobile?844:900});
+
   // Native browser keyboard test: type a full four-digit year as separate
   // key presses and verify the same date element retains focus each time.
   await page.locator('trybatec-panel nav button[data-tab="energy"]').click();
@@ -376,15 +468,15 @@ async function runCase(browser, locale, device) {
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
     "The panel must verify a completed job before accepting historical bounds");
   await context.close();
-  return {locale,device,tabs:tabs.length,errors:errors.length};
+  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,errors:errors.length};
 }
 
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try{
     const results=[];
-    for(const [locale,device] of [["FR","desktop"],["EN","desktop"],["FR","mobile"],["EN","mobile"]]){
-      results.push(await runCase(browser,locale,device));
+    for(const [locale,device,dark] of destinations){
+      results.push(await runCase(browser,locale,device,dark));
     }
     process.stdout.write(JSON.stringify({mode:"synthetic-browser-not-real-HA",
       cases:results,screenshots:destinations.length*tabs.length,
