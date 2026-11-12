@@ -2,7 +2,7 @@
 
 ## FR — But et frontière de confiance
 
-**Référence auditée :** `main` `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`, PR #91/#92/#121 fusionnées, PR #120/#82 encore ouvertes. Issue #88 ouverte. Le présent lot est préparé localement ; **pas de publication GitHub ni d'intégration HA**.
+**Référence auditée :** `main` `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`, PR #91/#92/#121 fusionnées, PR #120/#82 encore ouvertes. Issue #88 ouverte. Le lot est publié dans la **PR #129 en brouillon**, non fusionnée ; **aucune intégration ou activation HA**.
 
 L6 réutilise le collecteur L3, le registre historique B15, le planificateur #92 et les utilitaires de préférences Énergie existants. Les deux nouveaux modules sont :
 
@@ -33,11 +33,11 @@ La présence de valeurs Recorder ne suffit pas à établir une couverture de com
 4. Raccorder ces preuves à `plan_bulk_energy_insertion()` sans rendre les indicateurs du planificateur autoritaires. Prévoir les scénarios concurrentiels et invalidation des empreintes.
 5. Rejouer les tests dans le dépôt complet, Python 3.13/3.14, HA runtime et navigateur réel FR/EN/clair/sombre/clavier avant qualification.
 
-**Tests réalisés :** 17 scénarios nouveaux L6 en isolation, inclus dans les 83 tests locaux du lot combiné. Les utilitaires #92 sont simulés ; aucune validation CI ou HA réel n'est revendiquée.
+**Validation locale actuelle :** 138 tests synthétiques du banc commun L3/L6/L7, dont 12 tests du pont provisoire #125/#127. Les utilitaires #92 restent simulés ; le résultat CI de la PR dépend du SHA final et aucune recette HA réelle n'est revendiquée.
 
 ## EN — Purpose and trust boundary
 
-**Audited baseline:** `main` SHA `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. PRs #91, #92 and #121 are merged; PRs #120 and #82 remain open. Issue #88 remains open. This is a **local, unpublished** preparation.
+**Audited baseline:** `main` SHA `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. PRs #91, #92 and #121 are merged; PRs #120 and #82 remain open. Issue #88 remains open. The code is published in **draft PR #129**, unmerged and unactivated; no live HA change.
 
 L6 adds a pure per-utility classifier (`energy_bulk_readonly.py`) and a dormant authenticated Home Assistant adapter (`energy_bulk_readonly_ha.py`). It reuses L3 native observations and existing #92 Energy helpers. Every fluid EF/ECS/CET receives one of `admissible`, `already_configured`, `blocked`, `insufficient_evidence`. **Admissible is deliberately unreachable** until independently proven historical coverage, retired-meter lineage, overlapping variants and complete competing-reference inventories are made available by #36/#37. An already configured reference means exact observed selection only, not completeness or permission to alter Energy.
 
