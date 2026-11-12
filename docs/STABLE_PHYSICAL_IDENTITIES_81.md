@@ -20,6 +20,10 @@ The pure `meter_identity.py` helper:
 
 The helper is intentionally **not yet wired into sensor creation**. Existing IDs and statistics retain their present behavior. This staging prevents a seemingly harmless code change from implicitly reusing Recorder history of another scale.
 
+### Integration in the administrator snapshot (read-only)
+
+The existing `trybatec/panel_snapshot` WebSocket response now includes `stable_identity_preview` per selected config entry, derived from currently loaded meters and scoped registry metadata. It reports proposed opaque IDs, known b6 predecessors, ambiguous coexistence and explicit blockers. It marks the registry scope as partial and Recorder/dependency checks as incomplete. It provides **no migration button** and does not alter the active `sensor.py` constructor. The HA integration test verifies this preflight on synthetic input.
+
 ## Next implementation phases before enabling new IDs
 
 ### Phase B — HA runtime preflight and greenfield selection
