@@ -158,11 +158,8 @@ def preview_stable_identity_transition(
 def evaluate_unit_transition(
     baseline_unit: str | None, incoming_unit: str | None, *,
     registered_without_baseline: bool = False,
-    legacy_exists: bool = False,
 ) -> str:
     """A unit correction never silently resets a cumulative statistic."""
-    if legacy_exists:
-        return "legacy_identity_requires_review"
     if baseline_unit is None and registered_without_baseline:
         return "missing_unit_baseline_requires_review"
     if incoming_unit is None:
