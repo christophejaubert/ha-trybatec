@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import CoreState
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.trybatec.api import TrybatecClient
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
