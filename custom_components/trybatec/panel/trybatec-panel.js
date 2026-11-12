@@ -2111,7 +2111,8 @@ class TrybatecPanel extends HTMLElement {
       '<h3>Synthèse historique par fluide</h3>'+
       '<div class="empty">Aucune prévisualisation actuelle. Utilisez « Analyser les relevés » pour calculer les indicateurs à partir des observations source.</div></section>';
     const rows=(summary.by_meter||[]);
-    const selected=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    const selected=this._historyContextKey?
+      this._meters().find(m=>m.physical_key===this._historyContextKey):null;
     if (selected) {
       const rowsForMeter=rows.filter(row=>row.physical_key===selected.physical_key &&
         row.fluid===selected.fluid && row.lot===selected.lot &&
