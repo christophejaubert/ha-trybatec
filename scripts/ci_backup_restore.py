@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import sys
 
 ENTRY = "synthetic-ci-entry-persistence"
