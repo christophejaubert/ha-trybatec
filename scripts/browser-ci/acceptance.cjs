@@ -379,8 +379,24 @@ async function runCase(browser, locale, device, dark=false) {
       await page.locator("trybatec-panel button[data-tariff-years-retry]").click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
-        return root?.querySelector('select#tariff-year option[value="2020"]');
+        return root?.querySelector('datalist#tariff-year-options option[value="2020"]');
       });
+      const year=page.locator("trybatec-panel input#tariff-year");
+      assert.equal(await year.count(),1,"Annual year must be a native numeric field");
+      await year.fill("2040");
+      assert.equal(await year.inputValue(),"2040",
+        "Users must be able to enter an exercise outside observed years");
+      const empty=await page.locator("trybatec-panel [data-tariff-effective]").innerText();
+      assert.match(empty,locale==="FR"?/Aucun tarif enregistré/:/No rate saved/);
+      await year.fill("2026");
+      assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+        "Changing the exercise must prefill the saved rate without losing focus");
+      const shown=await page.locator("trybatec-panel [data-tariff-effective]").innerText();
+      assert.match(shown,locale==="FR"?/Tarif effectif enregistré/:/Saved effective rate/);
+      await page.locator("trybatec-panel input#tariff-rate").fill("9");
+      await page.locator("trybatec-panel button[data-tariff-reset]").click();
+      assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+        "Discarding a draft must restore the persisted rate without writing");
       const content=await page.locator("trybatec-panel main").innerText();
       assert.match(content,/2[.,]25/);
       assert.match(content,/EUR\/m³/);
