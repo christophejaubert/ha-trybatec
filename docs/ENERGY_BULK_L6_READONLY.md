@@ -75,3 +75,17 @@ Quatre tests sur un faux contexte HA simulent l'authentification, les lectures `
 ### EN — Additional native adapter validation
 
 Four synthetic HA-context tests cover authentication, bounded storage reads, missing files and invalid L3 provenance. An unavailable B15 ledger explicitly marks both current and retired inventories unknown; absence never proves an empty scope. Local synthetic test coverage of this small adapter is 100%; no actual HA acceptance is implied.
+
+### FR — Pont des contrats provisoires #36/#37 (PR #127/#125)
+
+`energy_bulk_provenance_bridge_l6.py` accepte des **enveloppes internes synthétiques ou collectées côté serveur**, sans importer les modules des PR non fusionnées. Il rapproche :
+
+- `lineage_37_energy_handoff_v1`, depuis `prepare_energy_lineage_handoff_37` de #125 (empreinte de l'enveloppe, compteurs déposés/inconnus, sommes de contributions physiques, indicateurs non autoritaires) ;
+- les groupes `preview_only` de `build_coverage_evidence` dans #127 (journées mesurées/estimées/mixtes et statut `unknown` / `qualified_bounds_with_gaps` / `qualified_bounds_no_gaps`) ;
+- le comparateur B15 / archive #37 existant dans #129, pour croiser les quantités, inventaires par fluide et détecter les contradictions.
+
+Une enveloppe falsifiée, une portée étrangère, des doublons ou un désaccord sur les consommations sont refusés ; l'absence d'une enveloppe donne **preuve insuffisante**, jamais une consommation nulle. `qualified_bounds_no_gaps` **n'atteste que la plage de bornes disponible**, jamais les années inconnues. Les autorisations restent **`admissible=False` et `activation_authorized=False`**, y compris lorsque les deux enveloppes concordent. **Ce contrat n'est pas enregistré au démarrage et les PR #125/#127 ne sont pas fusionnées.** Le collecteur natif effectif et la preuve exhaustive restent à concevoir avec les propriétaires de #36/#37 avant toute activation.
+
+### EN — Draft #36/#37 contract bridge (PRs #127/#125)
+
+`energy_bulk_provenance_bridge_l6.py` performs a **pure, internal, non-authoritative** comparison of #125 `lineage_37_energy_handoff_v1`, #127 `build_coverage_evidence` bounded daily summaries, and L6's B15/retired-meter crosscheck. It detects tampered envelope fingerprints, duplicate/foreign scopes, retired-meter count mismatches, inconsistent consumption totals and missing evidence. `qualified_bounds_no_gaps` concerns *observed bounds only*, never proof of every historical day, every Recorder bucket or exhaustive external statistics. Missing upstream PR contracts produce an explicit `insufficient_evidence` verdict, not a guessed zero. **Always `admissible=False`, `activation_authorized=False`; no HA startup hook, backend API or write is registered.** PRs #125/#127 are not merged; a trusted server-side proof collector and full isolated HA acceptance remain dependencies.
