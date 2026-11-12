@@ -694,6 +694,8 @@ const style = [
   ".meter-name{font-weight:650;font-size:14px;display:block;margin-bottom:3px;overflow-wrap:anywhere}",
   ".meter-sub{font-size:12px;color:var(--secondary-text-color,#738091);display:block;overflow-wrap:anywhere}",
   ".actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}",
+  // A wrapped checkbox label is the full accessible hit target, not only its 13px native box.
+  ".actions>label{display:inline-flex;align-items:center;gap:8px;min-height:32px;max-width:100%}",
   ".primary,.secondary{border:1px solid #b5c9e8;border-radius:11px;padding:10px 14px;background:#e9f1ff;color:#174b95;font-weight:650}",
   ".primary{background:var(--primary-color,#2977c4);color:#fff;border-color:var(--primary-color,#2977c4)}",
   ".link{color:var(--primary-color,#1976bd);text-decoration:none;font-weight:650;font-size:13px}",
@@ -2803,8 +2805,8 @@ class TrybatecPanel extends HTMLElement {
         safe(x.fluid+" · "+x.variant+" · "+x.rows+" points · "+x.unit)+'</div>').join("")+'</div>':"")+
       '<div class="actions"><label><input type="checkbox" data-version-field="importBackup" '+
       (this._versionImportBackup?"checked":"")+'> Une sauvegarde récupérable de HA/Recorder existe</label>'+
-      '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'> J’approuve une nouvelle version</label>'+
-      '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'> Reprendre une importation en attente</label></div>'+
+      '<label><input type="checkbox" data-version-field="revision" '+(this._versionRevision?"checked":"")+'>'+safe(this._t("J’approuve une nouvelle version","I approve a new version"))+'</label>'+
+      '<label><input type="checkbox" data-version-field="retry" '+(this._versionRetry?"checked":"")+'>'+safe(this._t("Reprendre une importation en attente","Resume a pending import"))+'</label></div>'+
       '<div class="actions"><button class="primary" type="button" data-version-import '+
       (!plan||!this._versionImportBackup||this._versionBusy?"disabled":"")+'>2. Confirmer l’import Recorder</button>'+
       '<button class="secondary" type="button" data-version-verify '+(this._versionBusy?"disabled":"")+'>3. Vérifier la persistance Recorder</button></div>'+
