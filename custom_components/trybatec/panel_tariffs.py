@@ -78,9 +78,13 @@ async def change_tariff(
         before = dict(coordinator.entry.options)
         if tariff_fingerprint(before) != expected_fingerprint:
             raise ValueError("Stale tariff form: reload before saving")
-        table = validate_tariffs(before.get(CONF_TARIFFS, "{}"))
+        # Validate the legacy payload, but edit its original representation.
+        # Bare numeric tariffs and unrelated metadata must not be silently
+        # converted to a canonical dict by a change to another year or meter.
+        legacy_raw = before.get(CONF_TARIFFS, "{}")
+        validate_tariffs(legacy_raw)
+        new_table = json.loads(legacy_raw)
         meters = validate_meter_tariffs(before.get(CONF_METER_TARIFFS))
-        new_table = {key: dict(value) for key, value in table.items()}
         new_meters = {key: dict(value) for key, value in meters.items()}
         selected = new_table if physical_key is None else new_meters
         exercise = dict(selected.get(str(year), {}))
@@ -96,12 +100,16 @@ async def change_tariff(
         else:
             selected.pop(str(year), None)
         validate_meter_tariffs(new_meters)
-        new_table = validate_tariffs(json.dumps(new_table, allow_nan=False))
+        validate_tariffs(json.dumps(new_table, allow_nan=False))
         updated = dict(before)
-        updated[CONF_TARIFFS] = json.dumps(
-            new_table, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
-            allow_nan=False,
-        )
+        if physical_key is None:
+            # Only a common-rate edit requires serializing the legacy table.
+            # All unrelated years and records remain structurally intact.
+            updated[CONF_TARIFFS] = json.dumps(
+                new_table, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            )
+        # A meter-only edit preserves the legacy JSON string byte-for-byte.
         updated[CONF_METER_TARIFFS] = new_meters
         hass.config_entries.async_update_entry(coordinator.entry, options=updated)
         # The config-entry listener updates the affected YTD sensors in memory;
