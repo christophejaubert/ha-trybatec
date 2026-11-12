@@ -253,7 +253,7 @@ def preview_lineage(
                     "date": day.isoformat(),
                     "consumption": str(amount), "cumulative": str(cumulative),
                     "contributors": [
-                        {"serial": item[0][2], "provenance": item[2]}
+                        {"serial": item[0][2], "provenance": item[2], "consumption": str(item[1])}
                         for item in sorted(rows, key=lambda item: item[0])
                     ],
                 })
