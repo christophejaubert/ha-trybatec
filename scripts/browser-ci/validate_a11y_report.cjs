@@ -40,17 +40,52 @@ function validate(report) {
   return {syntheticCases: 56, realHomeAssistantRecettes: 0};
 }
 
+// FR/EN: export an allowlisted projection, never the raw browser observation.
+// Raw snapshots can contain arbitrary labels; none are retained in public CI.
+function publicReport(report) {
+  validate(report);
+  const cases = report.results.flatMap(record => record.results.map(row => {
+    assert.equal(typeof row.reflow320synthetic, "boolean");
+    assert.equal(typeof row.focus?.inViewport, "boolean");
+    assert.equal(typeof row.focus?.centerObscured, "boolean");
+    assert.ok(Array.isArray(row.undersizedTargets) && row.undersizedTargets.length <= 1000);
+    return {
+      language: record.config.language, device: record.config.device,
+      theme: record.config.theme, tab: row.tab,
+      reflow320synthetic: row.reflow320synthetic,
+      focusInViewport: row.focus.inViewport,
+      focusCenterObscured: row.focus.centerObscured,
+      undersizedTargetCount: row.undersizedTargets.length,
+    };
+  }));
+  assert.equal(cases.length, 56);
+  return {
+    mode: "synthetic-only",
+    summary: {
+      syntheticCases: 56, realHomeAssistantRecettes: 0,
+      reflowFailures: cases.filter(row => !row.reflow320synthetic).length,
+      focusOutsideViewport: cases.filter(row => !row.focusInViewport).length,
+      focusCenterObscured: cases.filter(row => row.focusCenterObscured).length,
+      undersizedTargetObservations: cases.reduce((sum, row) => sum + row.undersizedTargetCount, 0),
+    },
+    cases,
+  };
+}
+
 if (require.main === module) {
   try {
     assert.equal(process.argv.length, 3);
     const reportPath = process.argv[2];
     const metadata = fs.statSync(reportPath);
     assert.ok(metadata.isFile() && metadata.size <= 1024 * 1024);
-    validate(JSON.parse(fs.readFileSync(reportPath, "utf8")));
-    console.log("FR/EN: Synthetic report structure verified, no live HA evidence.");
+    const safe = publicReport(JSON.parse(fs.readFileSync(reportPath, "utf8")));
+    // Never upload the unfiltered report: only fixed fields and enumerations.
+    fs.writeFileSync("ui-a11y-synthetic-public-report.json", JSON.stringify(safe, null, 2) + "\n",
+      {encoding: "utf8", flag: "w", mode: 0o600});
+    console.log("FR/EN: Synthetic-only public summary verified; raw findings withheld.");
   } catch {
     console.error("FR/EN: Synthetic report rejected; content withheld.");
     process.exitCode = 1;
   }
 }
-module.exports = {validate};
+module.exports = {validate, publicReport};
