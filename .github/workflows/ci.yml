@@ -228,7 +228,8 @@ jobs:
         with:
           python-version: "3.14.10"
       - name: Install audited PyRIC build backend (Python 3.14)
-        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r .github/ci/locks/build-py314.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r .github/ci/locks/build-py314.txt
       - name: Install Home Assistant test framework
         run: |
           python -m pip install --require-hashes --no-build-isolation -r .github/ci/locks/ha-runtime-py314.txt
@@ -324,7 +325,8 @@ jobs:
         with:
           python-version: "3.14.10"
       - name: Install audited PyRIC build backend (Python 3.14)
-        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
       - name: Install pinned Home Assistant Core for physical storage tests
         run: |
           python -m pip install --require-hashes --no-build-isolation -r ci-harness/.github/ci/locks/ha-persistence-py314.txt
@@ -411,7 +413,8 @@ jobs:
         with:
           python-version: "3.14.10"
       - name: Install audited PyRIC build backend (Python 3.14)
-        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
       - name: Install pinned, isolated HA Recorder fixtures
         run: |
           python -m pip install --require-hashes --no-build-isolation -r ci-harness/.github/ci/locks/ha-runtime-py314.txt
