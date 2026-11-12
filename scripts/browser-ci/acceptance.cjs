@@ -389,6 +389,33 @@ async function runCase(browser, locale, device, dark=false) {
       animations:"disabled",
     });
   }
+  // Narrow-width check: ensure the relevant screens reflow at 320 CSS px.
+  // This is synthetic Chromium coverage, not a real HA theme/zoom audit.
+  await page.setViewportSize({width:320,height:760});
+  for (const narrowTab of ["overview","meters","history"]) {
+    await page.locator('trybatec-panel nav button[data-tab="'+narrowTab+'"]').click();
+    const layout=await page.evaluate(()=>{
+      const root=document.documentElement,host=document.querySelector("trybatec-panel");
+      return {viewport:innerWidth,documentWidth:root.scrollWidth,
+        hostWidth:Math.ceil(host?.getBoundingClientRect().width||0)};
+    });
+    assert.ok(layout.documentWidth<=layout.viewport+2,
+      "320 CSS px reflow failed for "+locale+"/"+narrowTab+": "+JSON.stringify(layout));
+  }
+  // Keyboard focus must have a visible, nonzero outline independent of color.
+  const focusTarget=page.locator('trybatec-panel nav button[data-tab="meters"]');
+  await focusTarget.focus();
+  const focusStyle=await focusTarget.evaluate(button=>{
+    const s=getComputedStyle(button);
+    return {width:s.outlineWidth,style:s.outlineStyle};
+  });
+  assert.notEqual(focusStyle.style,"none","Keyboard focus outline must be visible");
+  assert.ok(Number.parseFloat(focusStyle.width)>=2,"Keyboard focus outline must be substantial");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(()=>
+    document.querySelector("trybatec-panel")._tab),"meters");
+  await page.setViewportSize({width:mobile?390:1440,height:mobile?844:900});
+
   // Native browser keyboard test: type a full four-digit year as separate
   // key presses and verify the same date element retains focus each time.
   await page.locator('trybatec-panel nav button[data-tab="energy"]').click();
