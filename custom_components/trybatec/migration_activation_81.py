@@ -20,7 +20,6 @@ class StableMigrationActivation:
     def __init__(self, hass: Any, entry: Any) -> None:
         self.hass = hass
         self.entry = entry
-        self._old_flag = entry.data.get(CONF_STABLE_METER_IDENTITIES)
         self._guard = StableUnitGuard(hass, entry)
         self._prepared = False
 
@@ -91,10 +90,10 @@ class StableMigrationActivation:
         if self.entry.data.get(CONF_STABLE_METER_IDENTITIES) is not True:
             return
         data = dict(self.entry.data)
-        if self._old_flag is None:
-            data.pop(CONF_STABLE_METER_IDENTITIES, None)
-        else:
-            data[CONF_STABLE_METER_IDENTITIES] = self._old_flag
+        # Only legacy accounts may enter this one-time transaction. After
+        # an interrupted process we cannot recover an in-memory old_flag,
+        # therefore always restore the legacy *absence* of the new flag.
+        data.pop(CONF_STABLE_METER_IDENTITIES, None)
         self.hass.config_entries.async_update_entry(self.entry, data=data)
 
     async def async_restore_runtime(self) -> None:
