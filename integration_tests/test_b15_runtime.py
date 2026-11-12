@@ -86,6 +86,57 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
 
 
 @pytest.mark.asyncio
+async def test_b15_extra_persisted_bucket_blocks_verification_and_retry(hass, monkeypatch):
+    """Unexpected rows must never validate a version or permit blind replay."""
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, metadata, rows: queued.append(metadata["statistic_id"]),
+    )
+    logical = "trybatec:logical_meter_ef_raw_extra_synthetic"
+    first = datetime(2026, 2, 1, 12, tzinfo=timezone.utc)
+    rows = [
+        {"start": first, "state": 0.0, "sum": 0.0},
+        {"start": first.replace(day=2), "state": 2.0, "sum": 2.0},
+    ]
+    plan = {
+        "fingerprint": "d" * 64,
+        "series": [{
+            "logical_id": logical, "kind": "physical", "fluid": "EF",
+            "unit": "m³", "rows": rows, "source_fingerprint": "e" * 64,
+        }],
+    }
+    await recorder.queue_b15_plan(
+        hass, "synthetic-extra-row", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def extra_statistics(_call):
+        return {"statistics": {logical + "_v1": [
+            {"start": rows[0]["start"].isoformat(), "sum": 0.0},
+            {"start": rows[1]["start"].isoformat(), "sum": 2.0},
+            {"start": first.replace(day=3).isoformat(), "sum": 3.0},
+        ]}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", extra_statistics,
+        supports_response=SupportsResponse.ONLY,
+    )
+    result = await recorder.verify_b15_recorder(hass, "synthetic-extra-row")
+    assert result["status"] == "pending_recorder_readback"
+    assert result["verified"] == []
+    assert result["pending"][0]["missing_or_mismatched_rows"] >= 1
+    assert (result["read_only_recovery"]["decisions"][0]["outcome"]
+            == "partial_or_mismatched_no_retry")
+    with pytest.raises(ValueError, match="writer-quiescence proof"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-extra-row", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert queued == [logical + "_v1"]
+
+
+@pytest.mark.asyncio
 async def test_energy_switch_flushes_and_verifies_audited_snapshot(hass, monkeypatch):
     old = "trybatec:old_ef"
     new = "trybatec:logical_ef_synthetic_v1"
