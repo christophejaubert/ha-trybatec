@@ -279,3 +279,51 @@ async def async_verify_migration_registry(
         "requires_recorder_and_energy_acceptance": True,
         "requires_runtime_activation": False,
     }
+
+
+
+async def async_finalize_one_time_migration(
+    *, entry_id: str, confirmed: bool, registry: Any, devices: Any,
+    journal: Any, acceptance_supplier: Callable[[], Awaitable[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Finalize only after independent real HA acceptance, never merely CI.
+
+    The caller must retrieve these validations from HA Recorder, Energy and
+    integration runtime, not from an unchecked UI checkbox or GitHub comment.
+    This function does not attempt to rewrite or compact historical series.
+    """
+    if not confirmed:
+        raise ValueError("Separate business acceptance confirmation required")
+    async with _RUN_LOCK:
+        verified = await async_verify_migration_registry(
+            entry_id=entry_id, registry=registry, devices=devices,
+            journal=journal,
+        )
+        acceptance = await acceptance_supplier()
+        mandatory = (
+            "source_units_verified",
+            "recorder_statistics_unchanged",
+            "recorder_units_compatible",
+            "energy_sources_unchanged",
+            "no_double_counting",
+            "entity_ids_and_consumers_verified",
+            "device_associations_unchanged",
+            "runtime_stable_after_reload",
+        )
+        if (not isinstance(acceptance, dict)
+                or any(acceptance.get(field) is not True for field in mandatory)):
+            raise ValueError("Real Recorder, Energy and runtime acceptance incomplete")
+        record = await journal.async_load()
+        if not isinstance(record, dict) or record.get("status") != "pending_reload_verification":
+            raise ValueError("Migration journal no longer awaits acceptance")
+        record["status"] = "verified_after_reload"
+        record["acceptance"] = {field: True for field in mandatory}
+        await journal.async_save(record)
+        return {
+            "status": "verified_after_reload",
+            "entity_ids_preserved": verified["entity_ids_preserved"],
+            "recorder_rewritten": False,
+            "energy_reconfigured": False,
+            "legacy_cleanup_authorized": False,
+            "business_acceptance_confirmed": True,
+        }
