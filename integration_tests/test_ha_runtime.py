@@ -594,3 +594,27 @@ async def test_existing_account_keeps_legacy_meter_identity(hass, monkeypatch):
     assert "_b6_m³_index" in owned[0].unique_id
     assert not owned[0].unique_id.startswith("meter_")
     assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+    uid = owned[0].unique_id
+    entity_id = owned[0].entity_id
+    first = hass.states.get(entity_id)
+    assert float(first.state) == pytest.approx(15.0)
+    key = meter_key("MOCK-LOT", "EF", "MOCK-WATER-01")
+
+    # The portal proves m³; a contradictory local correction must become
+    # unavailable without producing any second b6 generation.
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_METER_UNITS: {key: "L"}},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state in ("unknown", "unavailable")
+    assert not any(
+        row.unique_id != uid and "_b6_L_index" in row.unique_id
+        for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+    )
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    still = registry.async_get_entity_id("sensor", DOMAIN, uid)
+    assert still == entity_id
+    assert hass.states.get(still).state in ("unknown", "unavailable")
