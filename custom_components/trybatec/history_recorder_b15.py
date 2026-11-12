@@ -79,12 +79,28 @@ async def queue_b15_plan(
                                  or original.get("schema") != 1):
         raise ValueError("Invalid existing b15 ledger")
     if retry_pending:
-        if original is None:
+        if original is None or not original.get("pending"):
             raise ValueError("No b15 import to retry")
         _match_pending(original, plan)
-        stage = original
-        selected = [item for item in plan["series"]
-                    if item["logical_id"] in stage["pending"]]
+        # An enqueue can have completed just before a crash. Verify persisted
+        # buckets first; absence alone does not prove the Recorder writer is
+        # quiescent. Never blindly replay a pending series or an entire batch.
+        try:
+            checked = await verify_b15_recorder(hass, entry_id)
+        except Exception as exc:
+            raise ValueError(
+                "Recorder readback unavailable; pending import cannot be retried"
+            ) from exc
+        if checked["status"] == "recorder_verified":
+            return {
+                "status": "unchanged_all_series_previously_verified",
+                "queued": [], "pending": [],
+                "read_only_recovery": checked["read_only_recovery"],
+            }
+        raise ValueError(
+            "Pending Recorder import not verified; safe selective retry "
+            "requires independent writer-quiescence proof"
+        )
     else:
         if original and original.get("pending"):
             raise ValueError("A previous b15 Recorder batch still needs verification")
@@ -189,6 +205,11 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
         # never from a supplied browser flag. No queue-quiescence claim.
         readbacks[stat_id] = {"complete": True, "rows": observed}
         okay, missing = verified_snapshot(snapshot, observed)
+        # Existing buckets are necessary but insufficient: unexpected extra
+        # rows can represent an additive duplicate or a foreign revision.
+        if len(observed) != len(snapshot):
+            okay = False
+            missing = max(missing, abs(len(observed) - len(snapshot)))
         if not okay:
             outstanding.append({
                 "statistic_id": stat_id, "missing_or_mismatched_rows": missing,
