@@ -36,3 +36,18 @@
 ## EN — Integration constraints
 
 Both modules are deliberately read-only. The coverage adapter must use server-validated physical variants and genuine source bounds, distinguish measured/estimated/mixed, and avoid invented zero days. The Recorder recovery adapter must use complete trusted readback plus independently established writer quiescence; a preview never grants import permission. Adapter changes are pending isolated Home Assistant tests and exact-head CI. Neither #82 migration nor actual Energy/Recorder actions are in scope. Read and assess in #45 before any release decision.
+## FR — Raccordement B15 et limites de reprise (12/11/2026)
+
+- `verify_b15_recorder()` conserve le journal initial des versions, récupère ses fenêtres via le service Recorder backend, et transmet le résultat **réellement lu** au classificateur `preview_pending_recovery()`. Le retour contient `read_only_recovery` avec les statuts par série et une empreinte d'audit. Ce résultat n'écrit rien dans Énergie.
+- La vérification refuse désormais les **buckets supplémentaires** : la présence de toutes les sommes attendues ne prouve pas une série exacte si Recorder renvoie aussi des lignes inattendues.
+- `queue_b15_plan(retry_pending=True)` ne peut plus réémettre aveuglément des séries. Il relit d'abord Recorder : si toutes les statistiques sont réellement vérifiées, la demande devient idempotente sans nouvelle écriture ; dans tous les autres cas elle échoue en sûreté.
+- **Limite actuelle :** aucune preuve fiable de quiescence du writer Recorder n'est disponible dans ce sous-lot. La reprise sélective de séries totalement absentes reste **interdite**, même si le classificateur purement logique indique une possibilité conditionnelle. Ne pas contourner cette restriction avec un booléen fourni par le frontend.
+- Tests HA isolés requis : données persistées exactes, buckets en surnombre, interruption entre journal et enqueue, redémarrage, fermeture tardive du writer, défaillance lecture et idempotence sur V1/V2/V3. Une CI verte ne prouve pas une restauration réelle.
+
+## EN — B15 readback integration and retry limitations (2026-11-12)
+
+- `verify_b15_recorder()` now feeds genuine server-side Recorder readbacks into `preview_pending_recovery()` while preserving the original version journal for classification. Its `read_only_recovery` result does not touch Energy.
+- Extra persisted buckets prevent a false positive even when all expected samples are present.
+- `retry_pending=True` first attempts an actual Recorder verification. Fully verified batches become idempotent without new queues; unresolved, partial, conflicting or unavailable readbacks **cannot** trigger blind re-enqueue.
+- No independent Recorder-writer quiescence proof is available yet. Selective retry of entirely missing statistics is intentionally **blocked** pending that independent gate and isolated HA tests. Browser-provided flags are never sufficient.
+- Real Recorder restoration, V1/V2/V3 post-restart recovery and Energy switching remain unaccepted and unauthorized on the user installation.
