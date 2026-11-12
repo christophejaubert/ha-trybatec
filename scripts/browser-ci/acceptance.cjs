@@ -383,6 +383,10 @@ async function runCase(browser, locale, device, dark=false) {
       });
       const year=page.locator("trybatec-panel input#tariff-year");
       assert.equal(await year.count(),1,"Annual year must be a native numeric field");
+      if(await year.inputValue()==="2026") {
+        assert.equal(await page.locator("trybatec-panel input#tariff-rate").inputValue(),"2.25",
+          "The initial year must prefill a stored rate");
+      }
       await year.fill("2040");
       assert.equal(await year.inputValue(),"2040",
         "Users must be able to enter an exercise outside observed years");
