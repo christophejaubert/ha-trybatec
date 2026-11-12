@@ -249,7 +249,6 @@ def test_retired_unresolved_source_observations_still_block(conflict):
 @pytest.mark.parametrize("invalid", [
     ("2026-01-01", 5.0),
     (datetime(2026, 1, 1), 5.0),
-    (datetime(2026, 1, 1, tzinfo=timezone.utc), float("nan")),
 ])
 def test_retired_invalid_source_observation_blocks(invalid):
     meter = _meter()
@@ -257,6 +256,16 @@ def test_retired_invalid_source_observation_blocks(invalid):
     plan = _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
     assert plan["ready"] is False
     assert "retired_invalid_source_reading" in plan["mappings"][0]["blockers"]
+
+
+def test_nonfinite_retired_source_is_rejected_before_fingerprint():
+    meter = _meter()
+    meter.update({
+        "deposed": True, "service_status_known": True,
+        "last": (datetime(2026, 1, 1, tzinfo=timezone.utc), float("nan")),
+    })
+    with pytest.raises(ValueError, match="Out of range float"):
+        _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
 
 
 def test_retired_without_reading_requires_explicit_historical_registry_state():
