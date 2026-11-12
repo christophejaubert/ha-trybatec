@@ -14,7 +14,7 @@ import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState
 from homeassistant.exceptions import ServiceValidationError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.trybatec.api import TrybatecClient
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN, CONF_METER_UNITS
