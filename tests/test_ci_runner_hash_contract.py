@@ -1,6 +1,6 @@
 """Offline checks for the scope of initial artifact-hash and runner-label hardening."""
-from pathlib import Path
 import re
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,7 +16,10 @@ def test_core_ci_runner_and_lint_install_enforcement():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "runs-on: ubuntu-latest" not in workflow
     assert workflow.count("runs-on: ubuntu-24.04") >= 8
-    assert "python -m pip install --require-hashes --only-binary=:all: -r .github/ci/requirements-lint.txt -c .github/ci/constraints-lint.txt" in workflow
+    assert (
+        "python -m pip install --require-hashes --only-binary=:all: "
+        "-r .github/ci/requirements-lint.txt -c .github/ci/constraints-lint.txt"
+    ) in workflow
     assert "python -I .github/ci/lock_check.py .github/ci/constraints-lint.txt" in workflow
     assert "Enforce zero unused imports and locals in cleaned source and test modules" in workflow
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
