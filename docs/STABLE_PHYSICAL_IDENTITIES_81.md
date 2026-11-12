@@ -108,6 +108,12 @@
 
 **Release caution:** a published version may trigger a user's Home Assistant automatic updater. Never enable migration as a release side effect.
 
+## Recette production sans plateforme dédiée / Production-only validation
+
+**FR :** La matrice des 12 risques, les effets de chargement et la procédure R0–R5 (sans écriture autorisée) sont décrits dans [PRODUCTION_VALIDATION_81.md](PRODUCTION_VALIDATION_81.md). Une éventuelle livraison intermédiaire limitée aux nouveaux comptes nécessite une décision explicite sur le périmètre ; elle ne valide pas la migration des comptes existants.
+
+**EN:** See [PRODUCTION_VALIDATION_81.md](PRODUCTION_VALIDATION_81.md) for the 12 production risks, actual load effects and R0–R5 gated protocol. A staged release covering only new accounts requires explicit scope approval and does not validate existing-account migration.
+
 ## Audit externe et recette isolée / External audit and isolated acceptance
 
 **FR :** La matrice indépendante des consommateurs est définie dans
