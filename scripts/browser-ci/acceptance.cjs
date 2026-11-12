@@ -96,9 +96,14 @@ const snapshot = {
   no_automatic_cleanup:true,no_automatic_recorder_or_energy_changes:true,
 };
 const tabs=["overview","meters","history","tariffs","energy","diagnostics","settings"];
-const destinations = ["FR-desktop","EN-desktop","FR-mobile","EN-mobile"];
+const destinations = [
+  ["FR","desktop",false],["EN","desktop",false],
+  ["FR","mobile",false],["EN","mobile",false],
+  ["FR","desktop",true],["EN","desktop",true],
+  ["FR","mobile",true],["EN","mobile",true],
+];
 
-async function runCase(browser, locale, device) {
+async function runCase(browser, locale, device, dark=false) {
   const mobile=device==="mobile";
   const context=await browser.newContext({
     viewport:mobile?{width:390,height:844}:{width:1440,height:900},
@@ -118,12 +123,14 @@ async function runCase(browser, locale, device) {
   await page.goto("about:blank");
   await page.setContent('<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main id="fixture"></main></body></html>');
   await page.addScriptTag({path:panelJS});
-  await page.evaluate(({snapshot,language})=>{
+  await page.evaluate(({snapshot,language,dark})=>{
     const element=document.createElement("trybatec-panel");
     document.querySelector("#fixture").appendChild(element);
     const host=element;
     host.hass={
       language,
+      themes:{darkMode:dark},
+      config:{time_zone:"Europe/Paris"},
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
@@ -147,7 +154,7 @@ async function runCase(browser, locale, device) {
         throw new Error("Network and writes disabled in synthetic browser harness");
       },
     };
-  },{snapshot,language:locale==="FR"?"fr-FR":"en-US"});
+  },{snapshot,language:locale==="FR"?"fr-FR":"en-US",dark});
   await page.waitForFunction(()=>{
     const root=document.querySelector("trybatec-panel")?.shadowRoot;
     return Boolean(root?.querySelector("nav button[data-tab='settings']") && root.querySelector(".stat"));
@@ -358,7 +365,7 @@ async function runCase(browser, locale, device) {
       assert.match(content,/EUR\/m³/);
     }
     await page.screenshot({
-      path:join(artifacts,locale+"-"+device+"-"+tab+".png"),
+      path:join(artifacts,locale+"-"+device+"-"+(dark?"dark":"light")+"-"+tab+".png"),
       fullPage:true,
       animations:"disabled",
     });
@@ -410,15 +417,15 @@ async function runCase(browser, locale, device) {
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
     "The panel must verify a completed job before accepting historical bounds");
   await context.close();
-  return {locale,device,tabs:tabs.length,errors:errors.length};
+  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,errors:errors.length};
 }
 
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try{
     const results=[];
-    for(const [locale,device] of [["FR","desktop"],["EN","desktop"],["FR","mobile"],["EN","mobile"]]){
-      results.push(await runCase(browser,locale,device));
+    for(const [locale,device,dark] of destinations){
+      results.push(await runCase(browser,locale,device,dark));
     }
     process.stdout.write(JSON.stringify({mode:"synthetic-browser-not-real-HA",
       cases:results,screenshots:destinations.length*tabs.length,
