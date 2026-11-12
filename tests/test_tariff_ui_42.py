@@ -52,7 +52,7 @@ assert.equal(resolve(account,2024,"EF",key).rate,2.5);
 assert.equal(resolve(account,2024,"EF",key).origin,"meter_override");
 assert.equal(resolve(account,2024,"EF").rate,1.2345);
 assert.equal(resolve(account,2024,"EF").origin,"fluid_default");
-assert.equal(resolve(account,2024,"EF",other).rate,1.2345);
+assert.equal(resolve(account,2024,"EF",other),null,"foreign-fluid physical key must be rejected");
 assert.equal(resolve(account,2025,"EF",key),null,"no cross-year fallback");
 assert.equal(resolve(account,2024,"CET",key),null,"no cross-fluid fallback");
 assert.equal(resolve(account,2024,"EF").source_year,2024);
