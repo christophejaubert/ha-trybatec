@@ -102,15 +102,21 @@ def prepare_energy_lineage_handoff_37(
             members = item.get("contributors")
             if not isinstance(members, list) or not members:
                 raise ValueError("Missing physical contribution provenance")
+            daily_contributions = Decimal(0)
+            seen_members = set()
             for contributor in members:
                 if not isinstance(contributor, Mapping):
                     raise ValueError("Invalid physical contributor")
                 key = (lot, fluid, contributor.get("serial"))
-                if key not in scoped or contributor.get("provenance") not in (
+                if key not in scoped or key in seen_members or contributor.get("provenance") not in (
                     "measured", "mixed", "estimated_linear_confirmed"
                 ):
-                    raise ValueError("Unknown physical contributor/provenance")
+                    raise ValueError("Unknown or duplicate physical contributor/provenance")
+                seen_members.add(key)
+                daily_contributions += _number(contributor.get("consumption"))
                 contributions.add(key)
+            if daily_contributions != delta:
+                raise ValueError("Physical contributions do not conserve daily consumption")
         if not blocked and _number(group.get("total")) != cumulative:
             raise ValueError("Logical total differs from daily sums")
         all_blockers = sorted(set(group.get("blockers", [])))
