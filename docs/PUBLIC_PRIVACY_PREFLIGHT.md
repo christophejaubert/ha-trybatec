@@ -4,7 +4,7 @@
 
 Le nouveau contrôle public-privacy-preflight examine les **nouveaux commits et les lignes ajoutées dans une PR**, sans recopier dans les journaux les valeurs trouvées. Il vérifie aussi les adresses d'auteur et de committer Git. L'analyse n'a aucun accès à Home Assistant, n'écrit aucun contenu externe et s'exécute avec permissions GitHub vides et identifiants Git non persistants.
 
-**Bloquant :** signature manifeste de secret, chemin personnel absolu, nom de machine local ou identité Git de type nom-de-machine.local ; toute impossibilité d'examiner le diff ou les commits entraîne également un échec.
+**Bloquant :** signature manifeste de secret, chemin personnel absolu, nom de machine local ou identité Git de type nom de machine local ; toute impossibilité d'examiner le diff ou les commits entraîne également un échec.
 
 **Avertissement :** adresse d'auteur Git non anonymisée, adresse électronique non fictive dans des lignes ajoutées, adresse IP privée ou identifiant d'installation potentiel. Ces avertissements sont délibérément non bloquants pour ne pas rendre les PR existantes inutilisables avant reconfiguration des auteurs ; ils nécessitent une revue humaine avant fusion.
 
