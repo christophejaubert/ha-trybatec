@@ -7,10 +7,9 @@ An interrupted transaction must be resolved through the journaled rollback.
 """
 from __future__ import annotations
 
-from hashlib import sha256
 from typing import Any
 
-from .const import CONF_STABLE_METER_IDENTITIES, DOMAIN
+from .const import CONF_STABLE_METER_IDENTITIES
 from .stable_identity_runtime import StableUnitGuard
 
 
