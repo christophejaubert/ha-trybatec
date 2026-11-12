@@ -197,6 +197,7 @@ async def async_execute_one_time_migration(
                 await activation.async_disable()
                 for item in reversed(items):
                     await _reverse(registry, devices, item)
+                await activation.async_restore_runtime()
                 record["status"] = "rolled_back"
                 await journal.async_save(record)
             except Exception:
@@ -238,6 +239,7 @@ async def async_rollback_one_time_migration(
             await activation.async_disable()
             for item in reversed(items):
                 await _reverse(registry, devices, item)
+            await activation.async_restore_runtime()
         except Exception:
             record["status"] = "rollback_incomplete"
             await journal.async_save(record)
