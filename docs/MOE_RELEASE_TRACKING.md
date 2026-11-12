@@ -31,7 +31,7 @@
 | [#143](https://github.com/christophejaubert/ha-trybatec/pull/143) | `c886e747fd67915936afec60fbde970d6d50cae5` | Hors fusion / Proof only | CI 41 succès; contextes sautés | Ne jamais fusionner |
 | [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) | `cb08ddca023a5e50e484e8f51a3db5e47c33a27e` | Lot A intégré / Batch A | 10 contrôles requis verts* | Recette HA réelle, dépendance B |
 | [#145](https://github.com/christophejaubert/ha-trybatec/pull/145) | `cb77625ceca508239336272e25caf73087b1059c` | Lot B intégré / Batch B | 10 contrôles requis verts* | L6/L7 natifs, Recorder, recette HA |
-| [#146](https://github.com/christophejaubert/ha-trybatec/pull/146) | `d88b24817851f5aa1b7c2415052cfc44a4ca9ffb` | Preuve candidate / Integrated proof | 19/23 checks réussis, 4 en cours lors du constat | **Ne pas fusionner** ; qualification globale et recette manquantes |
+| [#146](https://github.com/christophejaubert/ha-trybatec/pull/146) | `d88b24817851f5aa1b7c2415052cfc44a4ca9ffb` | Preuve candidate / Integrated proof | 24/25 contrôles réussis, 1 préparation manuelle sautée / 24 passed, 1 skipped | **Ne pas fusionner** ; qualification globale et recette manquantes |
 
 * **FR :** Les dix checks obligatoires de `main` (Python 3.13/3.14, Ruff, HACS, Gitleaks, HA import/runtime, Hassfest, persistance et intégrité workflow) ont réussi sur les branches directes vérifiées. Préparation manuelle de release sautée. #136/#138/#139 ont le check d'intégrité sauté dans leur contexte empilé ; #142/#143 partagent un SHA avec 41 checks réussis, mais aussi des contextes sautés. **EN:** Ten required checks green on observed direct branches; separate stacked and skipped contexts must not be reported as fully qualified. No integrated-SHA acceptance has been proven.
 
@@ -54,6 +54,26 @@ Batch A has draft composed PR #144, batch B has draft composed PR #145, and draf
 5. **Confidentialité :** vérifier les patches et artefacts avant toute contribution publique ; aucun secret, adresse personnelle autre que l'identité Git autorisée, référence d'installation, index ou consommation réelle.
 
 **EN — Remaining functional blockers:** Recorder needs independent writer-quiescence and full readback/recovery proof; physical generation boundaries and no double-counting are unproven end to end; L6 cannot presently admit real sources, and L7's native adapter denies all actual writes/backups/journal operations; browser/a11y checks remain synthetic rather than live HA acceptance.
+
+### FR — Résultats exacts de la preuve combinée #146 (non fusionnable)
+
+- **SHA vérifié :** `d88b24817851f5aa1b7c2415052cfc44a4ca9ffb` ; **24/25 contrôles réussis**, seule la préparation manuelle non déclenchée est `skipped`. Les dix protections GitHub existantes sont vertes sur ce SHA. Voir [PR #146](https://github.com/christophejaubert/ha-trybatec/pull/146).
+- **Python 3.13 et 3.14 :** 866 tests réussis, 53 sous-tests réussis, couverture 79,42 % (seuil 75 %) et **2 avertissements** sur les options pytest `asyncio_mode` et `asyncio_default_fixture_loop_scope` pour chaque job ; aucun `xfail` signalé dans ces résumés. Ces résultats sont synthétiques, pas de la recette HA réelle.
+- **Autres contrôles verts :** Ruff, HACS, Hassfest, import HA, stockage, Gitleaks, CodeQL, `trusted-workflow-integrity`, dépendances (audit advisory), persistance et Recorder E2E isolés, navigateur FR/EN mobile/bureau et accessibilité 7 vues **synthétiques**.
+- **Confidentialité D2 non achevée :** #140 est développée et dans la preuve, mais `public-privacy-preflight` n'est **pas obligatoire** dans le ruleset actuel ; il ne peut être revendiqué comme vérifié sur `main` tant que sa fusion et son exécution de confiance ne sont pas autorisées et observées.
+- **Important :** la branche documentaire #134 peut avoir un SHA ultérieur à celui capturé dans l'arbre de preuve #146 ; une modification uniquement documentaire ne valide ni n'invalide les fonctions prouvées. Vérifier l'écart avant toute demande de fusion finale.
+
+### EN — Exact combined proof results
+
+#146 proof SHA `d88b24817851f5aa1b7c2415052cfc44a4ca9ffb`: 24 of 25 completed checks passed, with one manual unreleased draft step skipped; all ten current mandatory checks passed. Python 3.13/3.14: 866 tests plus 53 subtests passed per job, 79.42% coverage, two pytest configuration warnings per job, no xfails reported in these summaries. Browser, a11y, Recorder, persistence and dependency evidence is synthetic or advisory, not live Home Assistant acceptance. `public-privacy-preflight` requires a separate trusted-main gate and ruleset activation after specifically authorized merge of #140. No publication is authorized.
+
+### FR — Notes de release de travail (non publiables en l'état)
+
+**`0.3.4b1` — cible**, pas une release autorisée : installation/réauthentification et notifications ; nouvelles identités physiques stables *pour les nouveaux comptes uniquement* sans migration ; tarifs annuels natifs, calcul YTD par compteur et interface mobile ; provenance historique, continuité des compteurs déposés et contrôle Recorder ; diagnostics L6 et mécanisme transactionnel L7 sous verrou ; sécurité, confidentialité et preuves d'accessibilité améliorées. **Ne pas annoncer un ajout groupé Énergie opérationnel ni une restauration réelle validée** : ces critères restent bloquants. Revalider les notes après recette, SHA final et périmètre approuvé.
+
+### EN — Working release notes (not publishable yet)
+
+Target `0.3.4b1`: setup/re-auth and access notifications; stable physical identities for new accounts only; native annual tariffs and per-meter YTD; responsive UI; historical provenance, retired-meter lineage and Recorder safeguards; guarded Energy L6 evidence and dormant L7 transaction logic; CI/privacy/a11y improvements. **Do not claim operational bulk Energy enrollment or tested native recovery**: these are release blockers. Revise against the final SHA, real acceptance results and approved scope before any release authorization.
 
 ### FR — Campagne de recette unique (non exécutée)
 
