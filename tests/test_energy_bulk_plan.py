@@ -153,8 +153,10 @@ def test_no_candidates_and_non_consolidated_unit_fail_without_side_effects():
     original = deepcopy(prefs)
     with pytest.raises(ValueError, match="nonempty"):
         plan_bulk_energy_insertion(prefs, [])
+    unsupported = candidate()
+    unsupported["fluid"] = "new"
     with pytest.raises(ValueError, match="Unsupported"):
-        plan_bulk_energy_insertion(prefs, [candidate(fluid="EF", **{"fluid": "new"})])
+        plan_bulk_energy_insertion(prefs, [unsupported])
     assert prefs == original
 
 
