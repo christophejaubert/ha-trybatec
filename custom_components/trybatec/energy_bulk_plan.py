@@ -103,6 +103,16 @@ def plan_bulk_energy_insertion(
     for account, lot, fluid, source_type, stat_id in sorted(
         prepared, key=lambda item: (item[0], item[1], _FLUID_ORDER[item[2]])
     ):
+        candidate = next(
+            v for v in candidates
+            if (v["account"], v["lot"], v["fluid"]) == (account, lot, fluid)
+        )
+        alternatives = set(candidate["competing_statistic_ids"]) | {stat_id}
+        if any(
+            alternative != stat_id and alternative in selected_by_id
+            for alternative in alternatives
+        ):
+            raise ValueError("Competing Trybatec Energy source already selected")
         positions = selected_by_id.get(stat_id, [])
         if positions:
             if len(positions) != 1:
@@ -119,13 +129,6 @@ def plan_bulk_energy_insertion(
             continue
         # A prior alternative must never coexist with the consolidated
         # target. Replacements belong to the separate guarded b15/b17 flows.
-        candidate = next(
-            v for v in candidates
-            if (v["account"], v["lot"], v["fluid"]) == (account, lot, fluid)
-        )
-        alternatives = set(candidate["competing_statistic_ids"]) | {stat_id}
-        if any(stat in selected_by_id for stat in alternatives):
-            raise ValueError("Competing Trybatec Energy source already selected")
         after["energy_sources"].append({
             "type": source_type, "stat_energy_from": stat_id,
         })
@@ -140,7 +143,6 @@ def plan_bulk_energy_insertion(
         positions = [(s, f) for s, _idx, f, value in after_positions if value == stat_id]
         if positions != [("energy_sources", "stat_energy_from")]:
             raise ValueError("Target statistic not exclusive to one Energy source")
-    assert prefs == deepcopy(prefs)  # Algorithm does not mutate its argument.
     return {
         "mode": "read_only_bulk_energy_preflight",
         "before_fingerprint": before_fingerprint,
