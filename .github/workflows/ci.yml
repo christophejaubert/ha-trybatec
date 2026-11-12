@@ -43,6 +43,12 @@ jobs:
             python_version: "3.14.10"
             lock_file: pure-py314.txt
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -106,6 +112,12 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: {}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -146,6 +158,12 @@ jobs:
     name: hassfest
     runs-on: ubuntu-24.04
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -155,6 +173,12 @@ jobs:
     name: hacs
     runs-on: ubuntu-24.04
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -167,6 +191,12 @@ jobs:
     name: gitleaks
     runs-on: ubuntu-24.04
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -185,15 +215,23 @@ jobs:
     permissions: {}
     timeout-minutes: 20
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14.10"
+      - name: Install audited PyRIC build backend (Python 3.14)
+        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r .github/ci/locks/build-py314.txt
       - name: Install Home Assistant test framework
         run: |
-          python -m pip install --require-hashes -r .github/ci/locks/ha-runtime-py314.txt
+          python -m pip install --require-hashes --no-build-isolation -r .github/ci/locks/ha-runtime-py314.txt
           python -I .github/ci/lock_check.py .github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Test entities, services and persistent decisions on isolated Home Assistant
@@ -210,6 +248,12 @@ jobs:
       candidate_sha: ${{ steps.select.outputs.candidate_sha }}
       baseline_sha: ${{ steps.select.outputs.baseline_sha }}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout trusted reference resolver at audited immutable SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -252,6 +296,12 @@ jobs:
             writer_kind: baseline
             reader_kind: candidate
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout CI harness at exact candidate SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -273,9 +323,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14.10"
+      - name: Install audited PyRIC build backend (Python 3.14)
+        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
       - name: Install pinned Home Assistant Core for physical storage tests
         run: |
-          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-persistence-py314.txt
+          python -m pip install --require-hashes --no-build-isolation -r ci-harness/.github/ci/locks/ha-persistence-py314.txt
           python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-persistence.txt
           python -m pip check
       - name: Process 1 - start HA and persist synthetic review decision
@@ -306,6 +358,12 @@ jobs:
     needs: [resolve-test-refs, decision-persistence-process-restart, recorder-e2e]
     runs-on: ubuntu-24.04
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Block failed or skipped persistence and Recorder E2E matrix cases
         env:
           REFS: ${{ needs.resolve-test-refs.result }}
@@ -331,6 +389,12 @@ jobs:
       matrix:
         target: [baseline, candidate]
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout CI harness at immutable candidate SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -346,9 +410,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14.10"
+      - name: Install audited PyRIC build backend (Python 3.14)
+        run: python -m pip install --require-hashes --only-binary=:all: --force-reinstall --no-cache-dir -r ci-harness/.github/ci/locks/build-py314.txt
       - name: Install pinned, isolated HA Recorder fixtures
         run: |
-          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-runtime-py314.txt
+          python -m pip install --require-hashes --no-build-isolation -r ci-harness/.github/ci/locks/ha-runtime-py314.txt
           python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Exercise historical preview, import, Recorder SQLite, retry and verification
@@ -361,6 +427,12 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: {}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -390,6 +462,12 @@ jobs:
       group: trybatec-draft-release
       cancel-in-progress: false
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
