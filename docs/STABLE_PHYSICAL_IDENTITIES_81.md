@@ -33,7 +33,7 @@
 **Avancement effectif :** `migration_once_81.py` fournit l'inventaire déterministe en lecture seule, les conditions de blocage et une empreinte d'état ; les tests associés utilisent uniquement des données synthétiques. La transaction de registre et son rollback sont **codés avec des tests synthétiques**, mais leur raccordement aux inventaires complets et la recette réelle restent **à réaliser**. Le résultat « prêt pour confirmation » n'autorise aucune écriture et n'atteste pas à lui seul la complétude des dépendances.
 
 
-**Statut : implémentation partielle sur PR #82, non fusionnée.** La CI doit être vérifiée sur le dernier SHA ; les tests automatisés ne valent pas recette sur un Home Assistant réel. Les migrations d'installations existantes ne sont pas encore implémentées, et aucune écriture sur Recorder, Énergie ou le registre des entités n'est déclenchée au démarrage.
+**Statut : exécuteur ponctuel et adaptateurs développés sur la PR #82, non fusionnée.** La CI doit être vérifiée sur le dernier SHA ; les tests automatisés ne valent pas recette sur un Home Assistant réel. L'exécution sur les installations existantes demeure **non raccordée et bloquée** jusqu'à inventaire indépendant des consommateurs, preuve de sauvegarde restaurable et recette sur instance représentative. Aucune écriture sur Recorder, Énergie ou le registre des entités n'est déclenchée au démarrage.
 
 ### Architecture et compatibilité
 
@@ -87,7 +87,7 @@
 **Actual delivery:** `migration_once_81.py` contains a deterministic read-only inventory, blockers and a fingerprint, covered by synthetic tests. Registry application, verified-backup gating and rollback are **coded with synthetic tests**, but trusted live inventory wiring and real acceptance are **not yet completed**. A "ready for separate confirmation" preview neither authorizes writes nor proves an exhaustive dependency audit.
 
 
-**Status: partial implementation in draft PR #82; not merged.** CI success must be re-checked against the exact latest commit. Automated tests are not equivalent to acceptance testing on a real Home Assistant instance. Existing-installation migrations are **not** implemented; startup performs no entity-registry, Recorder or Energy writes.
+**Status: one-time executor and native adapters implemented in draft PR #82, not merged.** CI success must be re-checked against the exact latest commit; automated tests do not constitute real-instance acceptance. Live existing-account execution remains **unwired and blocked** until independent external-consumer inventory, demonstrably recoverable backup and representative HA acceptance. Startup performs no entity-registry, Recorder or Energy writes.
 
 ### Architecture and compatibility
 
