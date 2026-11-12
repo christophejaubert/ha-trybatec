@@ -36,5 +36,7 @@ def test_publication_stays_manual_exact_sha_and_preliminary_only():
     assert 'gh release view "$VERSION"' in source
     assert 'git/ref/tags/$VERSION' in source
     assert '--notes-file "$RUNNER_TEMP/release-notes.md"' in source
+    assert 'python3 -I scripts/ci_experimental_notes_check.py "$VERSION" "$RUNNER_TEMP/release-notes.md"' in source
+    assert source.index("scripts/ci_experimental_notes_check.py") < source.index("gh release create")
     assert 'release["draft"] is False and release["prerelease"] is True' in source
     assert 'tag["object"]["sha"] == os.environ["APPROVED_SHA"]' in source
