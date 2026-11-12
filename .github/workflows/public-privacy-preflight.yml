@@ -1,0 +1,25 @@
+name: "🤖 Privacy preflight / Confidentialité des contributions"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  public-privacy-preflight:
+    name: public-privacy-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout untrusted candidate, without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan new commit metadata and added content without printing matched values
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 -I scripts/public_privacy_preflight.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA"
