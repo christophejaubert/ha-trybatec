@@ -24,8 +24,8 @@ Les étapes du moteur sont : (1) contrôle administrateur serveur, (2) verrou ex
 - Aucun appel à la base Recorder, fournisseur, Home Assistant réel ou sauvegarde de production.
 - Les simulateurs peuvent produire artificiellement `admissible` pour vérifier l'automate ; **le L6 réel ne peut pas produire cet état actuellement**.
 - Les API HA natives de sauvegarde, persistance, journal, validation de schéma, accès administrateur et le panneau UI doivent être raccordés/testés avant toute intégration.
-- **Tests UI FR/EN, mobile/bureau, thèmes, clavier/lecteurs d'écran non réalisés**, parce qu'aucune interface opérationnelle n'est encore publiée dans ce lot.
-- Aucun test de restauration réelle. Aucune CI GitHub du nouveau code. Aucune recette métier.
+- **Vue UI FR/EN autonome testée sur DOM simulé**, bouton définitivement désactivé ; la recette réelle sur navigateur, thèmes, clavier/lecteurs d'écran et panneau HA reste à réaliser.
+- Aucun test de restauration réelle. La CI GitHub est suivie sur le SHA exact de la PR #130 (distincte de ces tests locaux). Aucune recette métier.
 
 ### Critères de déblocage L7
 
@@ -41,7 +41,7 @@ L7 is a dormant, dependency-injected transaction engine. It is not registered as
 
 The engine specifies administrator re-verification, an exclusive guard, fresh native L6 evidence and #92 planning, optimistic state fingerprints, recoverable backup verification, durable prewrite journal, a minimal `energy_sources` change, persisted readback, and safe rollback only while the exact intended state remains current. Conflicting third-party changes require manual recovery and MUST NOT be overwritten. All preview replies retain `writes=False`, `activation_authorized=False`; no browser boolean, `statistic_id` or read-only preflight state is an authorization.
 
-**Addition vs replacement:** L7 deliberately supports new additions only. Selected competing sources are refused and should be routed to separately qualified existing B15/B17 replacement/handoff procedures. Prices/costs are not inferred from tariffs. Synthetic tests use fake backends; they do not test native HA backup/restore, Recorder or genuine Energy persistence. Real UI, HA integration, browser accessibility acceptance, crash-recovery and business acceptance remain required. The PR must stay draft until those gates are satisfied.
+**Addition vs replacement:** L7 deliberately supports new additions only. Selected competing sources are refused and should be routed to separately qualified existing B15/B17 replacement/handoff procedures. Prices/costs are not inferred from tariffs. Synthetic tests use fake backends; they do not test native HA backup/restore, Recorder or genuine Energy persistence. Native HA panel integration, real-browser accessibility and HA recovery/business acceptance remain required; the standalone FR/EN disabled preview is already covered synthetically. The PR must stay draft until those gates are satisfied.
 
 **References:** [#88](https://github.com/christophejaubert/ha-trybatec/issues/88), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36), [#37](https://github.com/christophejaubert/ha-trybatec/issues/37), [#120](https://github.com/christophejaubert/ha-trybatec/pull/120), [HA Energy 2026.11.1](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py).
 
