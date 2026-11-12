@@ -1,8 +1,8 @@
 """Pure, read-only physical-meter identity design for issue #81.
 
 This module deliberately does not change the Home Assistant entity registry or
-Recorder. Existing b6/b15/b17 identities remain active until a separate,
-verified migration implementation is approved. Never infer an entity's physical
+Recorder. Existing b6/b15/b17 identities remain untouched until the separately
+verified, explicitly confirmed one-time migration has completed. Never infer an entity's physical
 ownership from an entity_id suffix or its display name.
 """
 from __future__ import annotations
