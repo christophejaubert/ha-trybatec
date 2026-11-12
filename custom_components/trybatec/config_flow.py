@@ -35,7 +35,7 @@ from .const import (
     DEFAULT_POLL_MINUTES,
     CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
     CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
-    DOMAIN,
+    DOMAIN, CONF_STABLE_METER_IDENTITIES,
     MIN_POLL_MINUTES,
 )
 from .parsing import validate_tariffs
@@ -99,6 +99,7 @@ class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USERNAME: username,
                 CONF_PASSWORD: password,
                 CONF_DEAL_ID: deal_id,
+                CONF_STABLE_METER_IDENTITIES: True,
             },
         )
 
