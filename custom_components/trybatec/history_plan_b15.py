@@ -113,11 +113,21 @@ def make_b15_plan(
         if (not isinstance(first, datetime) or first.tzinfo is None
                 or not isinstance(last, datetime) or last.tzinfo is None):
             raise ValueError("Unverified physical source date bounds")
-        first_day = first.astimezone(ZONE).date()
-        last_day = last.astimezone(ZONE).date()
+        # B15's raw consumption is placed at history._bucket(reading),
+        # i.e. in the UTC hour immediately before its observation. A
+        # 00:20 local reading may therefore belong to the prior civil day.
+        # Bound the statistic buckets, not the physical index timestamps;
+        # the latter remain immutable in the reviewed source history.
+        first_day = (first.astimezone(timezone.utc) -
+                     timedelta(hours=1)).astimezone(ZONE).date()
+        last_day = (last.astimezone(timezone.utc) -
+                    timedelta(hours=1)).astimezone(ZONE).date()
         origin = (approved_origins or {}).get(meter_key(*key))
         if origin is not None:
             first_day = date.fromisoformat(origin["estimated_start_date"])
+            # An approved initial estimate ends at the real first
+            # observation's civil day, including readings near midnight.
+            last_day = max(last_day, first.astimezone(ZONE).date())
         physical_bounds[key] = (first_day, last_day)
     coverage = build_coverage_evidence(
         variants["meters"], source_bounds=physical_bounds,
