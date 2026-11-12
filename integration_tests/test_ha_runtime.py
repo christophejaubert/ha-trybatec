@@ -688,3 +688,107 @@ async def test_new_config_flow_enables_stable_ids_only_for_new_entry(
     assert result["type"] == "create_entry"
     assert result["data"][CONF_STABLE_METER_IDENTITIES] is True
     assert result["data"][CONF_DEAL_ID] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+
+
+async def test_legacy_successive_physical_meters_preserve_identities_on_reload(
+    hass, monkeypatch,
+):
+    """A retired predecessor and active successor remain distinct after update."""
+    from homeassistant.helpers import entity_registry as er
+
+    payload = synthetic_indexes("m3")
+    retired = deepcopy(payload["lines"][0])
+    retired["compteur"] = "MOCK-RETIRED-00"
+    retired["depose"] = True
+    payload["lines"].append(retired)
+
+    async def fake_indexes(self, deal_id, start, end):
+        return deepcopy(payload)
+
+    async def fake_enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 2}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", fake_indexes)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", fake_enrich)
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Synthetic legacy successive meters",
+        unique_id="synthetic-successive-account",
+        data={
+            CONF_USERNAME: "synthetic-successive-user",
+            CONF_PASSWORD: "NOT-A-REAL-PASSWORD",
+            CONF_DEAL_ID: "synthetic-successive-deal",
+        },
+    )
+    hass.set_state(CoreState.running)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    def meter_refs():
+        return {
+            row.unique_id: (row.entity_id, row.device_id)
+            for row in registry.entities.values()
+            if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+            and row.unique_id.endswith("_index")
+        }
+
+    before = meter_refs()
+    assert len(before) == 2
+    assert any("MOCK-RETIRED-00" in uid for uid in before)
+    assert any("MOCK-WATER-01" in uid for uid in before)
+    assert all("_b6_m³_index" in uid for uid in before)
+    assert all(device_id for _, device_id in before.values())
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert meter_refs() == before
+    assert CONF_STABLE_METER_IDENTITIES not in entry.data
+    assert hass.data[DOMAIN][entry.entry_id].stable_unit_guard is None
+
+
+async def test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate(
+    hass, monkeypatch,
+):
+    """Keep the existing stable registry ID but refuse unproven source scale."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers.storage import Store
+    from custom_components.trybatec.meter_identity import stable_meter_unique_id
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=True)
+    account = entry.unique_id or entry.entry_id
+    uid = stable_meter_unique_id(account, "MOCK-LOT", "EF", "MOCK-WATER-01")
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("sensor", DOMAIN, uid)
+    assert entity_id
+    original = registry.async_get(entity_id)
+    assert original is not None
+    expected = (original.entity_id, original.unique_id, original.device_id)
+
+    native_load = Store.async_load
+    async def missing_stable_ledger(self):
+        if self.key.startswith(f"{DOMAIN}.stable_meter_units_"):
+            return None
+        return await native_load(self)
+
+    # An orphaned entity with its unit ledger lost must not silently reuse
+    # its existing Recorder statistic ID after a reinstall / restored config.
+    monkeypatch.setattr(Store, "async_load", missing_stable_ledger)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    row = registry.async_get(entity_id)
+    assert row is not None
+    assert (row.entity_id, row.unique_id, row.device_id) == expected
+    assert registry.async_get_entity_id("sensor", DOMAIN, uid) == entity_id
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.stable_unit_guard is not None
+    assert coordinator.stable_unit_guard._units == {}
+    assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_status"] == (
+        "missing_unit_baseline_requires_review"
+    )
+    rows = [
+        row for row in registry.entities.values()
+        if row.platform == DOMAIN and row.config_entry_id == entry.entry_id
+        and row.unique_id.startswith("meter_")
+    ]
+    assert len(rows) == 1
