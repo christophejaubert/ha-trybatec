@@ -37,6 +37,12 @@ jobs:
     timeout-minutes: 20
     permissions: {}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout untrusted candidate with no retained credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
