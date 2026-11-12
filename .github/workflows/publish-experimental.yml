@@ -1,4 +1,4 @@
-name: Publish approved experimental Trybatec prerelease
+name: 🤖 Publish approved experimental Trybatec prerelease
 
 # An explicit owner workflow_dispatch is required for each version and exact SHA.
 # Pushes, PRs, issue comments, tags and schedules can never trigger publication.
@@ -100,7 +100,7 @@ jobs:
           if not any(r.get("name") == "Protect main - CI/CD" and r.get("enforcement") == "active" for r in rules):
               raise SystemExit("Mandatory branch-protection ruleset missing or inactive")
           runs = json.loads((root / "runs.json").read_text(encoding="utf-8")).get("workflow_runs", [])
-          valid = [r for r in runs if r.get("name") == "Compatibility and tests"
+          valid = [r for r in runs if r.get("name") in {"🤖 Compatibility and tests", "Compatibility and tests"}
                    and r.get("event") == "push" and r.get("head_branch") == "main"
                    and r.get("head_sha") == os.environ["APPROVED_SHA"]
                    and r.get("status") == "completed" and r.get("conclusion") == "success"]
