@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 FLUID_UNITS = {"EF": "m³", "ECS": "m³", "CET": "kWh"}
 STATUSES = {"en_service", "depose", "inconnu"}
 VARIANTS = {"raw", "smoothed"}
-PROVENANCE = {"measured", "estimated_linear_confirmed"}
+PROVENANCE = {"measured", "estimated_linear_confirmed", "mixed"}
 MAX_METERS = 3000
 MAX_ROWS = 100000
 
@@ -143,9 +143,21 @@ def preview_lineage(
             provenance = entry.get("provenance")
             if provenance not in PROVENANCE:
                 raise ValueError("Unverified measured/estimated provenance")
-            if provenance == "estimated_linear_confirmed":
+            amount = _quantity(entry.get("amount"))
+            if provenance in ("estimated_linear_confirmed", "mixed"):
                 _identity(entry.get("decision_fingerprint"))
-            normalized[d] = (_quantity(entry.get("amount")), provenance)
+                measured = _quantity(entry.get("measured"))
+                estimated = _quantity(entry.get("estimated"))
+                if measured + estimated != amount:
+                    raise ValueError("Measured and estimated contributions must equal consumption")
+                if provenance == "estimated_linear_confirmed" and measured != 0:
+                    raise ValueError("Pure estimate cannot contain measured consumption")
+                if provenance == "mixed" and (measured <= 0 or estimated <= 0):
+                    raise ValueError("Mixed consumption requires both contributions")
+            else:
+                if any(k in entry for k in ("decision_fingerprint", "estimated", "measured")):
+                    raise ValueError("Measured-only row cannot contain estimated contributions")
+            normalized[d] = (amount, provenance)
             total_rows += 1
             if total_rows > MAX_ROWS:
                 raise ValueError("Too many daily rows")
