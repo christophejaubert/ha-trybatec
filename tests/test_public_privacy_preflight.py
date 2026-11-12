@@ -157,3 +157,37 @@ def test_workflow_uses_only_trusted_main_code():
         "- name: Inspect", 1
     )[0]
     assert "permissions:\n  contents: read" in workflow
+
+def test_intermediate_secret_is_scanned_even_when_removed(repository):
+    """FR/EN: deleting a secret in a later PR commit cannot erase its history."""
+    base = run_git(repository, "rev-parse", "HEAD")
+    fake = "ghp_" + "Q" * 32
+    (repository / "temporary.txt").write_text("token=" + fake + "\n", encoding="utf-8")
+    run_git(repository, "add", "temporary.txt")
+    run_git(repository, "commit", "-m", "temporary fixture")
+    (repository / "temporary.txt").unlink()
+    run_git(repository, "add", "-A")
+    run_git(repository, "commit", "-m", "remove temporary fixture")
+    records, count = audit(base, run_git(repository, "rev-parse", "HEAD"))
+    assert count == 2
+    assert ("added content", "credential-pattern") in {
+        (origin, finding.category) for origin, finding in records if finding.severity == "error"
+    }
+    assert fake not in str(records)
+
+
+def test_intermediate_sensitive_filename_is_scanned_even_when_removed(repository):
+    """FR/EN: an intermediate personal machine filename remains public."""
+    base = run_git(repository, "rev-parse", "HEAD")
+    temporary = repository / "computer-fixture.local"
+    temporary.write_text("safe fixture\n", encoding="utf-8")
+    run_git(repository, "add", "computer-fixture.local")
+    run_git(repository, "commit", "-m", "fixture filename")
+    temporary.unlink()
+    run_git(repository, "add", "-A")
+    run_git(repository, "commit", "-m", "remove fixture filename")
+    records, count = audit(base, run_git(repository, "rev-parse", "HEAD"))
+    assert count == 2
+    assert ("changed filename", "local-machine-hostname") in {
+        (origin, finding.category) for origin, finding in records if finding.severity == "error"
+    }
