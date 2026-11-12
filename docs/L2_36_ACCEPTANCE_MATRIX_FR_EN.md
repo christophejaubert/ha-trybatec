@@ -42,3 +42,20 @@
 ## EN — Summary
 
 The existing repository already provides reviewed source indexing, a linear measured-first residual algorithm, immutable conceptual V1/V2/V3 ledgers, Recorder post-enqueue verification, and an explicitly confirmed Energy switch path. Two targeted pure modules are **developed and CI-tested on their initial PR heads, not yet operationally wired**, covering (a) selected-variant provenance/unknown gaps and (b) fail-closed partial-batch recovery classification. They do **not** modify Recorder, existing data, Home Assistant, or Energy. They must not be described as wired, HA business-accepted, merged, released, or installed. The key boundary is trusted server-generated evidence, not browser claims. Release target `0.3.4b1` is not approved for publication.
+
+## FR — Raccordement L2-A en cours (12/11/2026)
+
+- `make_b15_plan()` consomme désormais `build_coverage_evidence()` sur les variantes physiques calculées côté serveur. Les bornes proviennent des `reviewed_readings` et, lorsqu'elle est approuvée, de la date d'origine estimée ; aucune mesure physique n'est synthétisée.
+- Les preuves par lot/fluide incluent `rows[].provenance` (`measured`, `estimated`, `mixed`), contributions physiques, parts journalières et totaux, lacunes, couverture et empreinte. Les données de consommation sélectionnées doivent correspondre à celles du plan consolidé (tolérance explicite).
+- `async_preview_b15()` expose `daily_provenance` à l'administrateur sans effectuer d'écriture Recorder ou Énergie. Le plan d'import existant conserve sa signature et ses confirmations.
+- Le statut `qualified_bounds_no_gaps` signifie **aucune journée manquante à l'intérieur des bornes fournies**, et non exhaustivité historique absolue : #37 doit encore démontrer la filiation des compteurs, #88 la persistance et l'exclusivité.
+- Correction de compatibilité : un compteur conflictuel échoue avant la construction des preuves, avec le même contrat de refus qu'avant #127.
+
+**Garde de livraison :** qualification automatisée sur le SHA exact de la PR, comparaison réelle FR/EN des parcours et recette HA isolée restent distinctes. Les autres critères de #36 ne sont pas déclarés terminés.
+
+## EN — L2-A B15 wiring in progress (2026-11-12)
+
+- `make_b15_plan()` now derives daily evidence from trusted server-computed physical variants and reviewed source bounds, extended only by explicitly approved estimated origins.
+- The administrator B15 preview exposes per-day measured/estimated/mixed quantities, physical-meter contributions, known gaps and fingerprints without Recorder or Energy writes. Consolidated selected daily values must agree with the independent provenance calculation.
+- `qualified_bounds_no_gaps` proves only completeness within the supplied qualified boundaries, **not** full historical continuity or Recorder persistence. #37 owns meter lineage and #88 owns independent Energy eligibility checks.
+- Earlier fail-closed B15 behavior for conflicted meters remains unchanged. CI on the final SHA and isolated HA acceptance are separate requirements.
