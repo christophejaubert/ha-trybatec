@@ -17,11 +17,13 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util import dt as dt_util
 
 from .api import (
+    TrybatecAccessDeniedError,
     TrybatecAuthError,
     TrybatecClient,
     TrybatecConnectionError,
     TrybatecDataError,
 )
+from .access_notifications import access_notification_text
 from .const import CONF_DEAL_ID, CONF_POLL_MINUTES, CONF_METER_UNITS, CONF_DEVICE_UUIDS, DEFAULT_POLL_MINUTES, DOMAIN, TIMEZONE
 from .units import resolve_meter_unit, validate_meter_units
 from .parsing import known_lots, parse_lines, summarize_annual
@@ -52,6 +54,7 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_index_payload: dict[str, Any] | None = None
         self._consecutive_connection_failures = 0
         self._access_notification_active = False
+        self._access_notification_reconciled = False
         self._access_notification_kind: str | None = None
         self._access_notification_id = (
             "trybatec_access_"
@@ -68,38 +71,46 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.update_interval = timedelta(minutes=1)
         _LOGGER.debug("Trybatec initial polling enabled after Home Assistant started")
 
-    def _notify_access_issue(self, *, authorization: bool) -> None:
-        """One safe persistent notification per config entry, never per poll."""
-        kind = "authentication" if authorization else "connectivity"
-        # A proven authentication failure must replace an earlier generic
-        # connectivity warning. Reuse the stable ID instead of creating a
-        # second notification. Do not downgrade an authentication warning
-        # while access has not recovered.
+    def _notify_access_issue(
+        self, *, authorization: bool = False, access_denied: bool = False
+    ) -> None:
+        """Create/update one secret-free persistent incident for the same entry."""
+        kind = (
+            "access_denied" if access_denied else
+            "authentication" if authorization else "connectivity"
+        )
+        # Same ID ensures HA replaces, not duplicates, the notification.
+        # A transient transport error must not hide an unresolved auth/403 issue.
         if self._access_notification_kind == kind:
             return
-        if self._access_notification_kind == "authentication":
+        if (
+            kind == "connectivity"
+            and self._access_notification_kind in ("authentication", "access_denied")
+        ):
             return
-        message = (
-            "Trybatec a refusé les identifiants. Ouvrez les intégrations "
-            "Home Assistant pour réauthentifier cette connexion."
-            if authorization else
-            "Trybatec ne répond plus après plusieurs essais. "
-            "Les mesures sont indisponibles ; le système réessaiera automatiquement."
+        title, message = access_notification_text(
+            kind, getattr(self.hass.config, "language", "en")
         )
         persistent_notification.async_create(
-            self.hass, message, title="Accès Trybatec indisponible",
+            self.hass, message, title=title,
             notification_id=self._access_notification_id,
         )
         self._access_notification_active = True
+        self._access_notification_reconciled = True
         self._access_notification_kind = kind
 
     def _clear_access_issue(self) -> None:
-        """Resolve a prior incident only after a successful meter refresh."""
-        if self._access_notification_active:
+        """Dismiss stale incidents after verified recovery, including HA reload.
+
+        An incident might have outlived the previous coordinator instance.
+        Reconcile its stable notification ID once on startup, not every poll.
+        """
+        if self._access_notification_active or not self._access_notification_reconciled:
             persistent_notification.async_dismiss(
                 self.hass, self._access_notification_id
             )
-            self._access_notification_active = False
+        self._access_notification_active = False
+        self._access_notification_reconciled = True
         self._access_notification_kind = None
         self._consecutive_connection_failures = 0
 
@@ -172,6 +183,11 @@ class TrybatecCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 len(data["meters"]), monotonic() - started,
             )
             return data
+        except TrybatecAccessDeniedError as exc:
+            self._notify_access_issue(access_denied=True)
+            _LOGGER.warning("Trybatec configured property access denied at %s", phase)
+            # HTTP 403 is not evidence of an invalid password.
+            raise UpdateFailed("Trybatec configured property access denied") from exc
         except TrybatecAuthError as exc:
             self._notify_access_issue(authorization=True)
             _LOGGER.warning(
