@@ -47,11 +47,14 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
             confirm_revision=False, retry_pending=False,
         )
 
-    retried = await recorder.queue_b15_plan(
-        hass, "synthetic-entry", plan,
-        confirm_revision=False, retry_pending=True,
-    )
-    assert len(retried["queued"]) == 1
+    # The old blind replay would enqueue the same pending version twice
+    # while its first Recorder writer might still be running.
+    with pytest.raises(ValueError, match="readback unavailable"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-entry", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert len(queued) == 1
 
     async def fake_recorder_service(call):
         assert call.data["statistic_ids"] == [identity + "_v1"]
@@ -79,7 +82,7 @@ async def test_b15_immutable_import_rejects_unverified_version_and_requires_read
         confirm_revision=False, retry_pending=False,
     )
     assert again["status"] == "unchanged_all_series_previously_verified"
-    assert len(queued) == 2
+    assert len(queued) == 1
 
 
 @pytest.mark.asyncio
