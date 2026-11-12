@@ -39,3 +39,18 @@ test("FR/EN: reject secret-shaped keys and external destinations", () => {
   data.results[0].results[0].label = "https://invalid.example/identifier";
   assert.throws(() => validate(data));
 });
+
+test("FR/EN: post-merge synthetic workflow remains read-only and fail-closed", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const workflow = fs.readFileSync(
+    path.resolve(__dirname, "../../.github/workflows/ui-a11y-synthetic-70-83-84.yml"), "utf8"
+  );
+  assert.match(workflow, /\n  push:\n    branches: \[main\]/);
+  assert.match(workflow, /permissions: \{\}/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /npm ci --prefix scripts\/browser-ci --ignore-scripts/);
+  assert.match(workflow, /node scripts\/browser-ci\/validate_a11y_report.cjs ui-a11y-synthetic-report.json/);
+  assert.match(workflow, /if: success\(\)/);
+  assert.doesNotMatch(workflow, /if: always\(\)/);
+});
