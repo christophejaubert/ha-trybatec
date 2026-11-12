@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from hashlib import sha256
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
+from uuid import UUID
 
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -25,7 +26,7 @@ from custom_components.trybatec import coordinator as coordinator_module
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
-DEAL = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+DEAL = str(UUID(int=0xAABBCCDD000044448888123456789ABC))
 USERNAME = "synthetic-only@example.invalid"
 OLD = "OLD_SYNTHETIC_PASSWORD"
 NEW = "NEW_SYNTHETIC_PASSWORD"
