@@ -7,6 +7,7 @@ import pytest
 
 from custom_components.trybatec.migration_executor_81 import (
     async_execute_one_time_migration,
+    async_finalize_one_time_migration,
     async_rollback_one_time_migration,
     async_verify_migration_registry,
 )
@@ -306,3 +307,41 @@ def test_verifier_catches_device_drift_without_marking_business_approval():
     asyncio.run(scenario())
 
 
+
+def test_business_acceptance_must_be_independent_and_complete():
+    async def scenario():
+        reg, devices, journal, _, supplier, lookup = _fixture()
+        activation = Activation()
+        await _run(reg, devices, journal, supplier, lookup, activation=activation)
+        async def incomplete():
+            return {"source_units_verified": True}
+        with pytest.raises(ValueError, match="acceptance incomplete"):
+            await async_finalize_one_time_migration(
+                entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
+                journal=journal, acceptance_supplier=incomplete,
+            )
+        assert journal.record["status"] == "pending_reload_verification"
+        async def verified():
+            return {
+                "source_units_verified": True,
+                "recorder_statistics_unchanged": True,
+                "recorder_units_compatible": True,
+                "energy_sources_unchanged": True,
+                "no_double_counting": True,
+                "entity_ids_and_consumers_verified": True,
+                "device_associations_unchanged": True,
+                "runtime_stable_after_reload": True,
+            }
+        result = await async_finalize_one_time_migration(
+            entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
+            journal=journal, acceptance_supplier=verified,
+        )
+        assert result["business_acceptance_confirmed"] is True
+        assert result["legacy_cleanup_authorized"] is False
+        assert journal.record["status"] == "verified_after_reload"
+        with pytest.raises(ValueError, match="Already activated"):
+            await async_rollback_one_time_migration(
+                entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
+                journal=journal, activation=activation,
+            )
+    asyncio.run(scenario())
