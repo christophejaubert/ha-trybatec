@@ -42,8 +42,8 @@ def test_missing_extra_and_wrong_versions_detected():
         "pytest": "9.1.0", "unapproved": "1.0"
     }) == [
         "missing distribution: attrs",
-        "unexpected distribution: unapproved",
         "version mismatch: pytest",
+        "unexpected distribution: unapproved",
     ]
 
 
