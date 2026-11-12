@@ -5,6 +5,8 @@
 **Base de développement :** branche `feat/81-greenfield-safe` de #120 au SHA `8eb4f10c694da34afda4333adff0087c52f17d90`.  
 **Dépendances :** PR #118 pour l'éditeur principal et la validation commune des montants, PR #120 pour les nouveaux comptes sans migration, PR #132 (#35) pour les parcours d'installation/accès. La PR #132 modifie `config_flow.py`, `strings.json` et les traductions : **réconcilier ces changements ultérieurement, ne pas les écraser**.
 
+**Validation indépendante :** pour exécuter ce lot sur la branche #120 sans le code encore non fusionné de #118, les fichiers `panel_tariffs.py` et `tariff_validation.py` sont suivis sous une **copie binaire identique à #118**. Leur intégration doit conserver une seule version lors de la réconciliation ; aucune duplication fonctionnelle n'est prévue. Les deux copies garantissent le rejet de la précision excessive et la préservation exacte du JSON historique lorsque seule une dérogation est modifiée.
+
 ### Contrat COMPAT-01 / TAR-01
 
 - Le menu natif « Options Trybatec » conserve ses sept entrées préexistantes, dans le même ordre, et ajoute « Tarifs annuels (éditeur graphique) » et « Avancé : anciens tarifs JSON (compatibilité) ».
@@ -27,3 +29,7 @@
 A separate stacked draft based on #120, not a direct edit of its branch. All seven original native options menu routes remain available; ordinary settings no longer require or overwrite `annual_tariffs` JSON. A native graphical year/fluid/meter editor handles shared and per-meter rates, status, prefill, save, remove, discard and a separate explicit confirmation. The old JSON field remains reachable under an **opt-in advanced compatibility route**, satisfying the no-mandatory-JSON TAR-01 goal while preserving COMPAT-01 legacy access.
 
 The existing `change_tariff` backend is reused, with exact-snapshot concurrency protection. No second rate subsystem, data migration, production Home Assistant access, Recorder/Energy write, release or merge. #132 and #120 both own overlapping runtime/translation files; coordinate and reconcile before any separately authorized merge. CI is synthetic and never substitutes for real FR/EN mobile/desktop, non-admin and restart acceptance.
+
+### Complément de coordination / Additional integration note
+
+**FR :** les commits temporaires reprenant les deux fichiers backend sont strictement identiques aux blobs #118 ; ne pas fusionner deux implémentations divergentes. **EN:** The two backend copies use identical Git blobs to PR #118; reconcile them as one implementation after the separately approved merges.
