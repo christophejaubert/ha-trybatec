@@ -1,0 +1,4 @@
+# FR : versions directes des outils d'audit de la chaîne de livraison.
+# EN: direct pinned supply-chain audit tool requirements.
+pip-audit==2.10.1
+zizmor==1.32.0
