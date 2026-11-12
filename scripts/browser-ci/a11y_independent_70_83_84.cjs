@@ -193,8 +193,21 @@ async function one(browser, config) {
       undersizedTargetObservations:viewed.reduce((n,x)=>n+x.undersizedTargets.length,0),
       realHomeAssistantRecettes:0,
     };
-    fs.writeFileSync(reportFile,JSON.stringify({mode:"synthetic-only",summary,results},null,2)+"\n");
-    process.stdout.write(JSON.stringify({report:reportFile,summary})+"\n");
+    const candidates=results.flatMap(record=>record.results.map(row=>({
+      language:record.config.language,device:record.config.device,
+      theme:record.config.theme,tab:row.tab,
+      scrollWidth:row.documentWidth,viewport:row.viewport,
+      reflowFailure:!row.reflow320synthetic,
+      focusOutside:!row.focus.inViewport,
+      undersizedTargetSample:row.undersizedTargets.slice(0,5),
+    })));
+    const detailed={
+      reflow:candidates.filter(x=>x.reflowFailure),
+      focusOutside:candidates.filter(x=>x.focusOutside).slice(0,12),
+      undersizedTargets:candidates.filter(x=>x.undersizedTargetSample.length).slice(0,12),
+    };
+    fs.writeFileSync(reportFile,JSON.stringify({mode:"synthetic-only",summary,detailed,results},null,2)+"\n");
+    process.stdout.write(JSON.stringify({report:reportFile,summary,detailed})+"\n");
     // Findings stay diagnostic: UI fixes require coordination with tariff PR #118.
     // A successful run proves the probe executed, NOT all WCAG checks passed.
   }finally{await browser.close();}
