@@ -78,7 +78,7 @@ def test_repeated_connectivity_errors_are_deduplicated() -> None:
 
     assert len(notifications.created) == 1
     assert notifier._access_notification_kind == "connectivity"
-    assert "réessaiera" in notifications.created[0][1]
+    assert "nouvelle tentative" in notifications.created[0][1]
     assert notifications.created[0][3] == notifier._access_notification_id
 
 
