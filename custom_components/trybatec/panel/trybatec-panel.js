@@ -96,6 +96,10 @@ function trybatecTariffYears(account, currentYear) {
 /** Resolve only the tariff saved for the exact exercise, fluid and physical meter. */
 function trybatecSavedEffectiveTariff(account, year, fluid, physicalKey="") {
   const y=String(year);
+  if (physicalKey) {
+    const meter=(account?.meters||[]).find(m=>m.physical_key===physicalKey);
+    if (!meter || meter.fluid!==fluid) return null;
+  }
   const specific=physicalKey ? account?.meter_tariffs?.[y]?.[physicalKey] : null;
   const common=account?.tariffs?.[y]?.[fluid];
   const record=specific ?? common;
