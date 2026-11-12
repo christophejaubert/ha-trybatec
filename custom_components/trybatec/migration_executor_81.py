@@ -122,13 +122,13 @@ async def async_execute_one_time_migration(
     *, entry_id: str, expected_fingerprint: str, backup_id: str,
     confirmed: bool, plan_supplier: Callable[[], Awaitable[dict[str, Any]]],
     backup_lookup: Callable[[str], Awaitable[dict[str, Any]]],
-    registry: Any, devices: Any, journal: Any,
+    registry: Any, devices: Any, journal: Any, activation: Any,
 ) -> dict[str, Any]:
-    """Apply one fully verified plan; leave account runtime unchanged.
+    """Stage and activate a fully approved migration with an inverse path.
 
-    A separate activation gate must verify journal state after a reload and
-    only then switch the config entry to canonical mode. Fail closed if
-    another operation remains prepared, applied or incompletely rolled back.
+    The activation adapter must durably seed the source-unit baseline before
+    updating the config-entry flag and reloading. Fail closed if another
+    transaction is prepared, applied or incompletely rolled back.
     """
     if not confirmed:
         raise ValueError("Migration requires explicit confirmation")
@@ -169,6 +169,7 @@ async def async_execute_one_time_migration(
         }
         await journal.async_save(record)
         try:
+            await activation.async_prepare(items)
             for item in items:
                 pair = _canonical_pair(item)
                 devices.async_update_device(
@@ -186,10 +187,14 @@ async def async_execute_one_time_migration(
                     raise ValueError("Device association changed during migration")
                 item["step"] = "registry_updated"
                 await journal.async_save(record)
+            record["status"] = "activating"
+            await journal.async_save(record)
+            await activation.async_enable()
             record["status"] = "pending_reload_verification"
             await journal.async_save(record)
         except Exception:
             try:
+                await activation.async_disable()
                 for item in reversed(items):
                     await _reverse(registry, devices, item)
                 record["status"] = "rolled_back"
@@ -206,12 +211,14 @@ async def async_execute_one_time_migration(
             "recorder_unchanged": True,
             "energy_unchanged": True,
             "legacy_entities_deleted": False,
-            "requires_separate_activation": True,
+            "runtime_activation_performed": True,
+            "requires_post_reload_and_business_verification": True,
         }
 
 
 async def async_rollback_one_time_migration(
-    *, entry_id: str, confirmed: bool, registry: Any, devices: Any, journal: Any,
+    *, entry_id: str, confirmed: bool, registry: Any, devices: Any,
+    journal: Any, activation: Any,
 ) -> dict[str, Any]:
     """Explicit resumable rollback of a prepared or partially applied plan."""
     if not confirmed:
@@ -228,6 +235,7 @@ async def async_rollback_one_time_migration(
         if not isinstance(items, list) or not items:
             raise ValueError("Migration journal is incomplete")
         try:
+            await activation.async_disable()
             for item in reversed(items):
                 await _reverse(registry, devices, item)
         except Exception:
@@ -262,5 +270,5 @@ async def async_verify_migration_registry(
         "status": "registry_and_device_verified",
         "entity_ids_preserved": [item["entity_id"] for item in record["items"]],
         "requires_recorder_and_energy_acceptance": True,
-        "requires_runtime_activation": True,
+        "requires_runtime_activation": False,
     }
