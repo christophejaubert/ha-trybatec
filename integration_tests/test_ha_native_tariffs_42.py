@@ -120,7 +120,7 @@ async def test_native_settings_no_json_and_advanced_legacy_still_accessible(
     # Changing settings must not reserialize or parse old numeric-format tariffs.
     returned = await hass.config_entries.options.async_configure(
         flow_id, {"poll_minutes": 720, "sparse_interval_hours": 27,
-                  "zero_index_review_days": 1, "after_submit": "menu"}
+                  "zero_index_review_days": 1}
     )
     assert returned["step_id"] == "init"
     assert entry.options["annual_tariffs"] == legacy
@@ -150,7 +150,7 @@ async def test_native_years_three_fluids_legacy_preservation_and_confirmation(
         form = await _choose(hass, flow_id, year=year, fluid=fluid)
         assert form["step_id"] == "tariff_edit"
         awaiting = await _confirm(hass, flow_id, rate=rate)
-        before = deepcopy(entry.options)
+        before = deepcopy(dict(entry.options))
         no_confirmation = await hass.config_entries.options.async_configure(
             flow_id, {"confirm": False}
         )
@@ -205,7 +205,7 @@ async def test_native_overrides_restore_default_without_touching_old_tariffs(
 
 async def test_native_discard_bad_year_and_values_never_write(hass, monkeypatch):
     entry, polls = await _account(hass, monkeypatch)
-    baseline = deepcopy(entry.options)
+    baseline = deepcopy(dict(entry.options))
     flow_id, _ = await _begin(hass, entry)
     selection = await hass.config_entries.options.async_configure(
         flow_id, {"next_step_id": "tariffs"}
@@ -268,7 +268,7 @@ async def test_native_tariff_survives_synthetic_unload_and_setup(
         flow_id, {"confirm": True}
     )
     assert confirmed["step_id"] == "tariff_done"
-    saved_options = deepcopy(entry.options)
+    saved_options = deepcopy(dict(entry.options))
     assert json.loads(saved_options["annual_tariffs"])["2040"]["CET"]["rate"] == 0.123456
     previous_polls = len(polls)
 
