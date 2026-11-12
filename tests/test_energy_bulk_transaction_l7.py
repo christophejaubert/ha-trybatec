@@ -91,6 +91,9 @@ class FakePort:
     async def verify_backup(self, receipt):
         return "backup_unverified" not in self.flags and receipt["synthetic"] is True
 
+    async def read_last_journal(self):
+        return deepcopy(self.audit[-1]) if self.audit else None
+
     async def journal(self,payload):
         if "journal_fail" in self.flags:
             raise IOError("simulated journal failure")
@@ -298,3 +301,21 @@ def test_other_version_selected_routes_to_separate_replacement_flow():
     p.disk=deepcopy(p.live)
     assert preview(p).status=="blocked"
     assert p.backups==p.writes==0
+
+
+def test_existing_prepared_journal_requires_explicit_recovery_first():
+    p=FakePort();v=preview(p)
+    p.audit.append({"status":"prepared", "synthetic":True})
+    with pytest.raises(EnergyRecoveryRequired,match="Unresolved earlier"):
+        apply(p,v)
+    assert p.backups==p.writes==0
+
+
+def test_journal_not_readable_durably_refuses_before_write():
+    p=FakePort();v=preview(p)
+    async def lost():
+        return None
+    p.read_last_journal=lost
+    with pytest.raises(EnergyRecoveryRequired,match="not durably readable"):
+        apply(p,v)
+    assert p.backups==1 and p.writes==0

@@ -44,3 +44,26 @@ The engine specifies administrator re-verification, an exclusive guard, fresh na
 **Addition vs replacement:** L7 deliberately supports new additions only. Selected competing sources are refused and should be routed to separately qualified existing B15/B17 replacement/handoff procedures. Prices/costs are not inferred from tariffs. Synthetic tests use fake backends; they do not test native HA backup/restore, Recorder or genuine Energy persistence. Real UI, HA integration, browser accessibility acceptance, crash-recovery and business acceptance remain required. The PR must stay draft until those gates are satisfied.
 
 **References:** [#88](https://github.com/christophejaubert/ha-trybatec/issues/88), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36), [#37](https://github.com/christophejaubert/ha-trybatec/issues/37), [#120](https://github.com/christophejaubert/ha-trybatec/pull/120), [HA Energy 2026.11.1](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py).
+
+---
+
+## FR — Extension L7 : journal, reprise et observateur HA (PR #130, itération 2)
+
+Le moteur L7 exige désormais `read_last_journal()` **avant sauvegarde** et vérifie par relecture que l'enregistrement pré-écriture (`prepared`) a réellement été persisté **avant toute modification**. Une transaction précédente non terminée bloque une nouvelle opération ; la réussite exige également une relecture du journal final. Le port de test et les cas de refus ont été adaptés.
+
+- `energy_bulk_recovery_l7.py` : diagnostic de reprise sans écriture Énergie, à partir du journal durable et des empreintes mémoire/disque. Seuls `avant/avant` et `après/après` peuvent, sur action administrateur explicite et après revérification de la sauvegarde, entraîner une mise à jour **du seul journal**. Les états mixtes, inconnus ou modifiés par une source tierce nécessitent une récupération manuelle : aucune restauration implicite.
+- `energy_bulk_native_observer_l7.py` : port Home Assistant **strictement en lecture seule**. Il vérifie l'utilisateur dans `hass.auth`, la portée compte/lot, les préférences mémoire/disque et la réponse L6 reconstruite depuis le serveur. Toutes ses méthodes d'écriture, de sauvegarde, de journal et de persistance échouent explicitement. Aucune commande, service ni WebSocket n'est enregistré.
+- `panel/energy-bulk-draft-l7.js` : élément UI autonome FR/EN, statuts EF/ECS/CET, motifs d'échec, repli #83 et bouton **toujours désactivé**. Aucun import ou changement du panneau partagé #42/#70 ; pas de point d'entrée vers une action.
+- Tests : journal non durable, transaction antérieure en suspens, conflits, autorisations, reprise après redémarrage simulé, copie de sauvegarde et restauration **sur répertoire temporaire fictif**, journal corrompu ou inaccessible, interface statique FR/EN et contrôle d'injection DOM. Les preuves sont entièrement synthétiques.
+
+**Ce qui n'est pas livré :** port natif capable de sauvegarder/restaurer/configurer Énergie, contrat de sauvegarde restaurable de l'instance HA, action backend d'activation, recette Recorder réelle, tests d'écriture de production, activation ou fusion. Ces éléments attendent #36/#37/#120 stabilisés et les autorisations séparées.
+
+Voir `docs/ENERGY_BULK_L7_RECOVERY_RUNBOOK.md` pour la procédure de qualification future.
+
+## EN — L7 extension: durable journal, recovery and native HA observer
+
+L7 now reads the last durable journal before backup and verifies read-after-write of its `prepared` record **before any Energy change**. An unresolved previous journal blocks new attempts. A final success also requires a readable durable journal record.
+
+The pure `energy_bulk_recovery_l7.py` reconciles only unambiguous both-before or both-after states, via a separately confirmed administrator action and a still-verified backup; it changes **journal records only**. Mixed/unknown/concurrent states require manual investigation and are never silently overwritten. `energy_bulk_native_observer_l7.py` verifies HA administrator identity, account/lot scope, and memory/persisted preferences, but explicitly refuses *all* write, backup and journal operations. A standalone FR/EN DOM-only preview component shows all utility decisions and a **permanently disabled** activation button, without editing the shared #42/#70 panel or registering an endpoint.
+
+All recovery and restore tests use synthetic data and a temporary local directory. They are not native HA backup/restore proof. No live Recorder/Energy writes, source replacement, legacy-ID migration, merge, release or Home Assistant installation are included. See `docs/ENERGY_BULK_L7_RECOVERY_RUNBOOK.md` for the future acceptance protocol.

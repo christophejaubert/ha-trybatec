@@ -53,6 +53,7 @@ class EnergyTransactionPort(Protocol):
     async def create_backup(self) -> Any: ...
     async def verify_backup(self, receipt: Any) -> bool: ...
     async def journal(self, payload: dict[str, Any]) -> None: ...
+    async def read_last_journal(self) -> dict[str, Any] | None: ...
     async def write_energy_sources(self, sources: list[dict[str, Any]]) -> None: ...
     async def flush_and_read_persisted(self) -> dict[str, Any]: ...
 
@@ -180,6 +181,10 @@ async def _apply_exclusive(
     if (preferences_fingerprint(await port.read_live()) != preview.before or
         preferences_fingerprint(await port.read_persisted()) != preview.before):
         raise EnergyTransactionRefused("Energy preferences changed before backup")
+    last = await port.read_last_journal()
+    if last is not None and (not isinstance(last, dict) or last.get("status")
+                             not in ("verified", "rolled_back_verified", "no_write_observed")):
+        raise EnergyRecoveryRequired("Unresolved earlier Energy transaction journal")
     receipt = await port.create_backup()
     if await port.verify_backup(receipt) is not True:
         raise EnergyTransactionRefused("Recoverable backup not verified")
@@ -193,6 +198,8 @@ async def _apply_exclusive(
              "backup": receipt}
     # Caller port MUST durably persist this record; failure prevents writes.
     await port.journal(deepcopy(audit))
+    if await port.read_last_journal() != audit:
+        raise EnergyRecoveryRequired("Pre-write journal not durably readable")
     error: Exception | None = None
     try:
         if preferences_fingerprint(await port.read_live()) != preview.before:
@@ -205,6 +212,8 @@ async def _apply_exclusive(
             raise ValueError("Post-write active preferences differ")
         audit["status"] = "verified"
         await port.journal(deepcopy(audit))
+        if await port.read_last_journal() != audit:
+            raise EnergyRecoveryRequired("Verified journal state not persisted")
         return {"status": "persisted_verified", "writes": True,
                 "after_fingerprint": preview.after,
                 "activation_authorized": False}
