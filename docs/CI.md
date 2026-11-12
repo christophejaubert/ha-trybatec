@@ -47,7 +47,7 @@ SHA. Drafts and invalid tags are ignored. Anonymous API limits may cause a
 safe CI failure; do not fix this by passing a token to candidate-controlled code.
 
 **Maintainer caveat:** the trusted SHA must remain retrievable as Git history
-during and after merges; preserve the `ci/generic-quality-gates-20261108`
+during and after merges; preserve the `security/trusted-ci-resolver-20261108`
 branch until this resolver is rebased onto a trusted retained reference.
 Never replace the SHA with a mutable PR branch or candidate SHA. This
 isolates the resolver executable, but a contributor who can alter the
@@ -124,7 +124,7 @@ Verified **active** on 2026-11-08. It targets the default branch `main`,
 requires a PR, resolved review conversations, up-to-date checks, squash merges,
 and blocks branch deletions and force pushes. Bypass list is empty.
 
-The nine currently required GitHub Actions status names are:
+The ten currently required GitHub Actions status names are:
 
 1. `pure-tests (Python 3.13)`
 2. `pure-tests (Python 3.14)`
@@ -135,8 +135,9 @@ The nine currently required GitHub Actions status names are:
 7. `ha-runtime-and-storage`
 8. `latest-homeassistant-import`
 9. `decision-persistence-gate`
+10. `trusted-workflow-integrity`
 
-The ninth required check was confirmed active in the GitHub ruleset on
+The ninth and tenth required checks were confirmed active in the GitHub ruleset on
 2026-11-08. It now covers both the three process-restart migration scenarios
 and the two full Recorder E2E cases through mandatory job dependencies.
 **No additional GitHub administrative change is required** for this new
@@ -168,3 +169,12 @@ an installed Home Assistant instance.
 - Add coverage thresholds after addressing existing test debt.
 - Extend interrupted Recorder-write/crash recovery tests beyond the new baseline/candidate E2E service tests.
 - Keep the stable `decision-persistence-gate` mandatory when expanding matrix.
+
+
+## Security/quality improvement track (12 November 2026) / Chantier sécurité et qualité (12 novembre 2026)
+
+**FR :** la politique transversale figure dans [SECURE_DEVELOPMENT_POLICY.md](SECURE_DEVELOPMENT_POLICY.md) ; le relevé des preuves dans [SECURITY_AUDIT_2026-11-12.md](SECURITY_AUDIT_2026-11-12.md). Le nouveau modèle de PR distingue code écrit, CI du SHA candidat, recette réelle et publication. Les dix statuts ci-dessus sont requis par le ruleset actif ; ne pas les renommer ni ajouter un statut obligatoire sans migration atomique de la configuration de protection. La couverture globale et le lint complet restent indicatifs tant qu'un budget de dette vérifiable n'est pas établi. Le correctif de documentation n'en fait pas des contrôles bloquants.
+
+**EN:** cross-cutting requirements appear in [SECURE_DEVELOPMENT_POLICY.md](SECURE_DEVELOPMENT_POLICY.md), and the evidence baseline in [SECURITY_AUDIT_2026-11-12.md](SECURITY_AUDIT_2026-11-12.md). The PR template keeps implementation, exact-SHA CI, live acceptance and publication separate. Preserve all ten active required-status identifiers during incremental hardening; do not add a required check until the protection configuration can be updated safely. Full lint and global coverage remain advisory until a measured debt baseline is available.
+
+**Security limit / Limite :** pull_request_target executes the trusted base-branch guard only; it never executes candidate code or grants secrets. Author-owned PRs that modify protected workflow paths still require manual security review: the trusted check does not prove the changes are safe.
