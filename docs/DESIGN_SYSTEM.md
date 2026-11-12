@@ -13,6 +13,10 @@
 
 Les couleurs de référence sont **identiques** sur les logos, indépendamment du thème de l'hôte. Ne pas adapter les couleurs du logo aux modes sombre/clair. Pour 0.3.1b1, le **nouveau visuel approuvé** remplace cette ancienne consigne de non-refonte : symbole sans texte, trois formes circulaires entrelacées, séparation blanche, accents verts internes et **aucun cercle vert extérieur**. Pictogrammes : goutte EF, goutte ECS avec trois traits de chaleur, flamme CET. Les précédentes icônes de la PR #71 ne constituent pas le logo final validé. Pour les interfaces, les couleurs ci-dessous **dérivent** de la palette canonique afin de garder une lisibilité acceptable.
 
+**Chronologie et prévalence / Decision history and precedence (10–12/11/2026) :** l'issue #70 prescrit initialement une recoloration du logo **sans changer sa géométrie**. La spécification ultérieure du **nouvel emblème approuvé**, consignée ci-dessus, remplace uniquement cette ancienne contrainte géométrique. **La palette canonique et les exigences de contraste de #70 restent applicables.** Il s'agit d'une décision de conception : l'existence d'un fichier graphique, son intégration au panneau, les tests de contraste et la recette humaine doivent encore être prouvés séparément.
+
+**EN:** Issue #70 initially required recoloring the previous logo without changing its geometry. The subsequently approved **new emblem**, specified above, supersedes **only** that earlier geometry constraint; #70's canonical palette and accessibility requirements remain in force. This is a design decision, not proof that any asset is implemented, deployed or accepted.
+
 **Identification :** la couleur de fluide ne code **jamais** l'état d'un compteur. Les états « En service », « Déposé », « Inconnu », « Erreur » restent des données distinctes, avec libellés et états sémantiques propres.
 
 ## Variantes contrastées et paires à tester
@@ -64,7 +68,7 @@ Calculs avec la luminance relative sRGB et la formule de contraste [WCAG 2.2](ht
 - ECS : goutte + indicateur de chaleur ou thermomètre (le pictogramme doit rester discernable d'EF) + libellé « Eau chaude ».
 - CET : `mdi:fire` (flamme) + libellé « Chauffage » ; même concept graphique dans le nouveau logo.
 - Un élément sélectionné comporte **au moins** : un fond distinct, un repère de bordure et un état textuel/accessible ; le contenu ne se décale pas lors de la sélection.
-- Statuts toujours lisibles indépendamment des teintes (ex. « En service » reste vert même sur un compteur ECS rouge).
+- Statuts toujours lisibles indépendamment des teintes (ex. « En service » est un état métier distinct d'« Conforme » et ne peut être déduit du rouge ECS ni du vert de la marque).
 - Ne pas utiliser uniquement la couleur pour distinguer graphiques et séries : types de tracé/points, légende lisible, tableau de données en alternative.
 
 ## Critères d'accessibilité obligatoires (recette)
@@ -85,7 +89,9 @@ Calculs avec la luminance relative sRGB et la formule de contraste [WCAG 2.2](ht
 
 Les tests doivent couvrir : modes clair/sombre réellement utilisés dans Home Assistant ; bascule de thème à chaud ; bureau et smartphone ; 200 % de texte ; zoom/reflow 320 CSS px ; valeurs longs numéros de compteurs ; clavier ; lecteurs d'écran ; monochromie ; simulations protanopie/deutéranopie/tritanopie. Les simulations ne reproduisent pas toutes les pathologies visuelles et ne remplacent pas les tests utilisateurs.
 
-## Checklist de préversion 0.3.1b1
+## Checklist historique 0.3.1b1 — preuves à établir / Historical checklist — evidence still required
+
+Cette checklist est conservée pour la traçabilité de la décision de conception de 0.3.1b1 ; elle ne constitue ni un état de publication actuel ni une preuve de recette. / This checklist preserves the 0.3.1b1 design decision history; it is neither current release status nor acceptance evidence.
 
 - [ ] Générer `icon.png` (256 px) et `icon@2x.png` (512 px) à partir du **nouvel emblème approuvé**, avec transparence et petits accents verts internes ; tester le rendu à petite taille sur fonds clair et sombre.
 - [ ] Références du logo utilisées par le panneau, les intégrations et la documentation identifiées et cohérentes.
@@ -124,13 +130,13 @@ La conformité effective doit être établie sur une révision de code et des ca
 | Bouton destructeur | Destruction effective | Danger rouge, confirmation spécifique |
 | Bouton désactivé | Action indisponible | Désactivation technique et cause accessible |
 
-Les valeurs hexadécimales des **nouveaux** tokens sémantiques ne sont **pas encore fixées** ; leur choix exige des paires texte/fond vérifiées sur les thèmes Home Assistant réels. Ne jamais réutiliser automatiquement \`--trybatec-brand-green\`, \`--trybatec-ef-*\`, \`--trybatec-ecs-*\` ou \`--trybatec-cet-*\` comme tokens de résultat, alerte ou risque.
+Les valeurs hexadécimales des **nouveaux** tokens sémantiques ne sont **pas encore fixées** ; leur choix exige des paires texte/fond vérifiées sur les thèmes Home Assistant réels. Ne jamais réutiliser automatiquement `--trybatec-brand-green`, `--trybatec-ef-*`, `--trybatec-ecs-*` ou `--trybatec-cet-*` comme tokens de résultat, alerte ou risque.
 
 **Séparer quatre dimensions :** résultat d'un contrôle ; disponibilité de l'opération ; caractère obligatoire/facultatif ; nature et risque de l'action. La couleur du bouton est choisie selon son **action** et ne recopie pas le statut voisin. Une commande active neutre ne doit jamais pouvoir être prise pour une commande désactivée. L'absence d'une donnée, d'une configuration optionnelle ou d'une analyse historique ne prouve pas une anomalie.
 
 Les états requièrent **un texte et un pictogramme**, en plus de la couleur. Les boutons de navigation vers une résolution doivent rester des actions explicites, accessibles au clavier, et ne pas provoquer d'écritures ou de recherches fournisseur implicites. La provenance des valeurs (API, saisie manuelle, historique qualifié/non qualifié) doit rester lisible.
 
-**Compatibilité documentaire :** la formule antérieure « éléments d'action et navigation avec la palette verte de marque » dans la spécification historique \`docs/specifications/trybatec-ui-0.3.2b1.md\` ne s'applique plus aux boutons de façon générale ; pour toute nouvelle implémentation, la présente règle et [UI_GUIDELINES.md](UI_GUIDELINES.md) prévalent. Cette clarification **ne modifie pas** le comportement du code déjà publié.
+**Compatibilité documentaire :** la formule antérieure « éléments d'action et navigation avec la palette verte de marque » dans la spécification historique `docs/specifications/trybatec-ui-0.3.2b1.md` ne s'applique plus aux boutons de façon générale ; pour toute nouvelle implémentation, la présente règle et [UI_GUIDELINES.md](UI_GUIDELINES.md) prévalent. Cette clarification **ne modifie pas** le comportement du code déjà publié.
 
 ### Recette dédiée
 - [ ] Couleurs sémantiques **séparées** des couleurs de marque et de fluides, y compris chauffage ambre.
@@ -150,4 +156,4 @@ Buttons: use **contrasting neutral active styling** for read, examine, preview a
 
 Create separate semantic tokens for success, warning, danger, neutral, actions and disabled states; **exact new hex values remain to be selected and tested** against actual light/dark Home Assistant surfaces. Brand and fluid tokens must not be automatically recycled as status tokens. Do not rely on color alone; expose icons, text and accessible semantics. Keep data provenance and unverified/history status distinct.
 
-**Historical-document clarification:** the previous broad green-action recommendation in \`docs/specifications/trybatec-ui-0.3.2b1.md\` is superseded for future work by these rules; this does not retroactively change a release. Validate themes, grayscale, contrast, keyboard/screen readers, FR/EN, mobile/desktop and interaction states; distinguish implemented code, passing CI and real Home Assistant acceptance.
+**Historical-document clarification:** the previous broad green-action recommendation in `docs/specifications/trybatec-ui-0.3.2b1.md` is superseded for future work by these rules; this does not retroactively change a release. Validate themes, grayscale, contrast, keyboard/screen readers, FR/EN, mobile/desktop and interaction states; distinguish implemented code, passing CI and real Home Assistant acceptance.
