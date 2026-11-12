@@ -7,6 +7,7 @@ from uuid import UUID
 
 from custom_components.trybatec import api
 from custom_components.trybatec.api import (
+    TrybatecAccessDeniedError,
     TrybatecAuthError,
     TrybatecClient,
     TrybatecConnectionError,
@@ -122,15 +123,21 @@ class DiscoveryQualification(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([x[0] for x in session.calls], ["POST", "GET", "POST", "GET"])
         self.assertEqual(session.calls[-1][2]["headers"]["Authorization"], "Bearer SECOND")
 
-    async def test_permanently_denied_housings_get_is_auth_failure(self):
-        for status in (401, 403):
-            with self.subTest(status=status):
-                client, _ = self.client(
-                    gets=[Response(status), Response(status)],
-                    posts=[Response(200, {"token": "FIRST"}), Response(200, {"token": "SECOND"})],
-                )
-                with self.assertRaises(TrybatecAuthError):
-                    await client.discover_single_deal_id()
+    async def test_expired_bearer_twice_is_auth_failure(self):
+        client, session = self.client(
+            gets=[Response(401), Response(401)],
+            posts=[Response(200, {"token": "FIRST"}), Response(200, {"token": "SECOND"})],
+        )
+        with self.assertRaises(TrybatecAuthError) as caught:
+            await client.discover_single_deal_id()
+        self.assertNotIsInstance(caught.exception, TrybatecAccessDeniedError)
+        self.assertEqual(len([x for x in session.calls if x[0] == "POST"]), 2)
+
+    async def test_forbidden_housings_has_no_reauthentication_loop(self):
+        client, session = self.client(gets=[Response(403)])
+        with self.assertRaises(TrybatecAccessDeniedError):
+            await client.discover_single_deal_id()
+        self.assertEqual(len([x for x in session.calls if x[0] == "POST"]), 1)
 
     async def test_transient_5xx_retries_are_bounded(self):
         for status in (500, 502, 503, 504):

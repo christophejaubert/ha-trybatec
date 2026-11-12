@@ -27,6 +27,8 @@
     },
     "error": {
       "invalid_auth": "Login was rejected by Trybatec.",
+      "access_denied": "The authenticated account is not authorized for this property. Check its Trybatec portal permissions.",
+      "invalid_response": "Trybatec returned an unexpected response. No account was configured.",
       "cannot_connect": "Unable to retrieve data from Trybatec.",
       "invalid_deal_id": "The deal ID must be a UUID.",
       "invalid_indexes_url": "Enter a valid HTTPS Indexes page URL for Trybatec.",

@@ -18,7 +18,8 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.trybatec.api import (
-    TrybatecAuthError, TrybatecClient, TrybatecConnectionError, TrybatecDataError,
+    TrybatecAccessDeniedError, TrybatecAuthError, TrybatecClient,
+    TrybatecConnectionError, TrybatecDiscoveryAmbiguousError,
 )
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
 from custom_components.trybatec.coordinator import TrybatecCoordinator
@@ -57,7 +58,7 @@ async def test_manual_url_rejects_other_sites_then_accepts_authorized_indexes(
     hass, monkeypatch
 ):
     async def ambiguous(self):
-        raise TrybatecDataError("synthetic ambiguity")
+        raise TrybatecDiscoveryAmbiguousError("synthetic ambiguity")
 
     calls = []
 
@@ -162,16 +163,12 @@ async def test_reauth_network_fault_does_not_overwrite_credentials(hass, monkeyp
     assert entry.data[CONF_PASSWORD] == OLD
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#35 pending: deal-specific /indexes denial has no URL fallback",
-)
-async def test_discovered_but_denied_deal_offers_controlled_url_fallback(hass, monkeypatch):
+async def test_discovered_but_forbidden_deal_never_opens_manual_url(hass, monkeypatch):
     async def discovered(self):
         return DEAL
 
     async def denied(self, deal_id, start, end):
-        raise TrybatecAuthError("synthetic deal authorization denied")
+        raise TrybatecAccessDeniedError("synthetic deal authorization denied")
 
     monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", discovered)
     monkeypatch.setattr(TrybatecClient, "indexes", denied)
@@ -179,7 +176,9 @@ async def test_discovered_but_denied_deal_offers_controlled_url_fallback(hass, m
     result = await hass.config_entries.flow.async_configure(
         flow["flow_id"], {CONF_USERNAME: USERNAME, CONF_PASSWORD: OLD}
     )
-    assert result["step_id"] == "manual_url"
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+    assert result["errors"]["base"] == "access_denied"
 
 
 class SyntheticClient:
@@ -247,10 +246,6 @@ async def test_auth_notification_replaces_connectivity_without_duplication(hass,
     assert coordinator._access_notification_kind == "authentication"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#35 pending: a new coordinator does not dismiss an older persistent notification",
-)
 async def test_restart_then_success_dismisses_previous_notification(hass, monkeypatch):
     created, dismissed = notification_spy(monkeypatch)
     entry = make_entry()
