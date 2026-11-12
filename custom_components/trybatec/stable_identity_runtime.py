@@ -33,7 +33,7 @@ def evaluate_unit_transition(
         return "missing_unit_baseline_requires_review"
     if incoming_unit is None:
         return "source_unit_unverified"
-    if baseline_unit is None:
+    if baseline_unit in (None, "unverified"):
         return "first_verified_unit"
     if baseline_unit == incoming_unit:
         return "approved"
@@ -69,7 +69,7 @@ class StableUnitGuard:
                 or len(stored["units"]) > 3000
                 or any(not isinstance(k, str) or not k.startswith("meter_")
                        or not k.endswith("_index")
-                       or not isinstance(v, str) or v not in ("L", "m³", "kWh", "MWh", "GJ")
+                       or not isinstance(v, str) or v not in ("unverified", "L", "m³", "kWh", "MWh", "GJ")
                        for k, v in stored["units"].items())):
             self._invalid = True
             self._loaded = True
@@ -106,6 +106,13 @@ class StableUnitGuard:
                     if normalized_unit(meter["fluid"]) not in ("m³", "kWh"):
                         raise ValueError("Unsupported canonical unit")
                 registry_id = registry.async_get_entity_id("sensor", DOMAIN, stable)
+                registered = registry.async_get(registry_id) if registry_id else None
+                foreign_stable = (
+                    registered is not None and (
+                        registered.config_entry_id != self.entry.entry_id
+                        or registered.platform != DOMAIN
+                    )
+                )
                 registered_without_baseline = (
                     registry_id is not None and stable not in self._units
                 )
@@ -119,12 +126,18 @@ class StableUnitGuard:
                 )
                 if self._invalid:
                     status = "invalid_unit_baseline_requires_review"
+                elif foreign_stable:
+                    status = "foreign_stable_identity_requires_review"
                 else:
                     status = evaluate_unit_transition(
                         self._units.get(stable), incoming,
                         registered_without_baseline=registered_without_baseline,
                         legacy_exists=legacy_exists,
                     )
+                if status == "source_unit_unverified" and stable not in self._units and not registered_without_baseline and not legacy_exists:
+                    # A durable unverified marker permits the *same* sensor to
+                    # gain its first verified unit without creating a new ID.
+                    pending[stable] = "unverified"
                 if status == "first_verified_unit" and meter.get("last") is not None:
                     pending[stable] = incoming
                 meter["stable_unit_status"] = status
