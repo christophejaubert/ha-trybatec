@@ -423,6 +423,28 @@ async function runCase(browser, locale, device, dark=false) {
     });
     assert.ok(layout.documentWidth<=layout.viewport+2,
       "320 CSS px reflow failed for "+locale+"/"+narrowTab+": "+JSON.stringify(layout));
+    if(narrowTab==="energy") {
+      // A checkbox's native 13px square is not its whole clickable label.
+      const labels=await page.evaluate(()=>{
+        const root=document.querySelector("trybatec-panel").shadowRoot;
+        return [...root.querySelectorAll(".actions>label")]
+          .filter(el=>el.querySelector('input[type="checkbox"]:not(:disabled)') &&
+            el.getClientRects().length)
+          .map(el=>({text:el.textContent.trim(),
+            height:el.getBoundingClientRect().height,
+            width:el.getBoundingClientRect().width}));
+      });
+      assert.ok(labels.length>=3,"Energy must expose labeled native confirmations");
+      assert.ok(labels.every(x=>x.height>=24 && x.width>=24),
+        "Under-24px clickable confirmation label: "+JSON.stringify(labels));
+      const content=labels.map(x=>x.text).join(" | ");
+      if(locale==="EN") {
+        assert.match(content,/I approve a new version/);
+        assert.match(content,/Resume a pending import/);
+        assert.match(content,/A recoverable HA\/Recorder backup is available/);
+        assert.doesNotMatch(content,/J’approuve|Reprendre une importation/);
+      }
+    }
   }
   // Keyboard focus must have a visible, nonzero outline independent of color.
   const focusTarget=page.locator('trybatec-panel nav button[data-tab="meters"]');
