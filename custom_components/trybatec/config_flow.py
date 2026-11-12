@@ -743,17 +743,7 @@ class TrybatecOptionsFlow(OptionsFlow):
                     else:
                         self._native_tariff_change = None
                         self._native_tariff_scope = None
-                        return self.async_show_menu(
-                            step_id="tariff_done",
-                            menu_options={
-                                "tariffs": self._nav_text(
-                                    "Modifier un autre tarif", "Edit another rate",
-                                ),
-                                "init": self._nav_text(
-                                    "Retour au menu", "Back to menu",
-                                ),
-                            },
-                        )
+                        return await self.async_step_tariff_done()
         return self.async_show_form(
             step_id="tariff_confirm",
             data_schema=vol.Schema({
@@ -769,6 +759,22 @@ class TrybatecOptionsFlow(OptionsFlow):
                 ),
                 "unit": ("EUR/kWh" if pending["fluid"] == "CET" else "EUR/m³"),
                 "status": pending["status"],
+            },
+        )
+
+    async def async_step_tariff_done(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Named success route required by HA's native FlowManager."""
+        return self.async_show_menu(
+            step_id="tariff_done",
+            menu_options={
+                "tariffs": self._nav_text(
+                    "Modifier un autre tarif", "Edit another rate",
+                ),
+                "init": self._nav_text(
+                    "Retour au menu", "Back to menu",
+                ),
             },
         )
 
