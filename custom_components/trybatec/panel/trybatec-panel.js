@@ -1640,13 +1640,27 @@ class TrybatecPanel extends HTMLElement {
       e.unique_id && (e.unique_id.includes("_"+m.serial+"_")||e.unique_id.endsWith("_"+m.serial+"_index")));
     const option=(account.meter_options||[]).find(row=>row.physical_key===m.physical_key);
     const coverage=this._tariffCoverage.get(account.entry_id);
-    const checkedHistory=coverage?.status==="complete";
+    // A complete account-level query is not evidence for every physical meter.
+    const meterCoverage=coverage?.status==="complete" && Array.isArray(coverage.meters)?
+      coverage.meters.find(row=>row.physical_key===m.physical_key):null;
+    const checkedHistory=Boolean(meterCoverage);
+    const unmatchedAccountScan=coverage?.status==="complete" && !checkedHistory;
     const unavailableObservation=checkedHistory?
-      "Date non établie dans les données consultées":"Non vérifié";
-    const unitOrigin=option?.selection_origin==="manual"?"Origine : unité enregistrée manuellement":
-      option?.selection_origin==="api"?"Origine : unité explicitement fournie par l’API":
-      option?.selection_origin==="chart_proposal"?"Origine : proposition du graphique, à confirmer":
-      "Origine de l’unité non vérifiée";
+      this._t("Date non établie dans les données consultées",
+        "Date not established from consulted data"):
+      this._t("Non vérifié","Not verified");
+    const historyExplanation=unmatchedAccountScan?
+      this._t("Analyse globale terminée, sans preuve attribuable à ce compteur physique.",
+        "Account-wide scan finished without evidence linked to this physical meter."):
+      this._t("Analyse historique effectuée : aucune date retrouvée pour ce compteur dans le périmètre consulté.",
+        "Historical scan complete: no date found for this meter in the queried scope.");
+    const unitOrigin=option?.selection_origin==="manual"?
+      this._t("Origine : unité enregistrée manuellement","Source: manually recorded unit"):
+      option?.selection_origin==="api"?
+      this._t("Origine : unité explicitement fournie par l’API","Source: unit explicitly supplied by API"):
+      option?.selection_origin==="chart_proposal"?
+      this._t("Origine : proposition du graphique, à confirmer","Source: chart proposal, pending confirmation"):
+      this._t("Origine de l’unité non vérifiée","Unit provenance not verified");
     const conflict=option?.source_unit==="conflict";
     return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2 class="meter-title">'+
       (FLUID_ICON[m.fluid]?'<ha-icon icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':'')+
@@ -1656,36 +1670,45 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
       '<div><span class="smallhead">Unité</span><strong>'+safe(m.unit||"À vérifier")+'</strong></div>'+
-      this._meterField("Dernier index disponible",
+      this._meterField(this._t("Dernier index disponible","Latest available index"),
         m.last_index===null||m.last_index===undefined?
-          (m.status==="depose"?"Sans index courant":"Non vérifié"):this._number(m.last_index),
+          (m.status==="depose"?this._t("Sans index courant","No current index"):
+            this._t("Non vérifié","Not verified")):this._number(m.last_index),
         m.last_index!==null&&m.last_index!==undefined?"known":m.status==="depose"?"na":"unverified",
-        "history","Consulter l'historique",
-        m.status==="depose"?"Compteur déposé : vérifier séparément les éventuels index historiques.":"")+
-      this._meterField("Première observation connue",
+        "history",this._t("Consulter l'historique","Review history"),
+        m.status==="depose"?this._t(
+          "Compteur déposé : vérifier séparément les éventuels index historiques.",
+          "Retired meter: check historical readings separately."):"")+
+      this._meterField(this._t("Première observation connue","First known observation"),
         this._date(m.first_observed_at)||unavailableObservation,
         m.first_observed_at?"known":"unverified",
-        m.first_observed_at?"":"scan",m.first_observed_at?"":"Rechercher les relevés",
-        !m.first_observed_at&&checkedHistory?"Analyse historique effectuée : aucune date retrouvée dans le périmètre consulté.":"")+
-      this._meterField("Dernière observation source",
+        m.first_observed_at?"":"scan",m.first_observed_at?"":this._t(
+          "Rechercher les relevés","Search readings"),
+        !m.first_observed_at&&(checkedHistory||unmatchedAccountScan)?historyExplanation:"")+
+      this._meterField(this._t("Dernière observation source","Last source observation"),
         this._date(m.last_source_observed_at)||unavailableObservation,
         m.last_source_observed_at?"known":"unverified",
-        m.last_source_observed_at?"":"scan",m.last_source_observed_at?"":"Rechercher les relevés",
-        !m.last_source_observed_at&&checkedHistory?"Analyse historique effectuée : aucune date retrouvée dans le périmètre consulté.":"")+
-      this._meterField("Date du dernier index exploitable",
-        this._date(m.last_observed_at)||"Non vérifié",
+        m.last_source_observed_at?"":"scan",m.last_source_observed_at?"":this._t(
+          "Rechercher les relevés","Search readings"),
+        !m.last_source_observed_at&&(checkedHistory||unmatchedAccountScan)?historyExplanation:"")+
+      this._meterField(this._t("Date du dernier index exploitable","Date of latest usable index"),
+        this._date(m.last_observed_at)||this._t("Non vérifié","Not verified"),
         m.last_observed_at?"known":"unverified",
-        m.last_observed_at?"":"history",m.last_observed_at?"":"Analyser les index")+
+        m.last_observed_at?"":"history",m.last_observed_at?"":this._t(
+          "Analyser les index","Review readings"))+
       (m.status==="depose" && m.historical_last_index_raw!==undefined?
         '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
         safe(this._number(m.historical_last_index_raw))+
         '</strong><span class="muted">'+safe(this._date(m.historical_last_index_at))+
         (m.historical_index_conflict?" · conflit de relevés à vérifier":" · relevé historique à qualifier")+
         '</span></div>':"")+
-      this._meterField("Statut de l’unité",
-        m.unit_verified?"Vérifiée":conflict?"Conflit d’unité":"À vérifier",
+      this._meterField(this._t("Statut de l’unité","Unit status"),
+        m.unit_verified?this._t("Vérifiée","Verified"):
+          conflict?this._t("Conflit d’unité","Unit conflict"):
+          this._t("À vérifier","Not verified"),
         m.unit_verified?"passed":conflict?"issue":"unverified",
-        "unit",m.unit_verified?"Consulter l’unité":"Vérifier l’unité",unitOrigin)+
+        "unit",m.unit_verified?this._t("Consulter l’unité","View unit"):
+          this._t("Vérifier l’unité","Verify unit"),unitOrigin)+
       '</div><h3>Relations techniques Home Assistant</h3>'+
       '<p class="muted">Les identités techniques ne doivent pas être supprimées tant que leurs références sont inconnues.</p>'+
       (related.length?related.map(e=>'<div class="entity"><span class="mono">'+safe(e.entity_id)+'</span> '+
@@ -2113,6 +2136,13 @@ class TrybatecPanel extends HTMLElement {
     const rows=(summary.by_meter||[]);
     const selected=this._historyContextKey?
       this._meters().find(m=>m.physical_key===this._historyContextKey):null;
+    if (this._historyContextKey && !selected) {
+      return '<section class="card" style="margin-top:16px" role="status"><h3>'+
+        safe(this._t("Compteur introuvable","Meter not found"))+'</h3><p>'+
+        safe(this._t("Le contexte du compteur sélectionné ne correspond plus à cet inventaire. Aucun résultat global n’est affiché.",
+          "The selected meter no longer belongs to this inventory. Account-wide results are hidden."))+
+        '</p></section>';
+    }
     if (selected) {
       const rowsForMeter=rows.filter(row=>row.physical_key===selected.physical_key &&
         row.fluid===selected.fluid && row.lot===selected.lot &&
@@ -2164,6 +2194,16 @@ class TrybatecPanel extends HTMLElement {
   }
   _history() {
     const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
+    if (this._historyContextKey && !meter) {
+      return this._heading(this._t("Historique & lissage","History & smoothing"),
+        this._t("Contexte de compteur non disponible","Meter context unavailable"))+
+        '<section class="card" role="status"><p>'+safe(this._t(
+          "Le compteur sélectionné ne figure plus dans ce logement. Aucun résultat d’un autre compteur n’est présenté.",
+          "The selected physical meter no longer belongs to this dwelling. No other meter results are shown."))+
+        '</p><div class="actions"><button type="button" class="secondary" data-history-context-clear>'+
+        safe(this._t("Afficher tous les compteurs","Show all meters"))+
+        '</button></div></section>';
+    }
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
       x=>x.interval_key===this._historySelected
     );
