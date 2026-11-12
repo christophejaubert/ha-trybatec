@@ -191,3 +191,18 @@ def test_intermediate_sensitive_filename_is_scanned_even_when_removed(repository
     assert ("changed filename", "local-machine-hostname") in {
         (origin, finding.category) for origin, finding in records if finding.severity == "error"
     }
+
+def test_ordinary_author_and_committer_email_does_not_block_full_audit(repository):
+    """FR/EN: D1 must remain non-blocking beyond the unit-level validator."""
+    base = run_git(repository, "rev-parse", "HEAD")
+    (repository / "identity.txt").write_text("public fixture\n", encoding="utf-8")
+    run_git(repository, "add", "identity.txt")
+    run_git(repository, "-c", "user.email=ordinary@sample-domain.invalid",
+            "commit", "-m", "safe identity fixture")
+    head = run_git(repository, "rev-parse", "HEAD")
+    records, count = audit(base, head)
+    assert count == 1
+    assert ("commit metadata", "public-git-author-email") in {
+        (origin, finding.category) for origin, finding in records
+    }
+    assert not any(finding.severity == "error" for _, finding in records)
