@@ -794,10 +794,11 @@ async def test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate(
     assert len(rows) == 1
 
 
+@pytest.mark.parametrize("legacy_variant", ["b6", "b15_retired"])
 async def test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication(
-    hass, monkeypatch,
+    hass, monkeypatch, legacy_variant,
 ):
-    """A former account's b6 entity must not become a second stable sensor."""
+    """Former b6 and b15 meters must never become duplicate stable sensors."""
     from homeassistant.helpers import entity_registry as er
     from custom_components.trybatec.meter_identity import stable_meter_unique_id
 
@@ -812,7 +813,17 @@ async def test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplicati
     )
     legacy_entry.add_to_hass(hass)
     registry = er.async_get(hass)
-    old_unique_id = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    if legacy_variant == "b6":
+        old_unique_id = "synthetic-ci-account_MOCK-WATER-01_b6_m³_index"
+    else:
+        from hashlib import sha256
+        import json
+
+        archive_key = json.dumps(
+            ["MOCK-LOT", "EF", "MOCK-WATER-01"], separators=(",", ":"),
+        )
+        archived_hash = sha256(archive_key.encode()).hexdigest()[:24]
+        old_unique_id = f"synthetic-ci-account_b15_retired_{archived_hash}"
     prior = registry.async_get_or_create(
         "sensor", DOMAIN, old_unique_id,
         suggested_object_id="synthetic_preexisting_legacy_meter",
