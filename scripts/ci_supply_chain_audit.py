@@ -20,6 +20,7 @@ FILES = (
     ".github/ci/constraints-lint.txt",
     ".github/ci/constraints-ha-runtime.txt",
     ".github/ci/constraints-ha-persistence.txt",
+    ".github/ci/constraints-audit.txt",
 )
 MAX_OUTPUT = 6 * 1024 * 1024
 MAX_FINDINGS = 1200
@@ -93,7 +94,7 @@ def audit_dependencies() -> int:
                 ids.append(value)
             print(f"  {package['name']}=={version}: {len(ids)} advisories ({', '.join(ids[:12])})")
     if total:
-        print(f"::warning title=Dependency vulnerabilities::Found {total} known vulnerabilities across four pinned CI inventories; inspect artifact and review before enforcing.")
+        print(f"::warning title=Dependency vulnerabilities::Found {total} known vulnerabilities across {len(FILES)} pinned CI inventories; inspect artifact and review before enforcing.")
     append_summary(f"pip-audit: {total} reported vulnerability occurrences across {len(FILES)} inventories (advisory baseline).")
     return 0
 

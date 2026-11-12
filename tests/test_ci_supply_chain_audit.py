@@ -26,7 +26,8 @@ def test_valid_and_invalid_pip_audit_reports():
 
 
 def test_safety_bounds_and_fixed_inventory_names():
-    assert len(AUDIT.FILES) == 4
+    assert len(AUDIT.FILES) == 5
+    assert ".github/ci/constraints-audit.txt" in AUDIT.FILES
     assert all(name.startswith(".github/ci/constraints-") for name in AUDIT.FILES)
     assert AUDIT.MAX_OUTPUT <= 6 * 1024 * 1024
     assert AUDIT.MAX_FINDINGS <= 1200
