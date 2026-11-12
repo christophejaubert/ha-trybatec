@@ -203,13 +203,68 @@ def test_retired_meter_retains_entity_and_never_activates_statistics():
     assert row["legacy_cleanup_permitted"] is False
 
 
-def test_retired_meter_without_proven_flag_or_observation_fails_closed():
-    meter = _meter()
-    meter["deposed"] = True
-    plan = _plan(meters=[meter], states={"sensor.fake_index": _state(
+def _retired_unknown_state():
+    return _state(
         reading="unknown", deposed=True,
         historical_reading_only=True, state_class=None,
-    )})
+    )
+
+
+def test_retired_meter_without_proven_status_fails_closed():
+    meter = _meter()
+    meter["deposed"] = True
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
     assert plan["ready"] is False
     assert "retired_status_unverified" in plan["mappings"][0]["blockers"]
-    assert "retired_missing_verified_source_reading" in plan["mappings"][0]["blockers"]
+
+
+def test_proven_retired_meter_without_readings_preserves_registry_identity():
+    # Real source APIs can list a deposited physical meter without returning
+    # a current index. Lack of a reading must never fabricate a measurement.
+    meter = _meter()
+    meter.update({
+        "deposed": True, "service_status_known": True,
+        "last": None, "indexes": [], "has_decreasing_indexes": False,
+    })
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
+    assert plan["ready"] is True
+    assert plan["mappings"][0]["preserved_entity_id"] == "sensor.fake_index"
+    assert plan["mappings"][0]["legacy_cleanup_permitted"] is False
+    assert plan["recorder_changes_applied"] is False
+    assert plan["energy_changes_applied"] is False
+
+
+@pytest.mark.parametrize("conflict", [
+    {"last": None, "indexes": [(datetime(2026, 1, 1, tzinfo=timezone.utc), 5.0)]},
+    {"last": None, "indexes": [], "has_decreasing_indexes": True},
+])
+def test_retired_unresolved_source_observations_still_block(conflict):
+    meter = _meter()
+    meter.update({"deposed": True, "service_status_known": True, **conflict})
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
+    assert plan["ready"] is False
+    assert "retired_unresolved_source_readings" in plan["mappings"][0]["blockers"]
+
+
+@pytest.mark.parametrize("invalid", [
+    ("2026-01-01", 5.0),
+    (datetime(2026, 1, 1), 5.0),
+    (datetime(2026, 1, 1, tzinfo=timezone.utc), float("nan")),
+])
+def test_retired_invalid_source_observation_blocks(invalid):
+    meter = _meter()
+    meter.update({"deposed": True, "service_status_known": True, "last": invalid})
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _retired_unknown_state()})
+    assert plan["ready"] is False
+    assert "retired_invalid_source_reading" in plan["mappings"][0]["blockers"]
+
+
+def test_retired_without_reading_requires_explicit_historical_registry_state():
+    meter = _meter()
+    meter.update({"deposed": True, "service_status_known": True, "last": None})
+    plan = _plan(meters=[meter], states={"sensor.fake_index": _state(
+        reading="unknown", deposed=True,
+        historical_reading_only=False, state_class=None,
+    )})
+    assert plan["ready"] is False
+    assert "active_predecessor_not_uniquely_verified" in plan["mappings"][0]["blockers"]
