@@ -1,25 +1,41 @@
-# Contrôle prépublication de confidentialité / Public privacy preflight
+# Contrôle prépublication / Public privacy preflight
 
-## FR — Objectif et portée
+## FR — Périmètre et arbitrages D1/D2/D3
 
-Le nouveau contrôle public-privacy-preflight examine les **nouveaux commits et les lignes ajoutées dans une PR**, sans recopier dans les journaux les valeurs trouvées. Il vérifie aussi les adresses d'auteur et de committer Git. L'analyse n'a aucun accès à Home Assistant, n'écrit aucun contenu externe et s'exécute avec permissions GitHub vides et identifiants Git non persistants.
+Ce contrôle analyse les nouveaux commits, les messages, les noms de fichiers modifiés et les lignes ajoutées d'une PR publique. Les valeurs détectées, extraits de diff, courriels, chemins et messages Git ne sont **jamais reproduits** dans les journaux du contrôle : seules les catégories et les quantités sont affichées.
 
-**Bloquant :** signature manifeste de secret, chemin personnel absolu, nom de machine local ou identité Git de type nom de machine local ; toute impossibilité d'examiner le diff ou les commits entraîne également un échec.
+**D1 (définitif) : identité Git inchangée.** Les adresses habituelles d'auteur et de commiteur sont **autorisées** ; elles peuvent produire un avertissement informatif, jamais un refus à elles seules. Aucune migration vers une adresse noreply ni changement de réglage Git n'est requis.
 
-**Avertissement :** adresse d'auteur Git non anonymisée, adresse électronique non fictive dans des lignes ajoutées, adresse IP privée ou identifiant d'installation potentiel. Ces avertissements sont délibérément non bloquants pour ne pas rendre les PR existantes inutilisables avant reconfiguration des auteurs ; ils nécessitent une revue humaine avant fusion.
+**D2 : protection GitHub obligatoire après qualification.** Le workflow de sécurité utilise pull_request_target sur main : GitHub charge la version approuvée depuis la branche par défaut. Il extrait uniquement des objets Git de la PR, vérifie l'identité exacte de son SHA, puis exécute **exclusivement le script provenant de main**. Il ne checkout ni n'exécute le code candidat. Le jeton du job ne dispose que de contents: read ; les credentials ne persistent pas. Aucune donnée de production, aucun secret et aucun accès Home Assistant ne sont injectés.
 
-Le scanner ignore certains exemples synthétiques documentés (notamment les noms de fichiers d'icônes et quelques noms d'hôtes fictifs). Il ne contient ni valeur d'installation ni identifiant personnel réel.
+**D3 (définitif) : aucun nettoyage d'historique.** Le contrôle est incrémental ; les métadonnées et journaux historiquement publics ne sont ni supprimés ni réécrits.
 
-**Limites :** le nouveau job n'appartient pas aux contrôles obligatoires des rulesets. Le code candidat provenant d'une PR n'est pas une source de confiance, d'où l'absence de secrets et les permissions minimales ; ce contrôle ne peut pas garantir l'absence de contournement intentionnel. Il ne couvre pas tous les commits historiques, les objets Git orphelins, les journaux/actions antérieurs, les archives ni les contenus externes. Maintenir Gitleaks, les protections de branche et l'inspection humaine des contributions. Aucune réécriture historique n'est entreprise.
+**Refus (bloquant)** : signatures fortes de jetons ou clés, chemins personnels absolus, noms de machines locaux, identités Git de machine locale, références Git ambiguës/incomplètes, impossibilité d'inspecter entièrement les nouveaux commits ou le diff. **Avertissement (non bloquant)** : adresse Git habituelle, courriels non fictifs dans le contenu, IP privées, identifiants d'installation possibles, contenu binaire non inspecté. Les heuristiques peuvent produire des faux positifs et faux négatifs ; compléter par Gitleaks et revue manuelle. Un avertissement d'adresse Git habituelle n'est pas, en lui-même, une anomalie de conformité.
 
-**Remédiation distincte requérant approbation :** configurer l'identité de signature/commit des outils et du compte GitHub avec une adresse noreply vérifiée, puis envisager le blocage des adresses d'auteur réelles après vérification des PR ouvertes. La réécriture de l'historique et la modification des paramètres du compte sont expressément exclues de cette PR.
+La plage Git commence à l'ancêtre commun entre base et tête de PR, pour ne pas attribuer à la PR les commits parallèles sur main. Les erreurs, sorties Git sensibles et correspondances ne sont pas rendues visibles. Les fichiers binaires et contenus historiques ne sont pas analysés exhaustivement.
 
-## EN — Purpose and scope
+### Ordre d'intégration sans blocage généralisé
 
-The new public-privacy-preflight job inspects **candidate PR commits and newly added lines**, including Git author/committer identity, without printing matched values. It runs without production secrets or Home Assistant access, using empty GitHub permissions and non-persistent checkout credentials.
+1. Vérifier le diff, les tests synthétiques, les contrôles obligatoires et les garde-fous du workflow sur le SHA exact de #140.
+2. Obtenir une **autorisation distincte de fusion de #140**. Tant que son workflow n'est pas sur main, il n'est pas une protection indépendante activable.
+3. Après fusion autorisée, constater sur main l'exécution de public-privacy-preflight depuis une référence de confiance, son statut sur une PR légitime, les refus synthétiques et l'état de toutes les PR ouvertes.
+4. **Seulement après ces preuves**, ajouter le contrôle de source GitHub Actions (integration_id 15368) au ruleset existant Protect main - CI/CD (ID 26796600), sans modifier ses dix contrôles, sa politique stricte ou ses protections de suppression/force-push. Vérifier l'application sur les PR ouvertes et les cas de refus.
+5. Surveiller les règles GitHub Actions relatives à pull_request_target : un blocage de l'événement rendrait le contrôle indisponible et impose une solution approuvée avant l'activation obligatoire.
 
-**Blocking:** high-confidence credential signatures, absolute personal paths, local machine hostnames or local Git identities, and inability to inspect the Git range.
+Le connecteur GitHub disponible peut lire le ruleset, mais **ne possède pas d'opération de modification des rulesets**. L'étape 4 est à réaliser dans l'interface GitHub, ou via une intégration d'administration distincte explicitement autorisée. Ne jamais marquer le contrôle comme obligatoire avant vérification réelle du ruleset.
 
-**Warning:** non-noreply Git authors, non-fixture email addresses in added content, private-network addresses and possible installation identifiers. These warnings intentionally remain non-blocking until the existing commit-writing systems can use an approved noreply identity, and must be reviewed privately before merging.
+### Procédure administrateur, lorsque toutes les conditions sont réunies
 
-**Limits:** the status is not currently a required ruleset check. A PR-supplied script is untrusted; this job receives no repository secret and is not a hostile-PR security boundary. It does not inspect all old commits, orphaned objects, historical CI logs/artifacts or remote systems. Keep Gitleaks, protected branches and human review. No account-settings change, Git history rewrite, deletion, merge, release or Home Assistant change is included.
+Ouvrir Repository → Settings → Rules → Rulesets → Protect main - CI/CD (ID 26796600) → Edit → Require status checks to pass → Add checks → sélectionner public-privacy-preflight (source GitHub Actions). Conserver les dix contrôles et l'option de branche à jour, enregistrer puis rouvrir le ruleset pour confirmer l'ajout. En cas de blocage anormal, désactiver uniquement ce nouveau contrôle tout en conservant les dix précédents ; investiguer avant réactivation.
+
+## EN — Purpose, authority and activation gate
+
+The trusted default-branch workflow inspects newly introduced Git metadata, commit messages, changed filenames and added lines of public PRs, never printing matched values or Git errors. It fetches PR commit objects strictly as data, verifies the expected head SHA, and executes only the trusted scanner checked out from main. No PR-supplied workflow, script or dependency is executed; token permission is contents: read only.
+
+**D1:** existing personal Git author/committer addresses remain accepted; warnings are strictly advisory and never block merely because an ordinary address is used. No noreply requirement. **D3:** never rewrite, delete or clean historic Git objects. **D2:** make the status check mandatory only after the separately authorized merge, positive/negative tests on the main-sourced workflow, and review of ongoing PR impact. Existing rules remain unchanged.
+
+High-confidence credentials, personal paths, local hostnames and unreadable/incomplete Git ranges fail closed. Private IPs, possible identifiers, non-fixture content email addresses and binary content yield warnings. Incremental static heuristics do not replace Gitleaks, manual review or non-destructive risk tracking. Synthetic tests never include actual installation data.
+
+**Ruleset procedure:** once main contains and has successfully exercised the trusted job, add public-privacy-preflight from GitHub Actions (integration_id 15368) to existing ruleset Protect main - CI/CD (#26796600). Keep all ten required checks, strict enforcement and other rules intact. Reopen the saved ruleset and recheck active PRs; remove only the new check if unexpected blockers occur. The current connected GitHub tool supports ruleset reads only, not ruleset updates; no activation has occurred.
+
+**Future compatibility:** GitHub's 2026 Actions event-policy changes can affect pull_request_target in public repositories. Before enforcing the required check, confirm the repository's Actions event policy permits the trusted workflow, and keep monitoring that prerequisite.
