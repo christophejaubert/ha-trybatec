@@ -172,3 +172,46 @@ def evaluate_unit_transition(
     if baseline_unit == incoming_unit:
         return "approved"
     return "source_unit_changed_requires_review"
+
+
+def resolve_existing_b6_binding(
+    account_key: str, lot: str, fluid: str, serial: str,
+    current_unit: str | None, registry_rows: Sequence[Mapping[str, Any]],
+    *, serial_is_unique: bool,
+) -> dict[str, Any]:
+    """Read-only b6 binding; never switch to another unique_id on unit change.
+
+    A single existing b6 generation is kept even if the source unit changes,
+    but its original source scale is frozen and its statistics become
+    unavailable until a separate reviewed migration. Multiple b6 variants
+    are accepted only when exactly one matches the current verified unit.
+    Earlier pre-b6 statistics are never silently reused.
+    """
+    _identity_parts(account_key, lot, fluid, serial)
+    allowed = legacy_meter_unique_ids(
+        account_key, lot, fluid, serial, allow_unscoped_serial=serial_is_unique
+    )
+    matches = []
+    for row in registry_rows:
+        uid = row.get("unique_id")
+        if uid not in allowed or not any(uid.endswith(f"_b6_{unit}_index")
+                                         for unit in _LEGACY_SOURCE_UNITS):
+            continue
+        if row.get("platform") != "trybatec":
+            return {"status": "blocked_foreign_identity"}
+        unit = next(unit for unit in _LEGACY_SOURCE_UNITS
+                    if uid.endswith(f"_b6_{unit}_index"))
+        matches.append((uid, None if unit == "unverified" else unit))
+    if not matches:
+        return {"status": "no_registered_b6_binding"}
+    if len(matches) == 1:
+        uid, unit = matches[0]
+        return {"status": "preserve_registered_b6",
+                "unique_id": uid, "baseline_unit": unit}
+    preferred = [candidate for candidate in matches
+                 if current_unit is not None and candidate[1] == current_unit]
+    if len(preferred) == 1:
+        uid, unit = preferred[0]
+        return {"status": "preserve_registered_b6",
+                "unique_id": uid, "baseline_unit": unit}
+    return {"status": "blocked_ambiguous_b6_generations"}
