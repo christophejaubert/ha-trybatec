@@ -73,6 +73,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_PASSWORD],
     )
     coordinator = TrybatecCoordinator(hass, entry, client)
+    # Preserve all old entries' b6 IDs. New accounts read a durable source-unit
+    # baseline before any sensor can register or publish cumulative statistics.
+    if coordinator.stable_unit_guard is not None:
+        await coordinator.stable_unit_guard.async_load()
     _apply_integration_log_level(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     try:
