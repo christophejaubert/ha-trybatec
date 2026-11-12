@@ -162,3 +162,104 @@ async def test_transient_failure_cannot_downgrade_persistent_403(hass, monkeypat
             await coordinator._async_update_data()
     assert len(created) == 1
     assert coordinator._access_notification_kind == "access_denied"
+
+
+async def test_reauth_preserves_future_stable_identity_and_tariff_contract(
+    hass, monkeypatch
+):
+    """Contract with #120's new-account flag and #42's native tariff options.
+
+    A successful reauthentication updates only credentials; it must not reset
+    a stable-account flag, meter-rate overrides, unrelated options or entry ID.
+    The flag exists on the #120 branch; a literal fixture allows this regression
+    test to run independently before the two branches are combined.
+    """
+    from unittest.mock import AsyncMock
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Synthetic stable account",
+        unique_id=sha256(f"{USER.lower()}|{DEAL}".encode()).hexdigest(),
+        data={
+            CONF_USERNAME: USER,
+            CONF_PASSWORD: PASSWORD,
+            CONF_DEAL_ID: DEAL,
+            "stable_meter_identities": True,
+        },
+        options={
+            "poll_minutes": 180,
+            "annual_tariffs": '{"2026":{"EF":{"rate":2.5,"status":"approved"}}}',
+            "annual_meter_tariffs": {"2026": {"a" * 24: {
+                "rate": 3.0, "status": "provisional",
+            }}},
+            "meter_units": {},
+        },
+    )
+    entry.add_to_hass(hass)
+    original_id = entry.entry_id
+    original_unique_id = entry.unique_id
+    original_options = dict(entry.options)
+    original_data = dict(entry.data)
+
+    async def verified_indexes(self, deal_id, start, end):
+        assert deal_id == DEAL
+        return {"lines": []}
+
+    monkeypatch.setattr(TrybatecClient, "indexes", verified_indexes)
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=None)
+    )
+    flow = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reauth", "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"],
+        {CONF_USERNAME: USER, CONF_PASSWORD: "SYNTHETIC_NEW_PASSWORD"},
+    )
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    assert entry.entry_id == original_id
+    assert entry.unique_id == original_unique_id
+    assert entry.options == original_options
+    assert entry.data == {
+        **original_data,
+        CONF_PASSWORD: "SYNTHETIC_NEW_PASSWORD",
+    }
+
+
+async def test_reauth_403_never_clears_future_account_or_tariff_options(
+    hass, monkeypatch
+):
+    entry = fake_entry()
+    entry.data = {
+        **entry.data,
+        "stable_meter_identities": True,
+    }
+    entry.options = {
+        **entry.options,
+        "annual_tariffs": '{"2026":{"EF":{"rate":2.5,"status":"approved"}}}',
+        "annual_meter_tariffs": {"2026": {"b" * 24: {
+            "rate": 4.0, "status": "approved",
+        }}},
+    }
+    before_data, before_options = dict(entry.data), dict(entry.options)
+    entry.add_to_hass(hass)
+
+    async def denied(self, deal_id, start, end):
+        raise TrybatecAccessDeniedError("synthetic permission denied")
+
+    monkeypatch.setattr(TrybatecClient, "indexes", denied)
+    flow = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "reauth", "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"],
+        {CONF_USERNAME: USER, CONF_PASSWORD: "SYNTHETIC_NEW_PASSWORD"},
+    )
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "access_denied"
+    assert entry.data == before_data
+    assert entry.options == before_options
