@@ -42,6 +42,7 @@ from .panel_energy import (
 from .panel_review import ws_panel_reading_decision
 from .panel_tariff_years import ws_panel_tariff_years, merge_cached_historical_bounds
 from .panel_technical_audit import audited_entity_inventory
+from .meter_identity import preview_stable_identity_transition
 from .panel_technical_limits import technical_limits_snapshot
 from .history_guardrails import diagnostics_for
 
@@ -349,9 +350,32 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             warnings.append("meter_options_require_review_in_native_settings")
         physical_meters = _meter_inventory(coordinator.data, archive)
         physical_meters = merge_cached_historical_bounds(coordinator, physical_meters)
-        technical_audit = audited_entity_inventory(
-            _entity_inventory(hass, entry_id), energy,
-        )
+        registry_inventory = _entity_inventory(hass, entry_id)
+        technical_audit = audited_entity_inventory(registry_inventory, energy)
+        # #81: preflight only. Never reinterpret existing b6 IDs or Recorder
+        # statistics from the absence of entries in this partial inventory.
+        identity_preview = {"status": "vendor_data_not_loaded", "meters": []}
+        live_data = coordinator.data
+        if live_data is not None:
+            try:
+                identity_preview = preview_stable_identity_transition(
+                    coordinator.entry.unique_id or entry_id,
+                    entry_id,
+                    list(live_data["meters"].values()),
+                    [
+                        {**item, "platform": DOMAIN, "config_entry_id": entry_id}
+                        for item in registry_inventory
+                    ],
+                )
+            except (ValueError, KeyError, TypeError):
+                identity_preview = {
+                    "status": "invalid_requires_review", "meters": [],
+                    "migration_executed": False,
+                }
+                warnings.append("stable_identity_preflight_requires_review")
+        identity_preview["registry_scope"] = "selected_config_entry_only"
+        identity_preview["recorder_dependencies_exhaustively_checked"] = False
+        identity_preview["no_automatic_identity_migration"] = True
         accounts.append({
             "entry_id": entry_id,
             "title": coordinator.entry.title,
@@ -364,6 +388,7 @@ async def async_panel_snapshot(hass: HomeAssistant) -> dict[str, Any]:
             "technical_entity_audit": {
                 k: value for k, value in technical_audit.items() if k != "entities"
             },
+            "stable_identity_preview": identity_preview,
             "tariffs": tariffs,
             "meter_tariffs": meter_tariffs,
             "tariff_fingerprint": tariff_fingerprint(dict(coordinator.entry.options)),
