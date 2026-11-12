@@ -998,7 +998,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.energyMeter!==undefined || btn.dataset.energyHistory!==undefined) {
       const key=btn.dataset.energyMeter??btn.dataset.energyHistory;
       const index=this._meters().findIndex(m=>m.physical_key===key);
-      if (index<0) {this._tab="meters";this._query="";this._render();return;}
+      if (index<0) {this._historyContextKey=null;this._tab="meters";this._query="";this._render();return;}
       this._meter=index;this._query="";
       if (btn.dataset.energyHistory!==undefined) {
         this._historyContextKey=key;this._originMeter=key;
