@@ -1,0 +1,4 @@
+# FR : une seule occurrence de test historique reconnue comme faux positif.
+# EN: a single reviewed historical test-only false positive, not a broad rule bypass.
+# No matched value is stored here. Keep full history scanning enabled.
+5bb9d8d120c44693806117d4387760f447a3a328:integration_tests/test_panel_options_parity_b1.py:generic-api-key:61
