@@ -19,7 +19,7 @@ from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.trybatec.api import (
     TrybatecAccessDeniedError, TrybatecAuthError, TrybatecClient,
-    TrybatecConnectionError, TrybatecDataError, TrybatecDiscoveryAmbiguousError,
+    TrybatecConnectionError, TrybatecDiscoveryAmbiguousError,
 )
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
 from custom_components.trybatec.coordinator import TrybatecCoordinator
