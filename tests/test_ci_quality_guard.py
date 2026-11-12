@@ -43,3 +43,14 @@ def test_manual_publication_requires_controls():
 def test_missing_workflow_is_a_failure(tmp_path):
     (tmp_path / "ci.yml").write_text(SAFE, encoding="utf-8")
     assert any("missing required" in item for item in policy.audit(tmp_path))
+
+
+def test_named_step_uses_syntax_and_checkout_protection():
+    named = SAFE.replace(
+        "      - uses: actions/checkout@",
+        "      - name: Checkout source\n        uses: actions/checkout@",
+    )
+    assert policy.scan_workflow("ci.yml", named) == []
+    assert policy.scan_workflow(
+        "ci.yml", named.replace("persist-credentials: false", "persist-credentials: true")
+    )

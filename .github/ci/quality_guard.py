@@ -21,7 +21,7 @@ EXPECTED = {
 PINNED_ACTION = re.compile(
     r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[a-f0-9]{40}"
 )
-USES = re.compile(r"^\s*-\s*uses:\s*(\S+)", re.MULTILINE)
+USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\S+)", re.MULTILINE)
 
 
 def scan_workflow(name: str, source: str) -> list[str]:
@@ -36,7 +36,7 @@ def scan_workflow(name: str, source: str) -> list[str]:
         if PINNED_ACTION.fullmatch(action) is None:
             problems.append("external action is not pinned to 40-char SHA")
     for position, line in enumerate(lines):
-        match = re.match(r"^(\s*)-\s*uses:\s*(actions/checkout@\S+)", line)
+        match = re.match(r"^(\s*)(?:-\s*)?uses:\s*(actions/checkout@\S+)", line)
         if match is None:
             continue
         indentation = len(match.group(1))
