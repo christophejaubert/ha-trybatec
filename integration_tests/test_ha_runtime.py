@@ -837,3 +837,34 @@ async def test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplicati
     assert coordinator.data["meters"]["MOCK-WATER-01"]["stable_unit_approved"] is False
     assert coordinator.stable_unit_guard._units == {}
     assert CONF_STABLE_METER_IDENTITIES not in legacy_entry.data
+
+
+@pytest.mark.parametrize("stable", [False, True])
+async def test_normal_setup_reload_never_imports_history_or_updates_energy(
+    hass, monkeypatch, stable,
+):
+    """Explicit history and Energy mutations are forbidden during normal setup."""
+    from homeassistant.components.energy.data import EnergyManager
+    from custom_components.trybatec import history_services
+
+    async def forbidden_history_import(*args, **kwargs):
+        pytest.fail("Historical Recorder import must be explicitly requested")
+
+    def forbidden_statistic_write(*args, **kwargs):
+        pytest.fail("No external statistics import during setup or reload")
+
+    async def forbidden_energy_update(*args, **kwargs):
+        pytest.fail("Energy preferences must never change implicitly")
+
+    monkeypatch.setattr(
+        history_services, "async_import_history", forbidden_history_import,
+    )
+    monkeypatch.setattr(
+        history_services, "async_add_external_statistics", forbidden_statistic_write,
+    )
+    monkeypatch.setattr(EnergyManager, "async_update", forbidden_energy_update)
+
+    entry, _ = await configure_fake_account(hass, monkeypatch, "m3", stable=stable)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (hass.data[DOMAIN][entry.entry_id].stable_unit_guard is not None) is stable
