@@ -38,8 +38,10 @@ jobs:
         include:
           - python_label: "3.13"
             python_version: "3.13.18"
+            lock_file: pure-py313.txt
           - python_label: "3.14"
             python_version: "3.14.10"
+            lock_file: pure-py314.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,7 +51,7 @@ jobs:
           python-version: ${{ matrix.python_version }}
       - name: Install pure Python test dependencies
         run: |
-          python -m pip install -r .github/ci/requirements-pure.txt -c .github/ci/constraints-pure.txt
+          python -m pip install --require-hashes -r ".github/ci/locks/${{ matrix.lock_file }}"
           python -I .github/ci/lock_check.py .github/ci/constraints-pure.txt
           python -m pip check
       - name: Compile sources
@@ -176,74 +178,7 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
-  # FR/EN: temporary read-only dependency inventory for reviewed lock regeneration.
-  # The job does not alter the tested runtime or publish any artifact to users.
-  ci-fixture-lock-inventory:
-    name: ha-fixture-lock-inventory (temporary)
-    runs-on: ubuntu-24.04
-    permissions: {}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: "3.14.10"
-      - name: Resolve official Home Assistant fixtures without old constraints
-        run: |
-          python -m pip install -r .github/ci/requirements-ha-runtime.txt -c .github/ci/constraints-ha-persistence.txt
-          python -m pip check
-      - name: Report exact installed CI fixture inventory for reviewed locks
-        run: |
-          python - <<'PY'
-          from importlib import metadata
-          import re
-          snapshot = {}
-          for item in metadata.distributions():
-              name = item.metadata.get("Name")
-              if not name:
-                  raise ValueError("Unnamed distribution")
-              name = re.sub(r"[-_.]+", "-", name).lower()
-              if name not in {"pip", "setuptools", "wheel"}:
-                  if name in snapshot:
-                      raise ValueError("Duplicate distribution: " + name)
-                  snapshot[name] = item.version
-          print("CI_PIN_SNAPSHOT_BEGIN")
-          for name, version in sorted(snapshot.items()):
-              print(f"{name}=={version}")
-          print("CI_PIN_SNAPSHOT_END")
-          PY
-
-  # FR: hashes officiels des artefacts de la matrice, sans secrets ni écriture.
-  # EN: official artifact hashes for each tested interpreter, no secrets or writes.
-  ci-hash-lock-inventory:
-    name: official-hashes (${{ matrix.target }})
-    runs-on: ubuntu-24.04
-    permissions: {}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: pure313
-            python_version: "3.13.18"
-          - target: pure314
-            python_version: "3.14.10"
-          - target: ha314
-            python_version: "3.14.10"
-          - target: persistence314
-            python_version: "3.14.10"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: ${{ matrix.python_version }}
-      - name: Download and authenticate official PyPI archives without installation
-        run: python -I scripts/ci_hash_lock_generate.py ${{ matrix.target }}
-
+  # FR/EN: four verified SHA256 locks are consumed by the test jobs below.
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
     runs-on: ubuntu-24.04
@@ -258,7 +193,7 @@ jobs:
           python-version: "3.14.10"
       - name: Install Home Assistant test framework
         run: |
-          python -m pip install -r .github/ci/requirements-ha-runtime.txt -c .github/ci/constraints-ha-runtime.txt
+          python -m pip install --require-hashes -r .github/ci/locks/ha-runtime-py314.txt
           python -I .github/ci/lock_check.py .github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Test entities, services and persistent decisions on isolated Home Assistant
@@ -340,7 +275,7 @@ jobs:
           python-version: "3.14.10"
       - name: Install pinned Home Assistant Core for physical storage tests
         run: |
-          python -m pip install -c ci-harness/.github/ci/constraints-ha-persistence.txt 'homeassistant==2026.11.0'
+          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-persistence-py314.txt
           python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-persistence.txt
           python -m pip check
       - name: Process 1 - start HA and persist synthetic review decision
@@ -413,7 +348,7 @@ jobs:
           python-version: "3.14.10"
       - name: Install pinned, isolated HA Recorder fixtures
         run: |
-          python -m pip install -r ci-harness/.github/ci/requirements-ha-runtime.txt -c ci-harness/.github/ci/constraints-ha-runtime.txt
+          python -m pip install --require-hashes -r ci-harness/.github/ci/locks/ha-runtime-py314.txt
           python -I ci-harness/.github/ci/lock_check.py ci-harness/.github/ci/constraints-ha-runtime.txt
           python -m pip check
       - name: Exercise historical preview, import, Recorder SQLite, retry and verification
