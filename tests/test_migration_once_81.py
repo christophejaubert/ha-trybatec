@@ -42,6 +42,8 @@ def _plan(meters=None, registry=None, states=None, recorder=None, **flags):
         recorder if recorder is not None else {
             "sensor.fake_index": {"unit_of_measurement": "m³", "has_sum": True},
         },
+        registry_inventory_complete=flags.get("registry_complete", True),
+        device_inventory_complete=flags.get("device_complete", True),
         recorder_inventory_complete=flags.get("recorder_complete", True),
         energy_inventory_complete=flags.get("energy_complete", True),
         dependency_inventory_complete=flags.get("dependency_complete", True),
@@ -127,6 +129,8 @@ def test_unsafe_cases_fail_closed(fault):
 
 
 @pytest.mark.parametrize("flag", [
+    {"registry_complete": False},
+    {"device_complete": False},
     {"recorder_complete": False},
     {"energy_complete": False},
     {"dependency_complete": False},
@@ -158,3 +162,11 @@ def test_bogus_registry_duplicates_rejected_without_writes():
         _plan(registry=[_legacy(), _legacy(eid="sensor.other")])
     with pytest.raises(ValueError, match="Duplicate physical"):
         _plan(meters=[_meter(), _meter()])
+
+
+def test_missing_source_device_identity_prevents_implicit_recreation():
+    old = _legacy()
+    old["device_id"] = None
+    plan = _plan(registry=[old])
+    assert plan["ready"] is False
+    assert "source_device_identity_missing" in plan["mappings"][0]["blockers"]
