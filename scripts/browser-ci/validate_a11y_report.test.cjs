@@ -2,7 +2,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {validate} = require("./validate_a11y_report.cjs");
+const {validate, publicReport} = require("./validate_a11y_report.cjs");
 
 function sample() {
   const tabs = ["overview", "meters", "history", "tariffs", "energy", "diagnostics", "settings"];
@@ -14,7 +14,8 @@ function sample() {
         ["light", "dark"].map(theme => ({
           config: {language, device, theme}, humanHA: false,
           voiceOverTalkBack: "NOT_TESTED", wcagAA: "NOT_ASSERTED",
-          errors: [], prohibited: [], results: tabs.map(tab => ({tab}))
+          errors: [], prohibited: [], results: tabs.map(tab => ({tab, reflow320synthetic: true,
+            focus: {inViewport: true, centerObscured: false}, undersizedTargets: []}))
         }))))
   };
 }
@@ -53,4 +54,23 @@ test("FR/EN: post-merge synthetic workflow remains read-only and fail-closed", (
   assert.match(workflow, /node scripts\/browser-ci\/validate_a11y_report.cjs ui-a11y-synthetic-report.json/);
   assert.match(workflow, /if: success\(\)/);
   assert.doesNotMatch(workflow, /if: always\(\)/);
+});
+
+test("FR/EN: only allowlisted synthetic counts and enums are exported", () => {
+  const data = sample();
+  data.results[0].arbitraryPrivateFreeform = "unexported-fixture-synthetic";
+  data.results[0].results[0].sensitiveFixtureDetail = "unexported-extra-synthetic";
+  const safe = publicReport(data);
+  assert.equal(safe.cases.length, 56);
+  assert.equal(safe.summary.realHomeAssistantRecettes, 0);
+  assert.equal(safe.summary.reflowFailures, 0);
+  assert.equal(safe.cases[0].tab, "overview");
+  assert.equal(safe.cases[0].undersizedTargetCount, 0);
+  assert.doesNotMatch(JSON.stringify(safe), /unexported-/);
+  assert.deepEqual(Object.keys(safe), ["mode", "summary", "cases"]);
+});
+test("FR/EN: reject missing typed browser observations before public export", () => {
+  const data = sample();
+  delete data.results[0].results[0].focus;
+  assert.throws(() => publicReport(data));
 });
