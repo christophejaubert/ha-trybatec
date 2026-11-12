@@ -259,13 +259,12 @@ def plan_bulk_energy_insertion(
         if any(value != stat_id for value, _path in references):
             raise ValueError("Competing Trybatec Energy source already referenced")
         target_paths = [path for value, path in references if value == stat_id]
-        if target_paths and (
-            len(target_paths) != 1
-            or target_paths[0] not in {
-                f"energy_sources[{i}].stat_energy_from"
-                for i in range(len(prefs["energy_sources"]))
-            }
-        ):
+        if len(target_paths) > 1:
+            raise ValueError("Already selected statistic has duplicate references")
+        if target_paths and target_paths[0] not in {
+            f"energy_sources[{i}].stat_energy_from"
+            for i in range(len(prefs["energy_sources"]))
+        }:
             raise ValueError("Target statistic referenced outside one main Energy source")
         positions = selected_by_id.get(stat_id, [])
         if positions:

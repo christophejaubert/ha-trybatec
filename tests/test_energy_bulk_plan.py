@@ -210,7 +210,7 @@ def test_schema_version_must_be_confirmed_explicitly():
     ],
 )
 def test_additional_readiness_evidence_is_mandatory(changes, message):
-    fluid = "CET" if "thermal_category" in changes else "EF"
+    fluid = "CET" if "thermal_category_approved" in changes else "EF"
     with pytest.raises(ValueError, match=message):
         plan_bulk_energy_insertion(preferences(), [candidate(fluid, **changes)])
 
