@@ -13,6 +13,57 @@ const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
 const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
 const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
 
+// Safe, read-only presentation of prerequisites visible in the panel snapshot.
+// This is NOT an Energy API readiness check and must not enable bulk writes.
+function trybatecEnergySetupGuidance(account, energy) {
+  const a=account||{}, meters=Array.isArray(a.meters)?a.meters:[];
+  const active=meters.filter(m=>m.status==="en_service");
+  const retired=meters.filter(m=>m.status==="depose");
+  const ledger=a.ledger||{}, reasons=[];
+  const add=(code,level,tab,fr,en,physical_key=null)=>reasons.push({code,level,tab,fr,en,physical_key});
+  if (energy?.status==="unconfigured")
+    add("energy_initial_setup","required","overview",
+      "Initialiser la configuration du tableau Énergie.",
+      "Complete the initial Energy dashboard setup.");
+  if (!active.length)
+    add("active_meter_inventory","unverified","meters",
+      "Aucun compteur en service vérifiable dans cet aperçu : contrôler l’inventaire.",
+      "No active meter verified in this view: review the meter inventory.");
+  else {
+    const units=active.filter(m=>m.unit_verified!==true).length;
+    const missing=active.filter(m=>m.last_index===null||m.last_index===undefined).length;
+    if (units) add("meter_units","required","meters",
+      units+" compteur(s) en service avec une unité non vérifiée.",
+      units+" active meter(s) with an unverified unit.",
+      units===1?active.find(m=>m.unit_verified!==true)?.physical_key:null);
+    if (missing) add("meter_indexes","required","meters",
+      missing+" compteur(s) en service sans dernier index exploitable dans cet aperçu.",
+      missing+" active meter(s) without a usable latest index in this view.",
+      missing===1?active.find(m=>m.last_index===null||m.last_index===undefined)?.physical_key:null);
+  }
+  if (Number(ledger.pending)>0)
+    add("recorder_pending","required","energy",
+      "Des imports Recorder restent en attente de vérification.",
+      "Recorder imports are pending verification.");
+  // The read-only ledger is not independent proof of physical-meter continuity.
+  // Even a matching, "verified" consolidated revision cannot authorize bulk Energy insertion.
+  if (retired.length)
+    add("retired_history","unverified","history",
+      "La continuité historique de "+retired.length+" compteur(s) déposé(s) n’est pas démontrée par cet aperçu.",
+      "Historical continuity for "+retired.length+" retired meter(s) is not proven by this view.",
+      retired.length===1?retired[0].physical_key:null);
+  const hasSources=Array.isArray(energy?.sources)&&energy.sources.length>0;
+  const mode=energy?.status==="not_loaded"?"technical_unavailable":
+    reasons.some(r=>r.level==="required")?"configuration_incomplete":
+    reasons.length?"verification_needed":
+    hasSources?"coverage_unverified":"not_implemented";
+  return {
+    mode, reasons, hasSources,
+    optionalTariffsMissing:
+      !Object.keys(a.tariffs||{}).length&&!Object.keys(a.meter_tariffs||{}).length,
+  };
+}
+
 /* Scoped annual tariffs: observed years per account/housing + individually
  * stored common and physical-meter tariff years. No synthetic readings.
  */
@@ -943,6 +994,19 @@ class TrybatecPanel extends HTMLElement {
       const nav=this.shadowRoot.querySelector(".nav");
       if (nav) nav.scrollBy({left:Math.max(140,nav.clientWidth*0.75),behavior:"smooth"});
       return;
+    }
+    if (btn.dataset.energyMeter!==undefined || btn.dataset.energyHistory!==undefined) {
+      const key=btn.dataset.energyMeter??btn.dataset.energyHistory;
+      const index=this._meters().findIndex(m=>m.physical_key===key);
+      if (index<0) {this._historyContextKey=null;this._tab="meters";this._query="";this._render();return;}
+      this._meter=index;this._query="";
+      if (btn.dataset.energyHistory!==undefined) {
+        this._historyContextKey=key;this._originMeter=key;
+        this._historySelected="";this._readingSelected="";this._tab="history";
+      } else {
+        this._historyContextKey=null;this._tab="meters";
+      }
+      this._render();return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
     if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
@@ -2631,15 +2695,75 @@ class TrybatecPanel extends HTMLElement {
       (this._versionError?'<div class="notice warning">'+safe(this._versionError)+'</div>':"")+
       (this._versionMessage?'<div class="notice">'+safe(this._versionMessage)+'</div>':"");
   }
+  _energySetupHelp() {
+    const t=(fr,en)=>this._t(fr,en);
+    const guidance=trybatecEnergySetupGuidance(this._current,this._data?.energy);
+    const explanation={
+      technical_unavailable:t(
+        "Le module Énergie n’est pas chargé : l’intégration automatique ne peut pas être vérifiée.",
+        "The Energy module is not loaded: automatic enrollment cannot be verified."),
+      configuration_incomplete:t(
+        "Des actions de configuration sont encore attendues. L’ajout groupé automatique n’est pas disponible dans cette version.",
+        "Some setup actions are still required. Automatic bulk enrollment is not available in this version."),
+      verification_needed:t(
+        "Certaines vérifications restent à effectuer. L’ajout groupé automatique n’est pas disponible dans cette version.",
+        "Some checks remain to be completed. Automatic bulk enrollment is not available in this version."),
+      coverage_unverified:t(
+        "Des sources Trybatec sont référencées, mais la couverture de tous les fluides et compteurs n’est pas vérifiée. L’ajout groupé n’est pas disponible dans cette version.",
+        "Some Trybatec sources are referenced, but complete utility and meter coverage has not been verified. Bulk enrollment is not available in this version."),
+      not_implemented:t(
+        "L’ajout groupé automatique n’est pas encore disponible dans cette version. Aucun prérequis manquant supplémentaire n’est démontré par cet aperçu.",
+        "Automatic bulk enrollment is not yet available in this version. This view does not demonstrate additional missing prerequisites."),
+    };
+    const reasonRows=guidance.reasons.map(reason=>
+      '<div class="line"><ha-icon icon="'+(reason.level==="required"?
+        'mdi:information-outline':'mdi:help-circle-outline')+
+      '" aria-hidden="true"></ha-icon> <strong>'+safe(reason.level==="required"?
+        t("À faire","Action required"):t("Non vérifié","Not verified"))+
+      ' :</strong> '+safe(t(reason.fr,reason.en))+
+      (typeof reason.physical_key==="string" && reason.physical_key?
+        '<div class="actions"><button type="button" class="secondary" data-energy-meter="'+
+          safe(reason.physical_key)+'">'+safe(t("Fiche du compteur","Meter details"))+'</button>'+
+        '<button type="button" class="secondary" data-energy-history="'+safe(reason.physical_key)+
+          '">'+safe(t("Historique du compteur","Meter history"))+'</button></div>':"")+
+      '</div>').join("");
+    const tabs=[...new Set(guidance.reasons.map(reason=>reason.tab)
+      .filter(tab=>tab!=="overview"&&tab!=="energy"))];
+    const tabLabel={
+      meters:t("Vérifier les compteurs","Review meters"),
+      history:t("Examiner l’historique","Review history"),
+      tariffs:t("Configurer les tarifs","Configure tariffs"),
+    };
+    return '<div class="notice" role="status">'+
+      '<strong>'+safe(t("Configuration du tableau Énergie","Energy dashboard setup"))+'</strong>'+
+      '<p>'+safe(explanation[guidance.mode])+'</p>'+
+      '<p class="muted">'+safe(t(
+        "Le planificateur groupé fonctionne en lecture seule à partir d’assertions : sans diagnostic indépendant de Recorder et des registres, aucun ajout n’est autorisé.",
+        "The bulk planner is read-only and relies on assertions: without independent Recorder and registry evidence, enrollment is not authorized."))+'</p>'+reasonRows+
+      (guidance.optionalTariffsMissing?
+        '<p class="muted">'+safe(t(
+          "Tarifs annuels facultatifs non renseignés : seuls les coûts correspondants sont indisponibles, pas la configuration des consommations.",
+          "Optional annual rates are not set: only related costs are unavailable, not consumption setup."))+'</p>':"")+
+      '<div class="actions"><button type="button" class="secondary" data-tab="overview">'+
+      safe(t("Assistant de configuration / Vue d’ensemble","Setup assistant / Overview"))+'</button>'+
+      tabs.map(tab=>'<button type="button" class="secondary" data-tab="'+safe(tab)+'">'+
+        safe(tabLabel[tab]||tab)+'</button>').join("")+
+      (guidance.optionalTariffsMissing?
+        '<button type="button" class="secondary" data-tab="tariffs">'+
+        safe(t("Tarifs (facultatif)","Rates (optional)"))+'</button>':"")+
+      '<button type="button" class="secondary" data-open-energy>'+
+        safe(t("Ouvrir Énergie (configuration manuelle)","Open Energy (manual setup)"))+
+      '</button></div></div>';
+  }
   _energy() {
-    const data=this._data.energy;
+    const data=this._data.energy||{status:"not_loaded",sources:[]};
     const a=this._current;
     const rows=a.ledger.series||[];
     return this._heading("Énergie & versions","Références configurées et versions historiques vérifiables.")+
       '<div class="grid-two"><section class="card"><h3>Sources Trybatec dans Énergie</h3>'+
-      (data.sources.length?data.sources.map(x=>'<div class="line"><strong>'+safe(x.type)+'</strong> · <span class="mono">'+safe(x.statistic_id)+'</span></div>').join(""):
+      ((data.sources||[]).length?data.sources.map(x=>'<div class="line"><strong>'+safe(x.type)+'</strong> · <span class="mono">'+safe(x.statistic_id)+'</span></div>').join(""):
         '<div class="empty">Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.</div>')+
-      '<div class="actions"><button class="secondary" type="button" data-open-energy>Ouvrir Énergie</button></div></section>'+
+      this._energySetupHelp()+'</section>'+
       '<section class="card"><h3>Séries historiques versionnées</h3><p class="muted">Registre Recorder b15 : '+safe(a.ledger.status)+
       ', imports à vérifier : '+safe(a.ledger.pending)+'</p>'+
       (rows.length?rows.map(row=>'<div class="line"><span class="mono">'+safe(row.logical_id)+'</span>'+
