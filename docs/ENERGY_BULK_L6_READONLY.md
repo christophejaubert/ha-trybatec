@@ -67,3 +67,11 @@ Validation : tests synthétiques ajoutés pour compteur déposé, identité ambi
 The new pure `energy_bulk_contract_l6.py` cross-checks the B15 version ledger (#36), current physical-meter observations and archived retired meters (#37). It detects ambiguous identities, retired meters missing from the B15 ledger, conflicting consolidated series/versions, invalid archival keys and incompatible units. `energy_bulk_contract_ha_l6.py` reconstructs evidence from **read-only**, size-bounded HA storage-envelope reads, after independently enforcing L3 administrator authentication. The L6 HA preview attaches this diagnostic; it never grants admission.
 
 **Gate remains closed:** a coordinator cache, retained retired-meter archive and B15 version ledger do not prove exhaustive multi-year coverage, source provenance, all Recorder buckets, complete alternatives or the independent #120 new-account stable-identity contract. Accordingly `complete=False`, `admissible=False`, no new Energy insertion and no implicit migration. The standalone source-selection observation `already_configured` is not permission to mutate Energy. CI must run on PR #129's exact head; live acceptance is separate.
+
+### FR — Validation complémentaire de l'adaptateur natif
+
+Quatre tests sur un faux contexte HA simulent l'authentification, les lectures `.storage`, l'absence de fichiers et le rejet d'un rapport L3 de provenance incorrecte. Ils n'appellent aucune API réelle. En l'absence de registre B15, les inventaires de compteurs courants **et** déposés sont explicitement inconnus, jamais réputés vides. La couverture locale de ce seul adaptateur atteint 100 % avec ces tests synthétiques, ce qui ne constitue pas une recette HA.
+
+### EN — Additional native adapter validation
+
+Four synthetic HA-context tests cover authentication, bounded storage reads, missing files and invalid L3 provenance. An unavailable B15 ledger explicitly marks both current and retired inventories unknown; absence never proves an empty scope. Local synthetic test coverage of this small adapter is 100%; no actual HA acceptance is implied.

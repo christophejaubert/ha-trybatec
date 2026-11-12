@@ -54,7 +54,10 @@ def crosscheck_36_37_120(
         raise ValueError("Server account and lot required")
     if not isinstance(ledger, Mapping):
         for f in _FLUIDS:
-            report["fluids"][f]["blockers"].append("b15_ledger_unavailable")
+            report["fluids"][f]["blockers"].extend((
+                "b15_ledger_unavailable", "retired_inventory_unavailable",
+                "current_meter_inventory_unknown",
+            ))
         return report
     try:
         series, _ = _ledger_scopes(dict(ledger))
