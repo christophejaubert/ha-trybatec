@@ -319,3 +319,56 @@ def test_journal_not_readable_durably_refuses_before_write():
     with pytest.raises(EnergyRecoveryRequired,match="not durably readable"):
         apply(p,v)
     assert p.backups==1 and p.writes==0
+
+
+def test_pending_journal_prevents_idempotent_success_claim():
+    port = FakePort(fluids=())
+    previous = preview(port)
+    assert previous.status == "already_configured"
+    port.audit.append({"status": "prepared", "synthetic": True})
+    with pytest.raises(EnergyRecoveryRequired, match="Unresolved earlier"):
+        apply(port, previous)
+    assert port.writes == port.backups == 0
+
+
+def test_no_write_audit_requires_durable_terminal_readback():
+    port = FakePort()
+    previous = preview(port)
+    port.flags.add("apply_fail_before")
+    original_read = port.read_last_journal
+
+    async def forget_terminal():
+        latest = await original_read()
+        return None if latest and latest.get("status") == "no_write_observed" else latest
+
+    port.read_last_journal = forget_terminal
+    with pytest.raises(EnergyRecoveryRequired, match="No-write journal"):
+        apply(port, previous)
+    assert port.live == port.disk == initial()
+    assert port.writes == 1
+
+
+def test_rollback_audit_requires_durable_terminal_readback():
+    port = FakePort()
+    previous = preview(port)
+    port.flags.add("apply_fail_after")
+    original_read = port.read_last_journal
+
+    async def forget_terminal():
+        latest = await original_read()
+        return None if latest and latest.get("status") == "rolled_back_verified" else latest
+
+    port.read_last_journal = forget_terminal
+    with pytest.raises(EnergyRecoveryRequired, match="Rollback journal"):
+        apply(port, previous)
+    assert port.live == port.disk == initial()
+    assert port.writes == 2
+
+
+def test_idempotent_noop_requires_live_and_persisted_equality():
+    port = FakePort(fluids=())
+    previous = preview(port)
+    port.disk["unrelated"] = {"concurrent": True}
+    with pytest.raises(EnergyTransactionRefused, match="idempotent check"):
+        apply(port, previous)
+    assert port.writes == port.backups == 0

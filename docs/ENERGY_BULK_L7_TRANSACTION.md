@@ -67,3 +67,12 @@ L7 now reads the last durable journal before backup and verifies read-after-writ
 The pure `energy_bulk_recovery_l7.py` reconciles only unambiguous both-before or both-after states, via a separately confirmed administrator action and a still-verified backup; it changes **journal records only**. Mixed/unknown/concurrent states require manual investigation and are never silently overwritten. `energy_bulk_native_observer_l7.py` verifies HA administrator identity, account/lot scope, and memory/persisted preferences, but explicitly refuses *all* write, backup and journal operations. A standalone FR/EN DOM-only preview component shows all utility decisions and a **permanently disabled** activation button, without editing the shared #42/#70 panel or registering an endpoint.
 
 All recovery and restore tests use synthetic data and a temporary local directory. They are not native HA backup/restore proof. No live Recorder/Energy writes, source replacement, legacy-ID migration, merge, release or Home Assistant installation are included. See `docs/ENERGY_BULK_L7_RECOVERY_RUNBOOK.md` for the future acceptance protocol.
+
+
+### FR — Non-régression du journal terminal (12/11/2026)
+
+Un appel idempotent ne masque plus un journal `prepared` non résolu et exige une seconde concordance des empreintes des préférences mémoire/disque. Après un échec avant écriture ou un rollback, l'état terminal `no_write_observed` ou `rolled_back_verified` ne peut être annoncé qu'après relecture identique du journal durable ; sinon une intervention de récupération est signalée. Quatre cas synthétiques ont été ajoutés. Les garanties du port natif sont toujours absentes : **aucune activation Home Assistant réelle**.
+
+### EN — Durable terminal-journal regression checks (2026-11-12)
+
+An idempotent call no longer conceals unresolved `prepared` journals and must recheck live/persisted preference fingerprints. After a failed pre-write or verified rollback, terminal `no_write_observed` / `rolled_back_verified` statuses require read-after-write verification of the durable journal; a mismatch demands explicit recovery. Four synthetic regression cases were added. No production write-capable adapter is provided or authorized.

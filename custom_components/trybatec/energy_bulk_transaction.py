@@ -173,6 +173,18 @@ async def _apply_exclusive(
     state = await port.collect(actor, account=account, lot=lot)
     preview, plan = _prepare_state(state, account, lot)
     if preview.status == "already_configured":
+        # Idempotence must not conceal a pending or inconsistent write from an
+        # earlier attempt. Even a no-op needs an audited terminal journal.
+        previous_record = await port.read_last_journal()
+        if previous_record is not None and (
+            not isinstance(previous_record, dict) or
+            previous_record.get("status") not in (
+                "verified", "rolled_back_verified", "no_write_observed")
+        ):
+            raise EnergyRecoveryRequired("Unresolved earlier Energy transaction journal")
+        if (preferences_fingerprint(await port.read_live()) != preview.before or
+                preferences_fingerprint(await port.read_persisted()) != preview.before):
+            raise EnergyTransactionRefused("Energy preferences changed during idempotent check")
         return {"status": "already_configured", "writes": False,
                 "activation_authorized": False}
     if (plan is None or preview.status != "prepared_for_explicit_admin_review"
@@ -228,6 +240,8 @@ async def _apply_exclusive(
         if live_hash == preview.before and disk_hash == preview.before:
             audit["status"] = "no_write_observed"
             await port.journal(deepcopy(audit))
+            if await port.read_last_journal() != audit:
+                raise EnergyRecoveryRequired("No-write journal state not durably readable") from error
             raise EnergyTransactionRefused("Apply failed before changing preferences") from error
         if live_hash != preview.after or disk_hash not in (preview.before, preview.after):
             raise EnergyRecoveryRequired("Concurrent or partial Energy state; recovery must be reviewed") from error
@@ -238,6 +252,8 @@ async def _apply_exclusive(
             raise EnergyRecoveryRequired("Rollback could not be verified") from error
         audit["status"] = "rolled_back_verified"
         await port.journal(deepcopy(audit))
+        if await port.read_last_journal() != audit:
+            raise EnergyRecoveryRequired("Rollback journal state not durably readable") from error
         raise EnergyTransactionRefused("Write failed; rollback verified") from error
     except EnergyTransactionRefused:
         raise
