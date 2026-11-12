@@ -204,3 +204,13 @@ Each mandatory persistence matrix case now verifies a **third, fresh Home Assist
 Unit tests reject tampered backup bytes, foreign manifest keys, symlinks, missing/corrupt files and paths outside GitHub Actions synthetic temporary directories.
 
 **Scope limit:** this proves physical restoration of the synthetic Trybatec decisions Store, **not** full Home Assistant backup restore or a production Recorder database recovery. Recorder is independently tested against isolated SQLite in the existing E2E suite. No real user data is touched.
+
+### FR — Reprise de la file SQLite synthétique
+
+La suite integration_tests/test_ha_recorder_multimeter.py sauvegarde également, après arrêt complet du processus interrompu, le magasin physique .storage et une base SQLite de file d'attente adaptatrice (via l'API de sauvegarde SQLite). Les interruptions avant la deuxième écriture et après la troisième écriture sont restaurées dans un répertoire distinct, puis vérifiées par un nouveau processus HA Core : neuf tranches horaires uniques, aucune duplication et copie source inchangée.
+
+Ce scénario ne constitue pas un test de restauration d'une véritable base Home Assistant Recorder. La validation complète d'une sauvegarde système reste distincte et nécessite un chantier autorisé.
+
+### EN — Synthetic SQLite queue recovery
+
+The multimeter integration test backs up the physical .storage ledger and the synthetic SQLite queue adapter after the interrupted process stops, using the SQLite backup API. It restores them into another configuration; a new HA Core process resumes to nine unique time buckets, with no duplicates and an unchanged source. This is not full backup/restore testing of an actual Home Assistant Recorder database.
