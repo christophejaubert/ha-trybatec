@@ -45,8 +45,29 @@ jobs:
           python-version: "3.14.10"
       - name: Install version-pinned audit tools
         run: |
-          python -m pip install 'pip-audit==2.10.1' 'zizmor==1.32.0'
+          python -m pip install -r .github/ci/requirements-audit.txt
           python -m pip check
+      # FR/EN: temporary resolved dependency graph; remove after vetted hash lock.
+      - name: Report resolved security audit inventory (temporary)
+        run: |
+          python - <<'PY'
+          from importlib import metadata
+          import re
+          inventory = {}
+          for item in metadata.distributions():
+              name = item.metadata.get("Name")
+              if not name:
+                  raise ValueError("Unnamed distribution")
+              name = re.sub(r"[-_.]+", "-", name).lower()
+              if name not in {"pip", "setuptools", "wheel"}:
+                  if name in inventory:
+                      raise ValueError("Duplicate distribution: " + name)
+                  inventory[name] = item.version
+          print("CI_AUDIT_SNAPSHOT_BEGIN")
+          for name, version in sorted(inventory.items()):
+              print(f"{name}=={version}")
+          print("CI_AUDIT_SNAPSHOT_END")
+          PY
       - name: Audit pinned CI dependencies against public vulnerability advisories
         run: |
           python -I scripts/ci_supply_chain_audit.py dependencies
