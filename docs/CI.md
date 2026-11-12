@@ -188,3 +188,19 @@ Le nom affiché du workflow CI est désormais « 🤖 Compatibility and tests »
 **EN (12 November 2026):** the mandatory ruff-essential job now runs an offline Python static guard (.github/ci/quality_guard.py) checking SHA-pinned actions, non-persistent checkout credentials, privileged pull_request_target scope and manual-only prerelease triggers. Its unit tests run in mandatory Python jobs. Pure-project total coverage has a 75% blocking floor (observed reference ~80% over 441 passing tests). Raise this threshold after measuring debt. General Ruff lint and formatting remain advisory (89 of 90 files needed reformatting at baseline). This guard cannot replace review or guarantee absence of vulnerabilities.
 
 The display name of the CI workflow is now « 🤖 Compatibility and tests »; all ten required GitHub status names remain unchanged. The publisher recognizes the previous and updated workflow display names without weakening exact-SHA checks or triggering a release.
+
+## FR — Recette synthétique de sauvegarde et restauration (12 novembre 2026)
+
+La matrice bloquante de persistance exécute maintenant un **troisième processus Home Assistant Core** après la séquence écriture/redémarrage déjà existante. Le script de CI `scripts/ci_backup_restore.py` réalise une copie ciblée et contrôlée du fichier physique de décisions synthétiques dans `RUNNER_TEMP`, écrit une empreinte SHA256 et restaure vers une **autre configuration Home Assistant vierge**. Le troisième processus recharge ensuite les décisions, vérifie leur attribution et confirme qu'une correction de la source doit repasser en revue.
+
+Des tests unitaires refusent notamment les archives altérées, les manifestes étrangers, les liens symboliques, l'absence de fichier, les enregistrements corrompus et toute invocation en dehors des dossiers synthétiques de GitHub Actions. Les trois scénarios `baseline-self`, `candidate-self` et `baseline-to-candidate` restent obligatoires.
+
+**Limite essentielle :** cette vérification couvre la restauration physique du magasin des décisions Trybatec, **pas** une restauration complète de sauvegarde Home Assistant, ni la base Recorder de production. Le backend Recorder est testé séparément en CI avec SQLite synthétique. Aucun fichier réel de l'utilisateur n'est lu ou modifié.
+
+## EN — Synthetic backup/restore verification (12 November 2026)
+
+Each mandatory persistence matrix case now verifies a **third, fresh Home Assistant Core process**. A CI-only script snapshots the known synthetic Trybatec decision Store in `RUNNER_TEMP`, writes an SHA256 manifest, verifies it before restoring into a separate clean HA configuration, and then checks persisted decisions and source-change invalidation through the real Store reader.
+
+Unit tests reject tampered backup bytes, foreign manifest keys, symlinks, missing/corrupt files and paths outside GitHub Actions synthetic temporary directories.
+
+**Scope limit:** this proves physical restoration of the synthetic Trybatec decisions Store, **not** full Home Assistant backup restore or a production Recorder database recovery. Recorder is independently tested against isolated SQLite in the existing E2E suite. No real user data is touched.
