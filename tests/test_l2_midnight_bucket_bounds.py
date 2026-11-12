@@ -108,3 +108,48 @@ def test_approved_midnight_origin_is_estimated_without_inventing_measured_index(
     assert evidence["rows"][0]["provenance"] == "mixed"
     assert history["__physical_meters__"][key]["reviewed_readings"] == original
     assert plan["approved_estimated_origins"] == 1
+
+
+def test_user_corrected_reading_date_preserves_source_and_provenance():
+    """A reviewed actual timestamp is distinct from the vendor observation."""
+    raw_last = "2026-01-30T00:20:00+01:00"
+    payload = {"lines": [{
+        "lot": "SYNTH-CORRECT", "fluide": "EF", "compteur": "SYNTH-CORRECT-M",
+        "indexes": [
+            {"date": "2026-01-01T00:20:00+01:00", "value": 100},
+            {"date": raw_last, "value": 120},
+        ],
+    }]}
+    start, end = date(2026, 1, 1), date(2026, 2, 1)
+    initial = build_history(
+        [payload], start, end, allowed_lots={"SYNTH-CORRECT"},
+    )
+    sparse = [x for x in initial["__review_candidates__"]
+              if "sparse_interval" in x["reasons"]]
+    assert len(sparse) == 1
+    decision = {
+        sparse[0]["key"]: {
+            "action": "correct", "mode": "measurement",
+            "timestamp": "2026-01-02T00:20:00+01:00",
+            "reason": "Synthetic verified original reading date",
+        },
+    }
+    qualified = build_history(
+        [payload], start, end, decisions=decision,
+        allowed_lots={"SYNTH-CORRECT"},
+    )
+    key = ("SYNTH-CORRECT", "EF", "SYNTH-CORRECT-M")
+    assert payload["lines"][0]["indexes"][1]["date"] == raw_last
+    assert qualified["__physical_meters__"][key]["reviewed_readings"][-1][
+        0
+    ].isoformat().startswith("2026-01-01T23:20:00+00:00")
+    plan = make_b15_plan(
+        qualified, {key: "m³"}, {}, "SYNTH-ACCOUNT",
+    )
+    evidence = plan["coverage_evidence"]["groups"][0]
+    assert evidence["total"] == 20
+    assert evidence["estimated_total"] == 0
+    assert evidence["measured_total"] == 20
+    assert evidence["rows"][0]["provenance"] == "measured"
+    assert evidence["rows"][0]["date"] == "2026-01-01"
+    assert evidence["coverage"] == "qualified_bounds_no_gaps"
