@@ -62,6 +62,12 @@ assert.ok(suggestions.includes(2024));
 assert.ok(!suggestions.includes(2040),"future exercise must be selectable even without historical evidence");
 
 const fr=fixture(),en=fixture("en-US");
+const initial=fixture();
+initial._tariffInput.rate="";
+initial._tariffInput.status="provisional";
+p._tariffs.call(initial);
+assert.equal(initial._tariffInput.rate,"1.2345","first rendering must prefill stored rate");
+assert.equal(initial._tariffInput.status,"approved");
 fr._tariffInput.year=2040;
 const rendered=p._tariffs.call(fr);
 assert.match(rendered,/type="number" min="2000" max="2100"/);
