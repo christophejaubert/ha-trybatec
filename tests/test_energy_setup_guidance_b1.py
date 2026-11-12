@@ -57,6 +57,18 @@ assert.ok(missing.reasons.every(r=>r.level==="required"));
 const retired={...account,meters:[meter,{status:"depose",serial:"old"}]};
 assert.equal(guide(retired,available).mode,"verification_needed");
 assert.equal(guide(retired,available).reasons[0].level,"unverified");
+const otherFluid={...account,meters:[meter,{
+  status:"depose",lot:"synthetic",fluid:"EF",serial:"retired"
+}],ledger:{pending:0,series:[{
+  scope:{kind:"consolidated",lot:"synthetic",fluid:"CET"},
+  versions:[{state:"verified"}]
+}]}};
+assert.equal(guide(otherFluid,available).mode,"verification_needed");
+const matchingFluid={...otherFluid,ledger:{pending:0,series:[{
+  scope:{kind:"consolidated",lot:"synthetic",fluid:"EF"},
+  versions:[{state:"verified"}]
+}]}};
+assert.equal(guide(matchingFluid,available).mode,"not_implemented");
 const fixture={_current:incomplete,_data:{energy:available},_t:(fr,en)=>fr};
 const html=Panel.prototype._energySetupHelp.call(fixture);
 assert.ok(html.includes("Assistant de configuration / Vue d’ensemble"));
