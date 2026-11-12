@@ -127,3 +127,59 @@ def test_invalid_or_decreasing_statistic_rows_refused():
     with pytest.raises(ValueError, match="nondecreasing"):
         prepare_version(None, LOGICAL, bad_rows,
                         source_fingerprint=FINGERPRINT_A, unit="m³")
+
+
+def test_v1_v2_v3_are_immutable_until_energy_verified():
+    """Synthetic V1→V2→V3 lifecycle and explicit rollback; no HA writes."""
+    state, _ = prepare()
+    state = transition_version(state, LOGICAL, 1, expected_state="prepared",
+                               new_state="imported")
+    state = transition_version(state, LOGICAL, 1, expected_state="imported",
+                               new_state="verified", recorder_verified=True)
+    state = transition_version(state, LOGICAL, 1, expected_state="verified",
+                               new_state="active", energy_verified=True)
+    immutable_v1 = deepcopy(state["series"][LOGICAL]["versions"][0])
+
+    state, _ = prepare(state, final=2, fingerprint=FINGERPRINT_B, approve=True)
+    state = transition_version(state, LOGICAL, 2, expected_state="prepared",
+                               new_state="imported")
+    state = transition_version(state, LOGICAL, 2, expected_state="imported",
+                               new_state="verified", recorder_verified=True)
+    assert version_summary(state, LOGICAL)["active"] == LOGICAL + "_v1"
+    state = transition_version(state, LOGICAL, 2, expected_state="verified",
+                               new_state="active", energy_verified=True)
+    immutable_v2 = deepcopy(state["series"][LOGICAL]["versions"][1])
+
+    state, prepared = prepare(
+        state, final=3, fingerprint="c" * 64, approve=True,
+    )
+    assert prepared["version"]["statistic_id"] == LOGICAL + "_v3"
+    state = transition_version(state, LOGICAL, 3, expected_state="prepared",
+                               new_state="imported")
+    with pytest.raises(ValueError, match="Recorder persistence"):
+        transition_version(state, LOGICAL, 3, expected_state="imported",
+                           new_state="verified")
+    state = transition_version(state, LOGICAL, 3, expected_state="imported",
+                               new_state="verified", recorder_verified=True)
+    assert version_summary(state, LOGICAL)["active"] == LOGICAL + "_v2"
+    with pytest.raises(ValueError, match="Energy preference"):
+        transition_version(state, LOGICAL, 3, expected_state="verified",
+                           new_state="active")
+    state = transition_version(state, LOGICAL, 3, expected_state="verified",
+                               new_state="active", energy_verified=True)
+    assert [x["state"] for x in version_summary(state, LOGICAL)["versions"]] == [
+        "archived", "archived", "active",
+    ]
+    assert state["series"][LOGICAL]["versions"][0]["snapshot_hash"] == immutable_v1["snapshot_hash"]
+    assert state["series"][LOGICAL]["versions"][1]["snapshot_hash"] == immutable_v2["snapshot_hash"]
+    with pytest.raises(ValueError, match="explicit approval"):
+        transition_version(state, LOGICAL, 1, expected_state="archived",
+                           new_state="active", energy_verified=True)
+    restored = transition_version(
+        state, LOGICAL, 1, expected_state="archived", new_state="active",
+        energy_verified=True, rollback_confirmed=True,
+    )
+    assert version_summary(restored, LOGICAL)["active"] == LOGICAL + "_v1"
+    assert [x["state"] for x in version_summary(restored, LOGICAL)["versions"]] == [
+        "active", "archived", "archived",
+    ]
