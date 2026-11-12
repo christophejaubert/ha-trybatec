@@ -275,3 +275,26 @@ async def test_meter_override_never_reserializes_legacy_json_tariffs() -> None:
     assert coord.entry.options["annual_tariffs"] == raw
     assert coord.entry.options["annual_meter_tariffs"] == {}
     assert hass.config_entries.async_update_entry.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_edit_legacy_record_preserves_its_existing_auxiliary_fields() -> None:
+    """An explicitly edited rate must not silently erase legacy metadata."""
+    import json
+
+    hass, coord, _key = _case()
+    coord.entry.options["annual_tariffs"] = (
+        '{"2022":{"EF":{"rate":2.5,"status":"approved",'
+        '"legacy_note":"keep"}}}'
+    )
+    await change_tariff(
+        hass, coord, year=2022, fluid="EF", rate=2.75,
+        status="provisional", physical_key=None, remove=False,
+        expected_fingerprint=tariff_fingerprint(coord.entry.options),
+        confirmed=True,
+    )
+    saved = json.loads(coord.entry.options["annual_tariffs"])["2022"]["EF"]
+    assert saved == {
+        "rate": 2.75, "status": "provisional", "legacy_note": "keep",
+    }
+    assert hass.config_entries.async_update_entry.call_count == 1
