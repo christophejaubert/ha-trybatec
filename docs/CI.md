@@ -188,3 +188,19 @@ Le nom affiché du workflow CI est désormais « 🤖 Compatibility and tests »
 **EN (12 November 2026):** the mandatory ruff-essential job now runs an offline Python static guard (.github/ci/quality_guard.py) checking SHA-pinned actions, non-persistent checkout credentials, privileged pull_request_target scope and manual-only prerelease triggers. Its unit tests run in mandatory Python jobs. Pure-project total coverage has a 75% blocking floor (observed reference ~80% over 441 passing tests). Raise this threshold after measuring debt. General Ruff lint and formatting remain advisory (89 of 90 files needed reformatting at baseline). This guard cannot replace review or guarantee absence of vulnerabilities.
 
 The display name of the CI workflow is now « 🤖 Compatibility and tests »; all ten required GitHub status names remain unchanged. The publisher recognizes the previous and updated workflow display names without weakening exact-SHA checks or triggering a release.
+
+## FR — Contraintes transitives de la CI (12 novembre 2026)
+
+Les quatre fichiers de contraintes enregistrent les versions réellement installées et vérifiées dans le run GitHub Actions 43186060507 (Linux x86_64) : tests purs sous Python 3.13/3.14, Ruff, Home Assistant 2026.10.4 pour le runtime isolé et Home Assistant 2026.11.0 pour la persistance physique. Chaque job reproductible utilise maintenant ses contraintes et le script hors réseau `.github/ci/lock_check.py`, qui exige exactement les distributions et les versions approuvées (hors les outils de démarrage pip, setuptools et wheel). `pip check` reste obligatoire.
+
+**Limites :** les versions sont figées, mais les fichiers ne contiennent pas de sommes SHA256 des roues/sources ; ce verrouillage n'est pas une vérification cryptographique des distributions. Les versions retenues n'ont été démontrées que sur les plateformes et interpréteurs de la CI. Le job `latest-homeassistant-import` reste intentionnellement non verrouillé pour tester la compatibilité future.
+
+**Actualisation :** une mise à jour Dependabot ne doit pas conduire à supprimer les vérifications. Régénérer le fichier correspondant à partir d'une exécution d'installation isolée, comparer toutes les versions, faire relire le changement et vérifier la matrice CI complète. Les contraintes ajoutées ne constituent pas une garantie de sécurité ou de recette métier.
+
+## EN — Transitive CI constraints (12 November 2026)
+
+Four version snapshots record the exact packages installed by successful GitHub Actions run 43186060507 on Linux x86_64: Python 3.13/3.14 pure tests, Ruff, Home Assistant 2026.10.4 isolated runtime and Home Assistant 2026.11.0 persistent storage. Reproducible jobs now install under full constraints and use the offline `.github/ci/lock_check.py` to reject missing, unexpected or drifted distributions, excluding only bootstrap pip/setuptools/wheel. `pip check` remains mandatory.
+
+**Limits:** versions are pinned, but package artifacts are **not** SHA256 hash-pinned; this is not a cryptographic lock. The snapshots cover the reviewed CI platforms and interpreters only. `latest-homeassistant-import` intentionally remains floating as a forward compatibility signal.
+
+**Updates:** review Dependabot proposals against these snapshots. Regenerate with a clean runner and a reviewed package inventory before rerunning every mandatory CI job. Do not weaken the verifier to obtain a successful status. Pinning is not production acceptance.
