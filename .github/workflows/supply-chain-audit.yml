@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/ci/constraints-*.txt"
+      - ".github/ci/locks/**"
+      - ".github/ci/requirements-audit.txt"
       - ".github/dependabot.yml"
       - "scripts/ci_supply_chain_audit.py"
       - "tests/test_ci_supply_chain_audit.py"
@@ -14,6 +16,8 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/ci/constraints-*.txt"
+      - ".github/ci/locks/**"
+      - ".github/ci/requirements-audit.txt"
       - ".github/dependabot.yml"
       - "scripts/ci_supply_chain_audit.py"
       - "tests/test_ci_supply_chain_audit.py"
@@ -45,11 +49,9 @@ jobs:
           python-version: "3.14.10"
       - name: Install version-pinned audit tools
         run: |
-          python -m pip install -r .github/ci/requirements-audit.txt
+          python -m pip install --require-hashes -r .github/ci/locks/audit-py314.txt
+          python -I .github/ci/lock_check.py .github/ci/constraints-audit.txt
           python -m pip check
-      # FR/EN: temporary authenticating audit tool archives against official PyPI.
-      - name: Authenticate audit tool distributions (temporary)
-        run: python -I scripts/ci_hash_lock_generate.py audit314
       - name: Audit pinned CI dependencies against public vulnerability advisories
         run: |
           python -I scripts/ci_supply_chain_audit.py dependencies
