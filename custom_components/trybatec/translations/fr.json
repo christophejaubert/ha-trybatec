@@ -201,9 +201,6 @@
           "year": "Exercice annuel (2000–2100)",
           "fluid": "Fluide et unité tarifaire",
           "meter": "Tarif commun ou compteur physique"
-        },
-        "errors": {
-          "invalid_tariff_scope": "Exercice, fluide ou compteur invalide : vérifiez votre sélection."
         }
       },
       "tariff_edit": {
@@ -213,12 +210,6 @@
           "rate": "Tarif (six décimales maximum)",
           "status": "Statut du tarif (pas des charges facturées)",
           "action": "Action"
-        },
-        "errors": {
-          "invalid_tariff_legacy": "Les anciens tarifs enregistrés sont invalides et doivent être revus ; aucune donnée n'a été écrasée.",
-          "invalid_tariff_rate": "Tarif invalide : entre 0 et 1 000 000, six décimales maximum.",
-          "invalid_tariff_action": "Action ou statut tarifaire invalide.",
-          "tariff_not_found": "Aucun tarif enregistré à retirer."
         }
       },
       "tariff_confirm": {
@@ -226,11 +217,6 @@
         "description": "**{fluid} · {year}** — {rate} {unit}, statut : {status}.\n\nCochez la confirmation uniquement pour enregistrer ce tarif. Aucune donnée Recorder ni préférence Énergie n'est modifiée.",
         "data": {
           "confirm": "Je confirme ce changement de tarif"
-        },
-        "errors": {
-          "confirmation_required": "Confirmez explicitement ce changement.",
-          "tariff_unavailable": "Compte Trybatec non chargé : aucun tarif n'a été modifié.",
-          "invalid_tariff_scope": "Enregistrement refusé (informations invalides ou périmées) ; recommencez le formulaire."
         }
       },
       "tariff_done": {
@@ -246,9 +232,6 @@
         "description": "Compatibilité historique uniquement (COMPAT-01). L'éditeur graphique ordinaire ne nécessite aucun JSON. Les anciens tarifs conservent leur clé de stockage. N'utilisez cet écran technique qu'en cas de nécessité.",
         "data": {
           "annual_tariffs": "Tarifs annuels existants (JSON historique)"
-        },
-        "errors": {
-          "invalid_tariffs": "JSON historique invalide : aucune modification enregistrée."
         }
       }
     },
@@ -263,7 +246,13 @@
       "confirmation_required": "Cochez la confirmation requise avant d'enregistrer la décision ou de revenir au menu.",
       "invalid_confirmation_navigation": "Le retour à la décision sans enregistrer est incompatible avec une confirmation cochée.",
       "invalid_smoothing": "Méthode ou motif non reconnu.",
-      "smoothing_blocked": "Lissage impossible : unité, index zéro ou conflit non vérifié."
+      "smoothing_blocked": "Lissage impossible : unité, index zéro ou conflit non vérifié.",
+      "invalid_tariff_scope": "Exercice, fluide ou compteur invalide : vérifiez votre sélection.",
+      "invalid_tariff_legacy": "Les anciens tarifs enregistrés sont invalides et doivent être revus ; aucune donnée n'a été écrasée.",
+      "invalid_tariff_rate": "Tarif invalide : entre 0 et 1 000 000, six décimales maximum.",
+      "invalid_tariff_action": "Action ou statut tarifaire invalide.",
+      "tariff_not_found": "Aucun tarif enregistré à retirer.",
+      "tariff_unavailable": "Compte Trybatec non chargé : aucun tarif n'a été modifié."
     },
     "abort": {
       "history_preview_required": "Effectuez d’abord une nouvelle prévisualisation historique dans Outils de développement → Actions.",
