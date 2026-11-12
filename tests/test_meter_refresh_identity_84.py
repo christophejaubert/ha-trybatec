@@ -59,6 +59,14 @@ async function run(previous,next,accountIndex,meterIndex){
   const stale=await run([account("SYNTH-A",["A"])],
     [account("SYNTH-A",["A"])],0,-1);
   assert.equal(stale._meter,-1,"Cleared selection stays cleared");
+  const ambiguous=await run(original,[account("SYNTH-A",["B","B"])],0,1);
+  assert.equal(ambiguous._meter,-1,
+    "Duplicate physical keys must not select a random device");
+  const keyless=await run(
+    [{entry_id:"SYNTH-A",meters:[{serial:"SYNTH-LEGACY"}]}],
+    [account("SYNTH-A",["A","B"])],0,0);
+  assert.equal(keyless._meter,-1,
+    "A previously selected meter without a physical key is unresolvable");
   console.log("Exact-meter refresh and safe fallback: PASS");
 })().catch(err=>{console.error(err);process.exitCode=1;});
 '''

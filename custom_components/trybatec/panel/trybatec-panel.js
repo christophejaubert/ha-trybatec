@@ -955,7 +955,8 @@ class TrybatecPanel extends HTMLElement {
       // FR/EN: preserve the physical meter across inventory reordering.
       // Never silently show a different meter if the previous one disappeared.
       const priorEntryId=this._current?.entry_id;
-      const priorPhysicalKey=this._current?.meters?.[this._meter]?.physical_key;
+      const previousMeter=this._current?.meters?.[this._meter];
+      const priorPhysicalKey=previousMeter?.physical_key;
       const snapshot=await this._hass.callWS({type:"trybatec/panel_snapshot"});
       if (!Array.isArray(snapshot?.accounts)) throw new Error("Invalid panel snapshot");
       this._data=snapshot;
@@ -963,10 +964,13 @@ class TrybatecPanel extends HTMLElement {
         snapshot.accounts.findIndex(a=>a.entry_id===priorEntryId):-1;
       this._account=accountIndex>=0?accountIndex:
         Math.min(this._account,Math.max(0,snapshot.accounts.length-1));
-      if (priorPhysicalKey) {
-        const newIndex=accountIndex>=0?
-          (this._current?.meters||[]).findIndex(m=>m.physical_key===priorPhysicalKey):-1;
-        this._meter=newIndex; // -1 means missing; never select another account's meter.
+      if (previousMeter) {
+        // FR/EN: keyless or duplicate physical identities cannot select a
+        // unique device. Fail closed without changing any stored identity.
+        const matches=priorPhysicalKey && accountIndex>=0?
+          (this._current?.meters||[]).flatMap((m,i)=>
+            m.physical_key===priorPhysicalKey?[i]:[]):[];
+        this._meter=matches.length===1?matches[0]:-1;
       } else if (this._meter<0) {
         this._meter=-1;
       }
