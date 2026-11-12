@@ -27,7 +27,7 @@ jobs:
       github.actor == 'christophejaubert' &&
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -38,6 +38,12 @@ jobs:
       VERSION: ${{ inputs.version }}
       APPROVED_SHA: ${{ inputs.approved_sha }}
     steps:
+      - name: Journaliser image VM / Log runner image provenance
+        shell: bash
+        run: |
+          printf 'ImageOS=%s ImageVersion=%s RUNNER_OS=%s RUNNER_ARCH=%s\n' \
+            "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "${RUNNER_OS:-unknown}" "${RUNNER_ARCH:-unknown}"
+          uname -r
       - name: Checkout exact approved main revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
