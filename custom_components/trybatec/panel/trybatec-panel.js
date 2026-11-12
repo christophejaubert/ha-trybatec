@@ -1250,7 +1250,9 @@ class TrybatecPanel extends HTMLElement {
     return '<article class="card stat"><ha-icon icon="'+icon+'"></ha-icon><div><strong>'+safe(number)+'</strong><span>'+safe(label)+'</span></div></article>';
   }
   _badge(m) {
-    const labels={en_service:"En service",depose:"Déposé",inconnu:"Statut à vérifier"};
+    const labels={en_service:this._t("En service","Active"),
+      depose:this._t("Déposé","Retired"),
+      inconnu:this._t("Statut à vérifier","Status to verify")};
     return '<span class="pill '+(m.status==="en_service"?"on":m.status==="depose"?"off":"unknown")+'">'+labels[m.status]+'</span>';
   }
   _meters() {return this._current ? this._current.meters : [];}
@@ -1265,7 +1267,9 @@ class TrybatecPanel extends HTMLElement {
       '<ha-icon class="fluid-icon" icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':"";
     const line='<span class="meter-name">'+fluidIcon+safe(this._meterName(m))+' · '+safe(m.serial)+'</span>'+
       '<span class="meter-sub">'+safe(m.lot||"Lot non renseigné")+' · '+safe(m.unit||"Unité à vérifier")+
-      ' · '+(m.status==="depose"?"Déposé":m.status==="en_service"?"En service":"Statut inconnu")+'</span>';
+      ' · '+(m.status==="depose"?this._t("Déposé","Retired"):
+        m.status==="en_service"?this._t("En service","Active"):
+          this._t("Statut inconnu","Unknown status"))+'</span>';
     if (action==="detail") {
       const selected=i===this._meter;
       return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
@@ -1716,7 +1720,8 @@ class TrybatecPanel extends HTMLElement {
       '<button type="button" class="secondary" data-entity-audit="'+safe(e.entity_id)+'" '+
       (this._meterAuditBusy?"disabled":"")+'>Auditer</button></div>').join(""):
       '<div class="empty">Aucune association vérifiée par identifiant technique. Consultez l’audit des entités.</div>')+
-      '<div class="actions"><button type="button" class="secondary" data-tab="history">Historique & lissage</button>'+
+      '<div class="actions"><button type="button" class="secondary" data-meter-context="history">'+
+      safe(this._t("Historique & lissage","History & smoothing"))+'</button>'+
       '<button type="button" class="secondary" data-tab="diagnostics">Auditer les identifiants</button></div>'+
       this._auditDetails(m)+this._meterHistoricalMetrics(m)+this._meterOptionsEditor(m)+'</div>';
   }
