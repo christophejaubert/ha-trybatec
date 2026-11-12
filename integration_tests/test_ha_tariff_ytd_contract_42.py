@@ -1,7 +1,7 @@
 """HA-synthetic compatibility contract for YTD tariff integration.
 
-Legacy branch CI marks two known failures as strict xfails. On a branch with
-meter-aware sensors the exact same tests become normal passing assertions.
+The integrated candidate requires correct per-meter YTD cost and unit price.
+Both assertions run unconditionally after the sensor integration.
 No live Home Assistant or vendor data is accessed.
 """
 from __future__ import annotations
@@ -67,21 +67,11 @@ def test_pure_ytd_module_is_read_only_and_matches_physical_tariffs():
     assert result["EF"]["billing_status"] == "estimate_not_approved_charges"
 
 
-@pytest.mark.xfail(
-    not hasattr(TrybatecAnnualSensor, "_ytd_tariff_estimate"),
-    strict=True,
-    reason="Unintegrated baseline: YTD cost still uses one shared fluid rate",
-)
 def test_ytd_cost_sensor_must_use_per_meter_rate_when_override_exists():
     sensor, _, _ = _case("cost")
     assert TrybatecAnnualSensor.native_value.fget(sensor) == 16.0
 
 
-@pytest.mark.xfail(
-    not hasattr(TrybatecAnnualSensor, "_ytd_tariff_estimate"),
-    strict=True,
-    reason="Unintegrated baseline: unit price still ignores physical overrides",
-)
 def test_ytd_price_sensor_must_not_claim_single_rate_when_rates_differ():
     sensor, _, _ = _case("price")
     assert TrybatecAnnualSensor.native_value.fget(sensor) is None
