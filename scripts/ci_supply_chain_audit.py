@@ -78,6 +78,20 @@ def audit_dependencies() -> int:
         )
         total += n
         print(f"pip-audit {basename}: {len(report['dependencies'])} packages, {n} findings")
+        for package in report["dependencies"]:
+            vulnerabilities = package["vulns"]
+            if not vulnerabilities:
+                continue
+            version = str(package.get("version", ""))
+            if not SAFE_NAME.fullmatch(version):
+                raise ValueError("Unexpected package version in audit")
+            ids = []
+            for item in vulnerabilities:
+                value = str(item.get("id", "")) if isinstance(item, dict) else ""
+                if not SAFE_NAME.fullmatch(value):
+                    raise ValueError("Unexpected advisory ID")
+                ids.append(value)
+            print(f"  {package['name']}=={version}: {len(ids)} advisories ({', '.join(ids[:12])})")
     if total:
         print(f"::warning title=Dependency vulnerabilities::Found {total} known vulnerabilities across four pinned CI inventories; inspect artifact and review before enforcing.")
     append_summary(f"pip-audit: {total} reported vulnerability occurrences across {len(FILES)} inventories (advisory baseline).")

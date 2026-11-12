@@ -29,3 +29,15 @@ The `.github/workflows/supply-chain-audit.yml` workflow runs on security-related
 Current constraints are **version locks**, not cryptographic locks: pip's `--require-hashes` needs artifact SHA256 hashes for *all* transitive requirements and relevant wheel alternatives. Do not fabricate hashes. A separate verified migration with per-Python/platform artifact inventories is necessary; `latest-homeassistant-import` stays intentionally floating. The Playwright container is already digest pinned; selecting `ubuntu-24.04` for hosted runners pins the OS release family, **not the exact GitHub VM image revision**.
 
 No tags, release, production Home Assistant or vendor writes. CI is not business acceptance.
+
+### FR — Première analyse observée (run 43204838664)
+
+Lors du premier passage réel, `pip-audit` a relevé **40 occurrences d'avis** dans le lot `constraints-ha-runtime.txt` (Home Assistant 2026.10.4 et ses dépendances), et **zéro** dans les trois autres inventaires. Il ne s'agit pas nécessairement de 40 bibliothèques distinctes, ni de 40 vulnérabilités exploitables dans ha-trybatec : elles doivent être attribuées à leurs paquets et aux surfaces réellement accessibles. Le scanner affiche désormais les identifiants des avis dans son journal en complément de l'artefact JSON, afin d'effectuer ce triage sans copier des données réelles.
+
+`zizmor` a relevé quatre constats : deux délais de refroidissement Dependabot implicites inférieurs à sept jours, l'installation npm hors lockfile du navigateur synthétique, et un avertissement de forte sévérité lié à `pull_request_target` dans `trusted-workflow-integrity.yml`. Les deux valeurs de cooldown sont portées à sept jours pour les **mises à jour de version seulement** (les mises à jour de sécurité ne sont pas retardées). Les deux autres alertes restent ouvertes : le déclencheur `pull_request_target` doit être analysé dans son contexte *branche cible protégée, aucune exécution de code candidat, jeton en lecture seule* ; ce diagnostic isolé ne justifie ni suppression du contrôle ni exception silencieuse. La chaîne navigateur requiert un chantier de lockfile dédié.
+
+### EN — First observed baseline (run 43204838664)
+
+Initial `pip-audit` found **40 vulnerability advisory occurrences** in the `constraints-ha-runtime.txt` inventory (Home Assistant 2026.10.4 and dependencies), and **zero** in the other three inventories. These are not necessarily 40 distinct packages or exploitable weaknesses in ha-trybatec; review individual advisories, exposure and remediation first. Package IDs are now logged alongside the public JSON reports.
+
+`zizmor` reported four findings: two implicit Dependabot cooldowns under seven days (now explicitly set to seven for version updates only, with security updates unaffected), the synthetic browser's unlocked npm install, and a high-severity warning for `pull_request_target` in the protected trusted guard. The latter requires context-aware review: trusted base checkout, no candidate code execution, read-only token. Do not delete this guard or conceal the finding solely to obtain green CI. A browser npm lockfile remains separate follow-on work.
