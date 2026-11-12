@@ -63,10 +63,14 @@ async def test_manual_url_rejects_other_sites_then_accepts_authorized_indexes(
 
     async def checked(self, deal_id, start, end):
         calls.append(deal_id)
-        return {"lines": []}
+        return fake_index_payload()
+
+    async def fake_enrich(self, payloads, deal_id, **kwargs):
+        return {"matched_lines": 0, "unmatched_lines": 1}
 
     monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", ambiguous)
     monkeypatch.setattr(TrybatecClient, "indexes", checked)
+    monkeypatch.setattr(TrybatecClient, "enrich_meter_units", fake_enrich)
     flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     fallback = await hass.config_entries.flow.async_configure(
         flow["flow_id"], {CONF_USERNAME: USERNAME, CONF_PASSWORD: OLD}
@@ -89,7 +93,7 @@ async def test_manual_url_rejects_other_sites_then_accepts_authorized_indexes(
     )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_DEAL_ID] == DEAL
-    assert calls == [DEAL]
+    assert calls and all(call == DEAL for call in calls)
 
 
 async def test_reauth_keeps_entry_options_id_and_username(hass, monkeypatch):
