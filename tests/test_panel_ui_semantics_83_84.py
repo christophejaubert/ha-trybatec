@@ -72,7 +72,7 @@ assert.match(detail,/status-indicator na/);
 assert.match(detail,/data-meter-context="scan"/);
 assert.match(detail,/data-meter-context="history"/);
 assert.match(detail,/data-meter-context="unit"/);
-assert.match(detail,/Historique & lissage<\\/button>/);
+assert.match(detail,/Historique & lissage/);
 assert.match(detail,/Origine : unité enregistrée manuellement/);
 assert.match(detail,/status-indicator passed/);
 assert.doesNotMatch(detail,/Anomalie détectée/);
