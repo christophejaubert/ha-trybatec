@@ -215,6 +215,9 @@ def make_b15_plan(
             "logical": item["logical_id"],
             "source": item["source_fingerprint"],
             "unit": item["unit"],
+            # Bind approval to audited provenance, not just quantity totals.
+            # This does not alter the stable logical Recorder statistic ID.
+            "coverage": item.get("coverage_fingerprint"),
             "rows": [[row["start"].isoformat(), row["sum"]] for row in item["rows"]],
         } for item in sorted(series, key=lambda item: item["logical_id"])]),
     }
