@@ -2,6 +2,19 @@
 
 ## Français
 
+## Décision d'architecture : une migration unique (12/11/2026)
+
+**Cible : un unique mécanisme normal d'identité, sans compatibilité b6 permanente.** Le maintien des anciens identifiants par les comptes créés avant cette évolution constitue uniquement un **sas de sécurité transitoire**. La reconnaissance des identités historiques doit être limitée à un outil de migration ponctuelle, indépendant du chemin normal des capteurs.
+
+- Nouvelles installations : identifiant canonique stable et verrou de l'unité source.
+- Installations existantes : inventaire puis migration unique, avec maintien des `entity_id` pour conserver les références et leurs `statistic_id` Recorder.
+- Générations anciennes coexistantes : seule la génération active exactement vérifiée peut être candidate ; les autres restent archivées/inactives jusqu'à audit, sans suppression automatique.
+- En cas d'unité inconnue, de statistiques incompatibles, de référence non vérifiée, de collision ou de migration interrompue : **bloquer**, ne pas improviser de valeur ni supprimer de donnée.
+- Après migration et recette, éliminer la branche d'exécution historique et ses anciennes conditions ; conserver uniquement l'utilitaire de récupération ponctuelle si nécessaire, jamais une logique de compatibilité ordinaire.
+
+**Avancement effectif :** `migration_once_81.py` fournit l'inventaire déterministe en lecture seule, les conditions de blocage et une empreinte d'état ; les tests associés utilisent uniquement des données synthétiques. L'application des modifications de registre, la sauvegarde/validation et le rollback restent **à implémenter et tester**. Le résultat « prêt pour confirmation » n'autorise aucune écriture et n'atteste pas à lui seul la complétude des dépendances.
+
+
 **Statut : implémentation partielle sur PR #82, non fusionnée.** La CI doit être vérifiée sur le dernier SHA ; les tests automatisés ne valent pas recette sur un Home Assistant réel. Les migrations d'installations existantes ne sont pas encore implémentées, et aucune écriture sur Recorder, Énergie ou le registre des entités n'est déclenchée au démarrage.
 
 ### Architecture et compatibilité
@@ -24,6 +37,19 @@
 **Attention :** une publication peut être suivie d'une mise à jour automatique de Home Assistant selon la configuration de l'utilisateur. Aucun changement de mode d'identité ne doit être publié sans revue d'impact.
 
 ## English
+
+## Architecture decision: one-time migration (2026-11-12)
+
+**Target: a single normal stable-identity mechanism, not permanent b6 compatibility.** Keeping legacy IDs on already-installed accounts is merely a **temporary safety gate**. Recognition of obsolete IDs belongs in the separate, one-time migration tool, never the regular sensor lifecycle.
+
+- New installations: canonical stable unique IDs and persistent source-unit guard.
+- Existing installations: inventory first, then a one-off migration preserving the **same entity IDs**, associated references and Recorder statistic IDs.
+- Coexisting old generations: only an exactly verified active generation is a candidate; retain the others without automatic cleanup until dependencies are audited.
+- Unknown units, incompatible Recorder statistics, incomplete references, identity collisions or interrupted migrations: **fail closed**; do not invent measurements or delete data.
+- Once migration and acceptance finish, remove the old runtime branch. Any later recovery utility must remain explicitly invoked, not a permanent compatibility pathway.
+
+**Actual delivery:** `migration_once_81.py` contains a deterministic read-only inventory, blockers and a fingerprint, covered by synthetic tests. Registry application, backup/confirmation, verified rollback and real acceptance are **not yet implemented**. A "ready for separate confirmation" preview neither authorizes writes nor proves an exhaustive dependency audit.
+
 
 **Status: partial implementation in draft PR #82; not merged.** CI success must be re-checked against the exact latest commit. Automated tests are not equivalent to acceptance testing on a real Home Assistant instance. Existing-installation migrations are **not** implemented; startup performs no entity-registry, Recorder or Energy writes.
 
