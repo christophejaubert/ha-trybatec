@@ -23,6 +23,8 @@ from .const import (
     CONF_DEAL_ID,
     CONF_HEATING_UNIT,
     CONF_TARIFFS,
+    CONF_METER_TARIFFS,
+    CONF_METER_UNITS,
     DOMAIN,
     FLUIDS,
     FLUID_RATE_UNITS,
@@ -31,7 +33,8 @@ from .const import (
 from .coordinator import TrybatecCoordinator
 from .history_devices_b15 import load_historical_inventory
 from .meter_identity import stable_meter_unique_id
-from .parsing import resolve_tariff, validate_tariffs
+from .parsing import validate_tariffs
+from .tariff_ytd import preview_ytd_tariff_costs
 from .units import normalized_unit, unit_factor
 
 
@@ -331,38 +334,75 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             self._attr_native_unit_of_measurement = FLUID_RATE_UNITS[fluid]
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
+    def _ytd_tariff_estimate(self) -> dict[str, Any] | None:
+        """Calculate, but never persist, meter-aware YTD amounts.
+
+        The preexisting annual sensor identities remain unchanged. Mismatched
+        physical readings, unknown units and malformed options fail closed.
+        """
+        if self.coordinator.data is None:
+            return None
+        try:
+            return preview_ytd_tariff_costs(
+                self.coordinator.data,
+                _rates(self._entry),
+                self._entry.options.get(CONF_METER_TARIFFS),
+                self._entry.options.get(CONF_METER_UNITS, {}),
+            )[self._fluid]
+        except (ValueError, TypeError, KeyError, OverflowError, json.JSONDecodeError):
+            _LOGGER.warning("Trybatec YTD tariff data unavailable or inconsistent")
+            return None
+
     @property
     def native_value(self) -> float | None:
-        year = str(self.coordinator.data["year"])
-        annual = self.coordinator.data["annual"][self._fluid]["value"]
-        tariff = resolve_tariff(_rates(self._entry), int(year), self._fluid)
-        if not self.coordinator.data["annual"][self._fluid]["unit_verified"]:
+        if self.coordinator.data is None:
+            return None
+        summary = self.coordinator.data["annual"][self._fluid]
+        if not summary["unit_verified"]:
             return None
         if self._metric == "volume":
-            return annual  # Already converted to canonical unit in parsing.
-        if tariff is None:
+            # Keep the existing raw vendor annual volume estimate behavior.
+            return summary["value"]
+        quote = self._ytd_tariff_estimate()
+        if quote is None or quote["status"] != "estimated":
             return None
         if self._metric == "price":
-            return tariff["rate"]
-        return round(annual * tariff["rate"], 4) if annual is not None else None
+            # Multiple physical rates cannot be represented by a unit price.
+            return quote["effective_unit_price"]
+        # Cost equals the sum of validated physical meter cost estimates.
+        return quote["estimated_cost"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         summary = self.coordinator.data["annual"][self._fluid]
-        tariff = resolve_tariff(
-            _rates(self._entry), self.coordinator.data["year"], self._fluid
-        )
+        quote = self._ytd_tariff_estimate()
+        status = "tariff_data_unavailable"
+        if quote:
+            status = (
+                "fallback_from_prior_year" if quote["fallback_from_prior_year"]
+                else quote.get("price_status", quote["status"])
+            )
         return {
             "year": self.coordinator.data["year"],
             "estimate_only": True,
             "meter_count": summary["meters"],
-            "coverage_warning": summary["coverage_warning"],
-            "unit_verified": summary["unit_verified"],
-            "accounting_status": (
-                "fallback_from_prior_year"
-                if tariff and tariff["fallback"]
-                else tariff["status"] if tariff else "no_tariff"
+            "coverage_warning": summary["coverage_warning"] or (
+                quote["coverage_warning"] if quote else True
             ),
-            "price_source_year": tariff["source_year"] if tariff else None,
+            "unit_verified": summary["unit_verified"],
+            "accounting_status": status,
+            "price_source_year": quote["source_year"] if quote else None,
+            "fallback_from_prior_year": (
+                quote["fallback_from_prior_year"] if quote else False
+            ),
+            "rate_origin": (
+                "meter_aware" if quote and quote["status"] == "estimated"
+                else "unavailable"
+            ),
+            "tariff_coverage": quote["status"] if quote else "unavailable",
+            "meter_rate_count": (
+                len(quote["meter_rates"]) if quote else 0
+            ),
+            "billing_status": "estimate_not_approved_charges",
             "note": "Portal period estimates; not approved building charges",
         }
