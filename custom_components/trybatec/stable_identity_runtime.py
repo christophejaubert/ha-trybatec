@@ -1,7 +1,7 @@
 """Guard stable meter identities against unsafe cumulative-unit reinterpretation.
 
-New config entries only. Previously installed b6/b15/b17 entries remain
-untouched until a separately approved migration is implemented. The ledger
+Canonical runtime for new and migrated config entries. Existing historic
+entries stay on their previous runtime until an explicit one-off migration. The ledger
 stores only a digest of the physical identity and the source index unit; it
 never writes Recorder, Energy or the HA entity registry.
 """
