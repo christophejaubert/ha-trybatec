@@ -43,6 +43,7 @@ function fixture(language="fr-FR") {
     _t:(fr,en)=>language.startsWith("en")?en:fr,
     _locale:()=>language,
     _existingTariff:p._existingTariff,
+    _tariffEffectiveText:p._tariffEffectiveText,
     _render:()=>{},
     shadowRoot:{querySelector:()=>({focus:()=>{}})},
     _confirm:()=>true,
