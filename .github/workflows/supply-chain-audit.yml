@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/ci/constraints-*.txt"
+      - ".github/ci/locks/**"
       - ".github/dependabot.yml"
       - "scripts/ci_supply_chain_audit.py"
       - "tests/test_ci_supply_chain_audit.py"
@@ -14,6 +15,7 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/ci/constraints-*.txt"
+      - ".github/ci/locks/**"
       - ".github/dependabot.yml"
       - "scripts/ci_supply_chain_audit.py"
       - "tests/test_ci_supply_chain_audit.py"
@@ -29,23 +31,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # FR: inventaire temporaire PyPI, sans jeton ni secret.
-  # EN: temporary PyPI evidence collection, no token/secrets or installation.
-  audit-artifact-inventory:
-    name: audit-artifact-inventory (temporary)
-    runs-on: ubuntu-24.04
-    permissions: {}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: "3.14.10"
-      - name: Verify official PyPI distributions against SHA256
-        run: python -I scripts/ci_hash_lock_generate.py audit314
-
   supply-chain-audit:
     name: supply-chain-audit (baseline advisory)
     runs-on: ubuntu-24.04
@@ -62,7 +47,10 @@ jobs:
           python-version: "3.14.10"
       - name: Install version-pinned audit tools
         run: |
-          python -m pip install 'pip-audit==2.10.1' 'zizmor==1.32.0'
+          # FR: installation de tous les paquets audités depuis le verrou SHA256 PyPI.
+          # EN: require verified official SHA256 for every direct/transitive tool.
+          python -m pip install --require-hashes -r .github/ci/locks/audit-py314.txt
+          python -I .github/ci/lock_check.py .github/ci/constraints-audit.txt
           python -m pip check
       - name: Audit pinned CI dependencies against public vulnerability advisories
         run: |
