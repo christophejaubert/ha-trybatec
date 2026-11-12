@@ -2,9 +2,9 @@
 
 ## Réconciliation — 12 novembre 2026 / Reconciliation — 12 November 2026
 
-**FR.** Cible unique `0.3.4b1`, non autorisée à être fusionnée, publiée ou installée. **`main`** : `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. Dernière release : `0.3.3b1`. À cette vérification : **23 PR ouvertes en brouillon**, **12 issues ouvertes**. Les SHA ci-dessous sont ceux des branches individuelles et non d'une candidate complète. L'issue [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) fait foi pour les décisions D2–D7, non pour le succès de tests non exécutés.
+**FR.** Cible unique `0.3.4b1`, non autorisée à être fusionnée, publiée ou installée. **`main`** : `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. Dernière release : `0.3.3b1`. À cette vérification : **24 PR ouvertes en brouillon**, **12 issues ouvertes**. Les SHA ci-dessous sont ceux des branches individuelles et non d'une candidate complète. L'issue [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) fait foi pour les décisions D2–D7, non pour le succès de tests non exécutés.
 
-**EN.** One target prerelease `0.3.4b1`; merges, publishing and deployment are not authorized. Main and last published release as above. **23 open draft PRs**, 12 open issues at this snapshot. Individual PR checks do not qualify a combined candidate.
+**EN.** One target prerelease `0.3.4b1`; merges, publishing and deployment are not authorized. Main and last published release as above. **24 open draft PRs**, 12 open issues at this snapshot. Individual PR checks do not qualify a combined candidate.
 
 | PR | SHA observé / Observed SHA | Lot / Track | Tests individuels / Individual checks | Blocage / Blocker |
 |---|---|---|---|---|
@@ -26,11 +26,12 @@
 | [#137](https://github.com/christophejaubert/ha-trybatec/pull/137) | `7117489ad160f26c5825932e879f5175b3b5e351` | Hors fusion / Proof only | 10 contrôles requis verts* | Ne jamais fusionner |
 | [#138](https://github.com/christophejaubert/ha-trybatec/pull/138) | `4c005f9631c61bd8456007760c385e2d44d6529f` | A/B reflow | Checks réussis, trusted sauté / Trusted skipped | Empilée #118 |
 | [#139](https://github.com/christophejaubert/ha-trybatec/pull/139) | `fa0c49cb07284088bf92d11b5aff35a9f9210cd0` | A options | Checks réussis, trusted sauté / Trusted skipped | Empilée #120 |
-| [#140](https://github.com/christophejaubert/ha-trybatec/pull/140) | `39ddc6cf68eaa92785c9e4a8ab60d82d96e0cad0` | A confidentialité / Privacy | 10 contrôles requis verts* | Fusion + ruleset distincts |
+| [#140](https://github.com/christophejaubert/ha-trybatec/pull/140) | `258807304707ee240afdffd47a3cb1929d9a3db0` | A confidentialité / Privacy | 10 contrôles requis verts* | Intégration + ruleset non autorisés implicitement |
 | [#142](https://github.com/christophejaubert/ha-trybatec/pull/142) | `8260b269a0b23dd970bafaacb63f3fb6d5a708ce` | B a11y CI | CI 41 succès; contextes sautés | Empilée #133 |
 | [#143](https://github.com/christophejaubert/ha-trybatec/pull/143) | `c886e747fd67915936afec60fbde970d6d50cae5` | Hors fusion / Proof only | CI 41 succès; contextes sautés | Ne jamais fusionner |
-| [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) | `cc95a878df9ae4bd13e1f128e4aa4474b8defb25` | A composition / Combined batch | Partielle à l'observation / Running | CI et recette en cours |
-| [#145](https://github.com/christophejaubert/ha-trybatec/pull/145) | `108e50923adc5aa7217462c31a6c1df1a535432c` | À examiner / Review | 10 contrôles requis verts* | Non qualifiée / Unverified |
+| [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) | `cb08ddca023a5e50e484e8f51a3db5e47c33a27e` | Lot A intégré / Batch A | 10 contrôles requis verts* | Recette HA réelle, dépendance B |
+| [#145](https://github.com/christophejaubert/ha-trybatec/pull/145) | `cb77625ceca508239336272e25caf73087b1059c` | Lot B intégré / Batch B | 10 contrôles requis verts* | L6/L7 natifs, Recorder, recette HA |
+| [#146](https://github.com/christophejaubert/ha-trybatec/pull/146) | `d88b24817851f5aa1b7c2415052cfc44a4ca9ffb` | Preuve candidate / Integrated proof | 19/23 checks réussis, 4 en cours lors du constat | **Ne pas fusionner** ; qualification globale et recette manquantes |
 
 * **FR :** Les dix checks obligatoires de `main` (Python 3.13/3.14, Ruff, HACS, Gitleaks, HA import/runtime, Hassfest, persistance et intégrité workflow) ont réussi sur les branches directes vérifiées. Préparation manuelle de release sautée. #136/#138/#139 ont le check d'intégrité sauté dans leur contexte empilé ; #142/#143 partagent un SHA avec 41 checks réussis, mais aussi des contextes sautés. **EN:** Ten required checks green on observed direct branches; separate stacked and skipped contexts must not be reported as fully qualified. No integrated-SHA acceptance has been proven.
 
@@ -38,11 +39,11 @@
 
 - **A — socle, tarifs, conformité :** [#144](https://github.com/christophejaubert/ha-trybatec/pull/144) compose déjà #120/#132/#118/#136/#139/#138/#131 au SHA `cc95a878df9ae4bd13e1f128e4aa4474b8defb25`, **brouillon non fusionné**, avec CI en cours au premier constat. Revalider le SHA final et les conflits `config_flow.py`, `coordinator.py`, `sensor.py`, options-flow, traductions, tarifs/YTD et panneau. Ne pas recomposer ailleurs ce qui est déjà repris. Vérifier séparément les correctifs CI #124/#126 et #140. D1 : conserver identité Git ; D2 : contrôle `public-privacy-preflight` obligatoire seulement après fusion explicitement autorisée, qualification depuis un workflow de confiance puis modification ciblée du ruleset ; D3 : aucune réécriture d'historique.
 - **B — historique, déposés, Énergie, UI :** #127/#128 + #125 + #129/#130 + #133/#142, en raccordant #120/#144 et la composition UI #138/#131 déjà en A. #137 et #143 restent des **preuves non fusionnables** ; ne pas réintégrer leurs commits artificiellement. Périmètre actif #35/#36/#37/#42/#70/#83/#84/#88 et #81 exclusivement non migrant ; **exclusions #82/#34/#39**.
-- **Qualification :** créer seulement si nécessaire une branche de preuve unique, reprendre les branches dans l'ordre des dépendances, lancer les dix checks obligatoires, CodeQL, audits dépendances, Gitleaks et privacy depuis confiance, tests d'intégration et navigateur; inventorier `xfail`, avertissements, `skipped` et erreurs. **Aucun SHA global n'est qualifié à ce stade**.
+- **Qualification :** branche unique de preuve [#146](https://github.com/christophejaubert/ha-trybatec/pull/146) **créée et non fusionnable** ; assemblage des têtes #144/#145/#142/#124/#126/#140/#134 sans conflit de fichiers, puis mise à jour B. Rejouer et examiner les dix contrôles obligatoires, CodeQL, dépendances, Gitleaks, confidentialité, tests d'intégration et navigateur, inventorier `xfail`, avertissements et tâches sautées. L'ancien essai CI #146 a été bloqué par un accès à l'API GitHub publique indisponible/limité dans `resolve-test-refs` ; ne jamais interpréter ce cas comme une recette ni contourner le contrôle. **Une branche de preuve combinée existe désormais (#146), mais aucun SHA global n'est qualifié à ce stade**.
 
 ### EN — A single qualification gate
 
-Batch A already has draft combined PR #144 for new-account IDs, access, tariffs/native options/YTD, responsive UI and branding; do not duplicate it. Batch B must wire provenance/Recorder and physical lineage to L6/L7, plus #133/#142 a11y evidence, preserving A's shared files. Run full CI and browser/HA synthetic tests on the *new combined SHA*, not old proof PR #137/#143. Exclude migration #82 and issues #34/#39. A passing check does not grant merge, release or production access.
+Batch A has draft composed PR #144, batch B has draft composed PR #145, and draft proof-only PR #146 combines them with access/UI/CI/privacy evidence. Do not duplicate any source work. Batch B must wire provenance/Recorder and physical lineage to L6/L7, plus #133/#142 a11y evidence, preserving A's shared files. Run full CI and browser/HA synthetic tests on the *new combined SHA*, not old proof PR #137/#143. Exclude migration #82 and issues #34/#39. A passing check does not grant merge, release or production access.
 
 ### FR — Critères métier et risques bloquants
 
