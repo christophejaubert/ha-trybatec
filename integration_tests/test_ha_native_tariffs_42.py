@@ -252,3 +252,37 @@ async def test_all_native_tariff_steps_translated_by_real_ha_loader(
             f"component.{DOMAIN}.options.step.init.menu_options.{step}"
         )
         assert isinstance(label, str) and label.strip(), (language, step)
+
+
+
+async def test_native_tariff_survives_synthetic_unload_and_setup(
+    hass, monkeypatch,
+):
+    """Exercise options persistence across an isolated HA runtime restart."""
+    entry, polls = await _account(hass, monkeypatch)
+    flow_id, _ = await _begin(hass, entry)
+    edit = await _choose(hass, flow_id, year=2040, fluid="CET")
+    assert edit["step_id"] == "tariff_edit"
+    await _confirm(hass, flow_id, rate=0.123456, status="provisional")
+    confirmed = await hass.config_entries.options.async_configure(
+        flow_id, {"confirm": True}
+    )
+    assert confirmed["step_id"] == "tariff_done"
+    saved_options = deepcopy(entry.options)
+    assert json.loads(saved_options["annual_tariffs"])["2040"]["CET"]["rate"] == 0.123456
+    previous_polls = len(polls)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.options == saved_options
+    assert len(polls) >= previous_polls
+    assert json.loads(entry.options["annual_tariffs"])["2023"]["EF"]["rate"] == 1.25
+
+    # Separate UI flow must read exactly the same persisted options after reload.
+    reloaded_flow_id, _ = await _begin(hass, entry)
+    editor = await _choose(hass, reloaded_flow_id, year=2040, fluid="CET")
+    assert editor["step_id"] == "tariff_edit"
+    markers = editor["data_schema"].schema
+    assert any(marker.schema == "rate" for marker in markers)
