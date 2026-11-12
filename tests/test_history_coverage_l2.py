@@ -113,3 +113,16 @@ def test_max_coverage_bounds_fail_closed():
         build_coverage_evidence([meter], max_days=1, source_bounds={
             ("SYNTHETIC", "EF", "OLD"): (date(2026, 1, 1), date(2026, 1, 5)),
         })
+
+
+def test_single_index_timestamp_is_not_a_complete_history_proof():
+    """One reading defines no interval and cannot certify missing-day coverage."""
+    meter = source(raw={}, smoothed={}, chosen=False)
+    scope = ("SYNTHETIC", "EF", "OLD")
+    at = date(2026, 1, 1)
+    report = build_coverage_evidence([meter], source_bounds={scope: (at, at)})
+    group = report["groups"][0]
+    assert group["rows"] == []
+    assert group["coverage"] == "unknown"
+    assert group["gaps"] == []
+    assert group["total"] == 0
