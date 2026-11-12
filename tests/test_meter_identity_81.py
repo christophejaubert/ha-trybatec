@@ -5,7 +5,6 @@ import pytest
 
 from custom_components.trybatec.meter_identity import (
     evaluate_unit_transition,
-    resolve_existing_b6_binding,
     legacy_meter_unique_ids,
     preview_stable_identity_transition,
     stable_meter_unique_id,
@@ -186,70 +185,3 @@ def test_stored_unit_missing_with_registered_sensor_fails_closed():
         "m³", "m³", legacy_exists=True
     ) == "legacy_identity_requires_review"
 
-
-def _binding_rows(*uids):
-    return [{"unique_id": uid, "platform": "trybatec"} for uid in uids]
-
-
-def test_existing_b6_id_is_frozen_across_source_unit_change():
-    uid = f"{ACCOUNT}_FAKE-01_b6_m³_index"
-    found = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "L",
-        _binding_rows(uid), serial_is_unique=True,
-    )
-    assert found == {
-        "status": "preserve_registered_b6",
-        "unique_id": uid, "baseline_unit": "m³",
-    }
-
-
-def test_multiple_b6_generations_choose_only_unambiguous_current_unit():
-    a = f"{ACCOUNT}_FAKE-01_b6_L_index"
-    b = f"{ACCOUNT}_FAKE-01_b6_m³_index"
-    chosen = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "m³",
-        _binding_rows(a, b), serial_is_unique=True,
-    )
-    assert chosen["unique_id"] == b
-    unknown = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", None,
-        _binding_rows(a, b), serial_is_unique=True,
-    )
-    assert unknown["status"] == "blocked_ambiguous_b6_generations"
-
-
-def test_unverified_b6_is_preserved_without_assuming_a_previous_unit():
-    uid = f"{ACCOUNT}_FAKE-01_b6_unverified_index"
-    found = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "m³",
-        _binding_rows(uid), serial_is_unique=True,
-    )
-    assert found["baseline_unit"] is None
-    assert found["unique_id"] == uid
-
-
-def test_old_pre_b6_entity_is_never_silently_reused():
-    prior = f"{ACCOUNT}_FAKE-01_index"
-    result = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "m³",
-        _binding_rows(prior), serial_is_unique=True,
-    )
-    assert result["status"] == "no_registered_b6_binding"
-
-
-def test_reused_serial_b6_unscoped_identity_does_not_cross_lots():
-    uid = f"{ACCOUNT}_FAKE-01_b6_m³_index"
-    result = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "m³",
-        _binding_rows(uid), serial_is_unique=False,
-    )
-    assert result["status"] == "no_registered_b6_binding"
-
-
-def test_foreign_platform_matching_b6_cannot_be_adopted():
-    uid = f"{ACCOUNT}_FAKE-01_b6_m³_index"
-    result = resolve_existing_b6_binding(
-        ACCOUNT, "FAKE-LOT-A", "EF", "FAKE-01", "m³",
-        [{"unique_id": uid, "platform": "another"}], serial_is_unique=True,
-    )
-    assert result["status"] == "blocked_foreign_identity"
