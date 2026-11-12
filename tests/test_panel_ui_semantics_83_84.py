@@ -102,6 +102,42 @@ const conflict=p._readinessView.call(fixture,account);
 assert.match(conflict,/Anomalie détectée/);
 assert.match(conflict,/readiness-row issue/);
 
+// Dates in a snapshot are not a passed exhaustive historical check.
+account.meters.length=1;
+account.meter_options.length=1;
+meter.first_observed_at="2023-01-01";
+meter.last_source_observed_at="2025-01-01";
+const snapshotDates=p._readinessView.call(fixture,account);
+assert.match(snapshotDates,/readiness-row pending/);
+assert.doesNotMatch(snapshotDates,/Bornes vérifiées par une analyse historique complète/);
+fixture._tariffCoverage.set(account.entry_id,{status:"complete",meters:[{
+  physical_key:meter.physical_key,first_observed_at:meter.first_observed_at,
+  last_source_observed_at:meter.last_source_observed_at
+}]});
+const scanned=p._readinessView.call(fixture,account);
+assert.match(scanned,/Bornes vérifiées par une analyse historique complète/);
+
+// Contextual summary must not leak aggregated rows for other physical meters.
+fixture._historyContextKey=meter.physical_key;
+fixture._historyPreview={start_date:"2023-01-01",end_date:"2025-01-01",
+  history_summary:{meters:2,readings_to_review:1,
+    by_fluid:{CET:{meters:2,gaps:5,conflicts:1}},
+    by_meter:[
+      {physical_key:meter.physical_key,fluid:"CET",lot:meter.lot,
+        serial:meter.serial,first_observed_at:"2023-01-01",
+        last_observed_at:"2025-01-01",gaps:1,decreases:0,conflicts:0},
+      {physical_key:"z".repeat(24),fluid:"CET",lot:meter.lot,
+        serial:"SYNTH-OTHER",first_observed_at:"2023-01-01",
+        last_observed_at:"2025-01-01",gaps:4,decreases:2,conflicts:1}
+    ]}};
+const contextSummary=p._historySummary.call(fixture);
+assert.match(contextSummary,/SYNTH-OLD/);
+assert.doesNotMatch(contextSummary,/SYNTH-OTHER/);
+assert.match(contextSummary,/Synthèse du compteur sélectionné/);
+fixture._historyContextKey=null;
+const allSummary=p._historySummary.call(fixture);
+assert.match(allSummary,/SYNTH-OTHER/);
+
 assert.equal(localize("Sans index courant","en-US"),"No current index");
 assert.equal(localize("Consulter l’unité","en-US"),"View unit");
 assert.equal(localize("Rechercher les relevés","en-US"),"Search readings");
