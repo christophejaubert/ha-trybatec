@@ -17,7 +17,7 @@ from tempfile import TemporaryDirectory
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from packaging.utils import canonicalize_name, parse_wheel_filename
+from pip._vendor.packaging.utils import canonicalize_name, parse_wheel_filename
 
 SNAPSHOTS = {
     "pure313": ".github/ci/constraints-pure.txt",
