@@ -15,29 +15,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN, CONF_STABLE_METER_IDENTITIES
-from .meter_identity import legacy_meter_unique_ids, stable_meter_unique_id
+from .meter_identity import (
+    evaluate_unit_transition, legacy_meter_unique_ids, stable_meter_unique_id,
+)
 from .units import normalized_unit
 
 STABLE_IDENTITY_FLAG = CONF_STABLE_METER_IDENTITIES
-
-
-def evaluate_unit_transition(
-    baseline_unit: str | None, incoming_unit: str | None, *,
-    registered_without_baseline: bool = False,
-    legacy_exists: bool = False,
-) -> str:
-    """Pure fail-closed decision; a unit correction never resets statistics."""
-    if legacy_exists:
-        return "legacy_identity_requires_review"
-    if baseline_unit is None and registered_without_baseline:
-        return "missing_unit_baseline_requires_review"
-    if incoming_unit is None:
-        return "source_unit_unverified"
-    if baseline_unit in (None, "unverified"):
-        return "first_verified_unit"
-    if baseline_unit == incoming_unit:
-        return "approved"
-    return "source_unit_changed_requires_review"
 
 
 class StableUnitGuard:
