@@ -6,6 +6,7 @@ the old series remains untouched. Verification reads back EVERY UTC bucket.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from hashlib import sha256
 from typing import Any
 
@@ -19,6 +20,7 @@ from .history_versions_b15 import (
     prepare_version, transition_version,
 )
 from .recorder_guard import expected_windows, verified_snapshot
+from .history_recorder_recovery_l2 import preview_pending_recovery
 
 _MAX_PENDING = 100
 
@@ -160,6 +162,10 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
     if ledger.get("schema") != 1 or not isinstance(ledger.get("pending", {}), dict):
         raise ValueError("Invalid b15 verification ledger")
     pending = ledger.get("pending", {})
+    # Preserve the original imported ledger as the recovery contract's
+    # reference even when verified records are cleared later in this call.
+    original_pending_ledger = deepcopy(ledger)
+    readbacks = {}
     verified = []
     outstanding = []
     for logical, item in pending.items():
@@ -179,6 +185,9 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
             if not isinstance(response, dict) or not isinstance(response.get("statistics"), dict):
                 raise ValueError("Recorder did not return persisted statistics")
             observed.extend(response["statistics"].get(stat_id, []))
+        # Full-window readback is derived only from the trusted HA service,
+        # never from a supplied browser flag. No queue-quiescence claim.
+        readbacks[stat_id] = {"complete": True, "rows": observed}
         okay, missing = verified_snapshot(snapshot, observed)
         if not okay:
             outstanding.append({
@@ -193,10 +202,14 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
         )
         ledger["pending"].pop(logical)
         verified.append({"statistic_id": stat_id, "verified_rows": len(snapshot)})
+    recovery = preview_pending_recovery(
+        original_pending_ledger, readbacks, queue_quiescent=False,
+    )
     if verified:
         await store.async_save(ledger)
     return {
         "status": "pending_recorder_readback" if ledger.get("pending") else "recorder_verified",
         "verified": verified, "pending": outstanding,
+        "read_only_recovery": recovery,
         "energy_activated": False,
     }
