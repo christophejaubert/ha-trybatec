@@ -53,7 +53,11 @@ function trybatecEnergySetupGuidance(account, energy) {
       "Historical continuity for "+retired.length+" retired meter(s) is not proven by this view.",
       retired.length===1?retired[0].physical_key:null);
   const hasSources=Array.isArray(energy?.sources)&&energy.sources.length>0;
-  const mode=energy?.status==="not_loaded"?"technical_unavailable":
+  // FR/EN: unknown/missing status is not proof of missing implementation.
+  // The snapshot backend currently exposes only not_loaded/unconfigured/available.
+  const energyState=energy?.status;
+  const mode=!["not_loaded","unconfigured","available"].includes(energyState)?"status_unknown":
+    energyState==="not_loaded"?"technical_unavailable":
     reasons.some(r=>r.level==="required")?"configuration_incomplete":
     reasons.length?"verification_needed":
     hasSources?"coverage_unverified":"not_implemented";
@@ -2820,6 +2824,9 @@ class TrybatecPanel extends HTMLElement {
     const t=(fr,en)=>this._t(fr,en);
     const guidance=trybatecEnergySetupGuidance(this._current,this._data?.energy);
     const explanation={
+      status_unknown:t(
+        "État du module Énergie inconnu : aucune configuration terminée n’est démontrée par cet aperçu.",
+        "Energy module status is unknown: this view cannot establish completed configuration."),
       technical_unavailable:t(
         "Le module Énergie n’est pas chargé : l’intégration automatique ne peut pas être vérifiée.",
         "The Energy module is not loaded: automatic enrollment cannot be verified."),
