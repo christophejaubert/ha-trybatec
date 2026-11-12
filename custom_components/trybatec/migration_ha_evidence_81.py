@@ -33,6 +33,9 @@ async def collect_native_migration_preview(
 
     if entry.domain != DOMAIN:
         raise ValueError("Not a Trybatec config entry")
+    # Fail before any registry enumeration when Recorder is not available.
+    if "recorder" not in hass.config.components:
+        raise ValueError("Recorder is not loaded")
     coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     data = getattr(coordinator, "data", None)
     if not isinstance(data, dict):
@@ -73,8 +76,6 @@ async def collect_native_migration_preview(
 
     # The complete Trybatec entity set comes from the registry, not a
     # name/serial substring query. This includes unavailable old versions.
-    if "recorder" not in hass.config.components:
-        raise ValueError("Recorder is not loaded")
     ids = {row["entity_id"] for row in registry_rows}
     raw_metadata = await get_instance(hass).async_add_executor_job(
         partial(get_metadata, hass, statistic_ids=ids)
