@@ -228,6 +228,20 @@ async def test_panel_registered_without_removing_options_or_changing_recorder(
     assert account["meter_options"][0]["source_unit"] == "m³"
     assert account["meter_options"][0]["confirmed_unit"] == "m³"
     assert account["ledger"]["status"] == "no_import"
+    # #81 read-only identity design is visible, but never changes registry IDs.
+    identity = account["stable_identity_preview"]
+    assert identity["status"] == "read_only_identity_transition_preview"
+    assert identity["registry_scope"] == "selected_config_entry_only"
+    assert identity["recorder_dependencies_exhaustively_checked"] is False
+    assert identity["no_automatic_identity_migration"] is True
+    assert identity["dependency_inventory_complete"] is False
+    assert identity["safe_to_apply"] is False
+    assert len(identity["meters"]) == 1
+    assert identity["meters"][0]["status"] == "migration_blocked"
+    assert identity["meters"][0]["safe_to_delete_legacy"] is False
+    assert identity["registry_writes"] == 0
+    assert identity["recorder_writes"] == 0
+    assert identity["energy_writes"] == 0
     assert all(not x["can_delete"] for x in account["entities"])
     assert "password" not in repr(snapshot).lower()
     assert "ci-deal" not in repr(snapshot)
