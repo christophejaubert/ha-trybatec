@@ -92,7 +92,8 @@ sont fictifs. Les tests ne restaurent et ne modifient aucune installation.
 | Nouveau compte éligible | Aucune entrée existante pour la portée considérée | ID stable, sans unité ni version dans la clé physique | `test_new_config_flow_enables_stable_ids_only_for_new_entry`, `test_stable_meter_unit_verification_and_correction_do_not_duplicate_entity` |
 | Unité inconnue puis confirmée | Capteur stable sans somme autorisée | Même ID ; `total_increasing` uniquement après vérification | Test d'unité stable et garde persistant — HA synthétique |
 | Changement d'échelle | Unité source durable existante | Valeur cumulative suspendue, pas de nouvelle entité | Test de correction et rechargement — HA synthétique |
-| Compte réinstallé avec ancien `b6` résiduel | Ancienne entité dans le registre, nouvelle entrée avec drapeau stable | Refus `legacy_identity_requires_review`, aucune entité canonique concurrente | `test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication` — HA synthétique |
+| Compte réinstallé avec ancien `b6` ou archive `b15` | Ancienne entité dans le registre, nouvelle entrée avec drapeau stable | Refus `legacy_identity_requires_review`, aucune entité canonique concurrente | `test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication` (2 variantes) — HA synthétique |
+| Série réutilisée sur deux lots | Ancien ID b6 sans lot attribuable | Refus des deux identités nouvelles, sans deviner le propriétaire | `test_reused_serial_with_unscoped_b6_id_blocks_both_new_stable_meters` — HA synthétique |
 | Réinstallation sans registre d'unité durable | Entité stable existante, référence d'unité perdue | Refus `missing_unit_baseline_requires_review`, même ID en registre | `test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate` — HA synthétique |
 | Collisions et propriété étrangère | Identifiants multiples ou propriétaire non prouvé | Diagnostic bloqué, aucune migration | `test_meter_identity_81.py` et `test_staged_greenfield_guards_81.py` |
 | Rétrogradation vers ancien code | Capteur `meter_…_index` déjà enregistré | Risque prouvé : ancien code attend un identifiant `b6` différent | `test_old_version_downgrade_would_change_new_meter_identity` — preuve d'incompatibilité des clés, **pas** un test d'installation |
@@ -100,7 +101,8 @@ sont fictifs. Les tests ne restaurent et ne modifient aucune installation.
 | Recorder/Énergie historiques | Métadonnées et préférences existantes | Aucun import historique ni changement de préférences initié par #120 | Inspection du diff, tests de garde, Recorder E2E CI ; **pas** de recette réelle |
 
 **Limite importante :** le nouveau contrôle du registre repère les identifiants
-anciens `b6` connus pour la même identité physique. Si une entrée ou son
+anciens `b6` et archives `b15` connus, et refuse les b6 non localisés
+lorsqu'un numéro de série est réutilisé. Si une entrée ou son
 registre ont été entièrement supprimés tandis que des statistiques Recorder
 subsistent, **l'absence d'entité n'établit pas l'absence de données
 historiques**. Une réinstallation dans ce contexte exige un audit préalable
@@ -157,15 +159,16 @@ business acceptance**.
 | Retired predecessor and active successor | Two physical generations | Both retained across reload | `test_legacy_successive_physical_meters_preserve_identities_on_reload` |
 | New account | Fresh eligible account | Canonical stable ID with verified-unit guard | New config-flow and stable-unit tests |
 | Unknown and changed units | Missing or approved source scale | Block unsafe cumulative statistics; preserve entity | Stable-unit transition tests |
-| Reinstall with old b6 entity | Old registry reference survives | Block new stable entity as `legacy_identity_requires_review` | `test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication` |
+| Reinstall with old b6 or archived b15 entity | Prior registry reference survives | Block new stable entity as `legacy_identity_requires_review` | `test_reinstalled_account_with_legacy_b6_entity_blocks_stable_duplication` (both variants) |
+| Reused serial with unscoped b6 | Ambiguous former ID across two lots | Reject both canonical identities without guessing ownership | `test_reused_serial_with_unscoped_b6_id_blocks_both_new_stable_meters` |
 | Reinstall without durable unit ledger | Stable entity registered; unit evidence lost | Block cumulative scale as `missing_unit_baseline_requires_review` | `test_missing_stable_unit_ledger_blocks_reinstall_without_duplicate` |
 | Collisions and foreign ownership | Ambiguous or foreign identifiers | Fail-closed preview | Identity and staging-guard unit tests |
 | Downgrade to old version | New `meter_…_index` ID | Legacy b6 computation differs; downgrade unsafe | `test_old_version_downgrade_would_change_new_meter_identity` (ID-only proof) |
 | Startup and history side effects | Unmigrated historical account | No automatic migration, historical backfill or Energy change | Static and HA synthetic tests; real acceptance pending |
 
 **Known blind spot:** orphan Recorder metadata may persist even when an
-entity-registry entry is gone. The b6 collision check catches known
-registry entries but **cannot certify absence of orphaned statistics**.
+entity-registry entry is gone. The b6/b15 collision check catches known
+registry entries and ambiguous reused serials, but **cannot certify absence of orphaned statistics**.
 Do not treat reinstallation as a new eligible account without an
 independent history/dependency audit.
 
