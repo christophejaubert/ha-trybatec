@@ -15,9 +15,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN, CONF_STABLE_METER_IDENTITIES
-from .meter_identity import (
-    evaluate_unit_transition, legacy_meter_unique_ids, stable_meter_unique_id,
-)
+from .meter_identity import evaluate_unit_transition, stable_meter_unique_id
 from .units import normalized_unit
 
 STABLE_IDENTITY_FLAG = CONF_STABLE_METER_IDENTITIES
@@ -75,10 +73,6 @@ class StableUnitGuard:
         account = self.entry.unique_id or self.entry.entry_id
         async with self._lock:
             registry = er.async_get(self.hass)
-            serial_counts: dict[str, int] = {}
-            for meter in meters.values():
-                serial = meter["serial"]
-                serial_counts[serial] = serial_counts.get(serial, 0) + 1
             pending: dict[str, str] = {}
             for meter in meters.values():
                 stable = stable_meter_unique_id(
@@ -99,14 +93,6 @@ class StableUnitGuard:
                 registered_without_baseline = (
                     registry_id is not None and stable not in self._units
                 )
-                old_ids = legacy_meter_unique_ids(
-                    account, meter["lot"], meter["fluid"], meter["serial"],
-                    allow_unscoped_serial=serial_counts[meter["serial"]] == 1,
-                )
-                legacy_exists = any(
-                    registry.async_get_entity_id("sensor", DOMAIN, uid) is not None
-                    for uid in old_ids
-                )
                 if self._invalid:
                     status = "invalid_unit_baseline_requires_review"
                 elif foreign_stable:
@@ -115,9 +101,8 @@ class StableUnitGuard:
                     status = evaluate_unit_transition(
                         self._units.get(stable), incoming,
                         registered_without_baseline=registered_without_baseline,
-                        legacy_exists=legacy_exists,
                     )
-                if status == "source_unit_unverified" and stable not in self._units and not registered_without_baseline and not legacy_exists:
+                if status == "source_unit_unverified" and stable not in self._units and not registered_without_baseline:
                     # A durable unverified marker permits the *same* sensor to
                     # gain its first verified unit without creating a new ID.
                     pending[stable] = "unverified"
