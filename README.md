@@ -203,8 +203,10 @@ Release publication, installation in Home Assistant and historical imports are s
 
 ## Features
 
-- User-interface setup with a portal username, password, and `dealId` obtained
-  from the URL of the account's **Indexes** page (`/indexes/<UUID>`).
+- User-interface setup using only the portal username and password when one
+  unambiguous housing is returned; its `dealUid` is checked using `/indexes`.
+  Ambiguous or unavailable discovery requires a verified full Indexes-page URL
+  as a controlled fallback. Multi-coproperty accounts are not supported yet.
 - Automatic `POST /api/v1/authenticate` and `GET /api/v1/indexes`, using an
   in-memory Bearer token. A rejected token is automatically retried once.
 - Discovery of active EF (cold water), ECS (hot water), and CET (heating)
@@ -361,7 +363,8 @@ Preview action results may contain physical meter serials and index values. Reda
 3. Ajouter l’URL de ce dépôt GitHub (de type **Intégration**).
 4. Ouvrir ce dépôt dans Marketplace, puis activer **Pre-release / Préversions** dans les options du dépôt pour voir les versions expérimentales.
 5. Installer la préversion voulue, puis ajouter **Trybatec (Unofficial Beta)** dans **Paramètres → Appareils et services**. Redémarrer Home Assistant si l’interface le demande.
-6. Renseigner ses propres identifiants et son UUID de copropriété, sans jamais les transmettre dans GitHub.
+6. Renseigner seulement son identifiant et son mot de passe. Si la découverte est ambiguë, utiliser le repli proposé pour coller l'URL HTTPS complète de sa page Index. Aucune saisie manuelle d'UUID n'est demandée dans le cas nominal.
+7. La gestion de plusieurs copropriétés n'est pas prise en charge dans cette version. Ne transmettre ni identifiants ni URL de compte à GitHub.
 
 **Mise à jour d'une installation existante (bêta)**
 
@@ -380,10 +383,8 @@ d'import Recorder ni de bascule Énergie sans préparation spécifique.
 2. Copier `custom_components/trybatec/` vers `<CONFIG>/custom_components/trybatec/`.
 3. Redémarrer Home Assistant.
 4. Ouvrir **Paramètres → Appareils et services → Ajouter une intégration → Trybatec (Unofficial)**.
-5. Renseigner l'identifiant et le mot de passe utilisés sur le portail Trybatec.
-6. Renseigner l'**UUID de la copropriété** visible dans l'URL de sa page *Index*
-   (`https://portail.trybatec.fr/indexes/<UUID>`). Il n'est **pas** nécessaire
-   de transmettre cette URL à un tiers.
+5. Renseigner l'identifiant et le mot de passe utilisés sur le portail Trybatec ; pour un logement unique, l'intégration découvre la copropriété et vérifie l'accès aux index.
+6. Si la découverte ne donne pas un résultat unique, coller l'URL HTTPS complète de la page *Index* dans l'étape de secours (le programme extrait et vérifie l'UUID). Ne pas transmettre cette URL à un tiers.
 7. Dans les options, définir un intervalle d'interrogation et, si souhaité,
    un tableau de tarifs JSON.
 
@@ -430,8 +431,11 @@ changements de compteur avant de configurer le tableau de bord Énergie.
 
 Copy `custom_components/trybatec` into your HA configuration directory, restart,
 and add **Trybatec (Unofficial)** from **Settings → Devices & services**. Supply
-portal credentials and the UUID from the Indexes page URL. Add optional annual
-prices in the integration options (see example above).
+only your portal username and password. A single unambiguous housing is resolved
+and checked automatically. If discovery fails, use the controlled fallback to
+paste the complete HTTPS Indexes-page URL, which is validated before setup.
+Multi-coproperty accounts are not supported. Configure optional annual rates in
+the integration options. Never post credentials or account URLs to GitHub.
 
 ## Maintenance and support / Maintenance et assistance
 
