@@ -10,6 +10,20 @@ const {mkdirSync} = require("node:fs");
 const {createHash} = require("node:crypto");
 const assert = require("node:assert/strict");
 
+function renderedContrast(foreground, background) {
+  const luminance = value => {
+    const rgb=(value.match(/\d+(?:\.\d+)?/g)||[]).slice(0,3).map(Number);
+    assert.equal(rgb.length,3,"Expected an RGB color: "+value);
+    const linear=rgb.map(component=>{
+      const n=component/255;
+      return n<=0.04045?n/12.92:((n+0.055)/1.055)**2.4;
+    });
+    return linear[0]*0.2126+linear[1]*0.7152+linear[2]*0.0722;
+  };
+  const a=luminance(foreground),b=luminance(background);
+  return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+}
+
 const repository = resolve(__dirname, "../..");
 const panelJS = join(repository, "custom_components/trybatec/panel/trybatec-panel.js");
 const artifacts = join(repository, "browser-acceptance-artifacts");
@@ -263,11 +277,16 @@ async function runCase(browser, locale, device, dark=false) {
         .first().evaluate(button=>({
           disabled:button.disabled,
           opacity:Number(getComputedStyle(button).opacity),
-          cursor:getComputedStyle(button).cursor
+          cursor:getComputedStyle(button).cursor,
+          color:getComputedStyle(button).color,
+          background:getComputedStyle(button).backgroundColor
         }));
       assert.equal(activeNeutral.disabled,false);
       assert.ok(activeNeutral.opacity>=0.95,"Enabled neutral button must not look disabled");
       assert.equal(activeNeutral.cursor,"pointer");
+      assert.ok(renderedContrast(activeNeutral.color,activeNeutral.background)>=4.5,
+        "Active neutral button text must meet 4.5:1 contrast on "+locale+"/"+device+
+        (dark?"/dark":"/light")+": "+JSON.stringify(activeNeutral));
     }
     if(tab==="meters"){
       const header=page.locator("trybatec-panel .meter-title").first();
