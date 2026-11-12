@@ -25,7 +25,10 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.util import dt as dt_util
 
-from .api import TrybatecAuthError, TrybatecClient, TrybatecConnectionError, TrybatecDataError
+from .api import (
+    TrybatecAccessDeniedError, TrybatecAuthError, TrybatecClient,
+    TrybatecConnectionError, TrybatecDataError, TrybatecDiscoveryAmbiguousError,
+)
 from .const import (
     CONF_DEAL_ID,
     CONF_POLL_MINUTES,
@@ -116,19 +119,30 @@ class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             try:
                 deal_id = await client.discover_single_deal_id()
+            except TrybatecAccessDeniedError:
+                errors["base"] = "access_denied"
             except TrybatecAuthError:
                 errors["base"] = "invalid_auth"
-            except (TrybatecConnectionError, TrybatecDataError):
-                # Explicit fallback: no UUID is chosen automatically.
+            except TrybatecDiscoveryAmbiguousError:
+                # Explicit URL fallback for ambiguity only: no silent choice.
+                # The resulting URL must still pass a separate /indexes check.
                 self._manual_credentials = (username, password)
                 return await self.async_step_manual_url()
+            except TrybatecConnectionError:
+                errors["base"] = "cannot_connect"
+            except TrybatecDataError:
+                errors["base"] = "invalid_response"
             else:
                 try:
                     await self._check_deal(client, deal_id)
+                except TrybatecAccessDeniedError:
+                    errors["base"] = "access_denied"
                 except TrybatecAuthError:
                     errors["base"] = "invalid_auth"
-                except (TrybatecConnectionError, TrybatecDataError):
+                except TrybatecConnectionError:
                     errors["base"] = "cannot_connect"
+                except TrybatecDataError:
+                    errors["base"] = "invalid_response"
                 else:
                     return await self._create_account_entry(
                         username, password, deal_id
@@ -171,10 +185,14 @@ class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 try:
                     await self._check_deal(client, deal_id)
+                except TrybatecAccessDeniedError:
+                    errors["base"] = "access_denied"
                 except TrybatecAuthError:
                     errors["base"] = "invalid_auth"
-                except (TrybatecConnectionError, TrybatecDataError):
+                except TrybatecConnectionError:
                     errors["base"] = "cannot_connect"
+                except TrybatecDataError:
+                    errors["base"] = "invalid_response"
                 else:
                     self._manual_credentials = None
                     return await self._create_account_entry(
@@ -210,10 +228,14 @@ class TrybatecConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 try:
                     await self._check_deal(client, entry.data[CONF_DEAL_ID])
+                except TrybatecAccessDeniedError:
+                    errors["base"] = "access_denied"
                 except TrybatecAuthError:
                     errors["base"] = "invalid_auth"
-                except (TrybatecConnectionError, TrybatecDataError):
+                except TrybatecConnectionError:
                     errors["base"] = "cannot_connect"
+                except TrybatecDataError:
+                    errors["base"] = "invalid_response"
                 else:
                     unique = hashlib.sha256(
                         f"{username.lower()}|{entry.data[CONF_DEAL_ID]}".encode()
