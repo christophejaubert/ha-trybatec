@@ -59,6 +59,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: trybatec-ui-a11y-synthetic
-          path: ui-a11y-synthetic-report.json
+          path: ui-a11y-synthetic-public-report.json
           if-no-files-found: error
           retention-days: 7
