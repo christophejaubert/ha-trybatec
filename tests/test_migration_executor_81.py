@@ -152,7 +152,9 @@ async def _run(reg, devices, journal, supplier, lookup, *, fingerprint="a" * 64,
 async def test_journaled_migration_preserves_ids_device_history_and_has_explicit_rollback():
     reg, devices, journal, _, supplier, lookup = _fixture()
     original_identifiers = set(devices.device.identifiers)
-    result = await _run(reg, devices, journal, supplier, lookup)
+    activation = Activation()
+    result = await _run(reg, devices, journal, supplier, lookup, activation=activation)
+    assert activation.enabled is True
     assert result["status"] == "pending_reload_verification"
     assert result["entity_ids_preserved"] == [EID]
     assert result["devices_preserved"] == [DID]
@@ -169,8 +171,10 @@ async def test_journaled_migration_preserves_ids_device_history_and_has_explicit
     assert verified["requires_recorder_and_energy_acceptance"] is True
     restored = await async_rollback_one_time_migration(
         entry_id=ENTRY, confirmed=True, registry=reg, devices=devices,
-        journal=journal, activation=Activation(),
+        journal=journal, activation=activation,
     )
+    assert activation.enabled is False
+    assert activation.restores == 1
     assert restored["status"] == "rolled_back"
     assert reg.row.unique_id == OLD
     assert devices.device.identifiers == original_identifiers
