@@ -52,7 +52,7 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
             self._lock = _LOCKS.setdefault(hass, asyncio.Lock())
         except TypeError as exc:
             raise EnergyTransactionRefused("HA instance cannot hold shared transaction lock") from exc
-        self._journal_key = "trybatec.energy_bulk_l7_" + _digest_entry(
+        self._journal_store_id = "trybatec.energy_bulk_l7_" + _digest_entry(
             coordinator.entry.entry_id
         )
         self._verified_receipt: dict[str, str] | None = None
@@ -156,7 +156,7 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
     async def read_last_journal(self) -> dict[str, Any] | None:
         _core_only()
         try:
-            return deepcopy(await _read_store_data(self._hass, self._journal_key))
+            return deepcopy(await _read_store_data(self._hass, self._journal_store_id))
         except FileNotFoundError:
             return None
         except (OSError, ValueError, TypeError) as exc:
@@ -176,7 +176,7 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
         if len(serialized.encode("utf-8")) > _MAX_JOURNAL_BYTES:
             raise EnergyRecoveryRequired("L7 journal exceeds safe disk limit")
         from homeassistant.helpers.storage import Store
-        store = Store(self._hass, 1, self._journal_key, minor_version=1,
+        store = Store(self._hass, 1, self._journal_store_id, minor_version=1,
                       atomic_writes=True)
         await store.async_save(deepcopy(payload))
         if await self.read_last_journal() != payload:
