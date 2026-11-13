@@ -180,7 +180,8 @@ def test_observable_bounded_incomplete_failure_interruption_and_prior_cache():
     source = _source(coord, full=False)
     complete_job = _job(coord, state="complete", source=source)
     partial = env["discovery_snapshot"](coord)
-    assert partial["status"] == partial["discovery_status"] == "incomplete"
+    assert partial["status"] == "complete"  # job finished successfully
+    assert partial["discovery_status"] == "incomplete"  # bounded, not account-wide
     assert partial["coverage"]["completeness"] == "bounded_period_only"
 
     complete_job.update(
