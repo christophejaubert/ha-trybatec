@@ -200,3 +200,35 @@ Ces bancs utilisent du code applicatif intégré, avec entrées et adaptateurs *
 
 **EN.** Owner #167 advanced to \`d79ecaad70d7b1cae9109090eae0eba96aa23c0b\`. Three previously absent independent test files were selectively imported into the existing #164 candidate at \`f1cc5ccbde42ecd6bd5292a15405632efe3ea02a\`, with no shared code or historical commit replay: business decisions and physical generations (#36/#37), positive and adversarial scoped L6, and L7 transaction/rollback failure injection. Tests use actual integrated application functions, but all data and transactional ports are synthetic. They do not unlock real HA writes. **Only CI executed at the eventual final SHA is authoritative.** Keep #164 draft until authenticated #36 v2 native proof, independently qualifying #37/L6 and safe native L7 can be demonstrated.
 <!-- END-INDEPENDENT-BETA-167-20261113 -->
+
+
+<!-- CONVERGENCE-NATIVE-CROSS-CHECK-20261113 -->
+## 🤖 Relecture de convergence des arbres et qualification / Native tree reconciliation and qualification — 13/11/2026
+
+### FR — Sources exactes et modifications
+
+- **Base de la reprise :** #164 `7a9d3b778773e730cd95f0f04067f3f76dae7ba4` sur `main` `8d621da9703b40662800b4a7c286707e8a7f895f`, PR ouverte en brouillon, aucune fusion.
+- **#36 / #159 :** `f23ba0f739195539530df92b5b922d41af9b0cc4`. Les blobs de `history_recorder_native_attempt_36.py`, des tests HA isolés et des preuves #36 sont déjà **identiques** dans #164 : aucun réimport. La preuve réellement produite par `async_native_attempt_proof_36()` est `history_36_native_attempt_proof_v1`, avec `independent_future_writer_exclusion_verified=false`, pas une attestation `history_36_scoped_selection_v2`.
+- **#37 / #160 :** `37bea29f9c368ea171bcc27cb18870da79069702`. `lineage_native_scoped_37.py`, tests natifs et composants de filiation pertinents sont identiques dans #164. Le calcul borné par génération existe ; l'adaptateur natif ne fabrique pas la pièce #36 v2 absente.
+- **#88 / #158 :** `ee08cc363374ac41ba972583f26796a1b14e98c1`. Les modules natifs L6/L7 ciblés, notamment service administrateur, collecteur, WebSocket et port gardé, sont identiques à #164 ; les divergences résiduelles portent sur les branches historiques/fichiers partagés et non sur un nouveau bloc L6/L7 à réimporter automatiquement. Le job `gitleaks` de #158 échoue au second scan d'historique avec **un résultat détecté** ; le scan du commit de base #164 réussit. Ne pas réintroduire l'historique empilé #153 ni élargir l'ignorelist.
+- **#167 :** `254cddfd4e42fa3dadfa1d5e7c281e4f4c3cc42d` : deux blobs manquants repris dans #164 au commit `a1bb3e95c3e4ff09dbebbad17cdc5bde991f22d3`, `tests/test_independent_beta_native_boundary_88.py` et `scripts/browser-ci/INDEPENDENT_BETA_36_37_88_FR_EN.md`. Trois précédents tests adversariaux #167 figuraient déjà dans #164 et ne sont pas dupliqués.
+- **Test transversal supplémentaire :** `integration_tests/test_convergence_native_readback_36_37_88.py` ajouté au commit `9acd8f36648986b3c1b978536947eb8da26e6cfc`. Il produit une vraie attestation v1 en appelant le code natif #36 avec fichier `.storage` temporaire réel et services Recorder simulés, la soumet au calcul #37 puis à L6 et vérifie le refus. Ce contrôle *n'est pas* une admission positive de production.
+
+### FR — Distinction des preuves et verrous restant à lever
+
+| Niveau | État effectivement démontré |
+| --- | --- |
+| Synthétique | Parcours positif sur preuves v2 **construites par fixtures** avec fonctions réelles #37 → L6 → planificateur L7. Les tests ne doivent pas l'appeler « chaîne native de bout en bout ». |
+| HA natif isolé | Journal #36 écrit et relu sur disque temporaire, réponse v1 de la fonction native ; garde serveur/admin #88 et refus des écritures testés. Aucun accès à un fournisseur, à Recorder réel ni au tableau Énergie de production. |
+| Refus de sécurité | #36 v1 jamais converti arbitrairement en v2 ; absence de clôture indépendante des writers, concurrence Énergie inter-intégrations, preuve de restauration et persistance transactionnelle réelles non démontrées. `NATIVE_ENERGY_BULK_WRITES_ENABLED_88=False` inchangé ; le collecteur HA natif ne produit pas de candidats L6 admissibles. |
+| Recette réelle | Restent après installation autorisée : observations sur l'installation, continuité Recorder/identités et validation chauffage CET kWh dans Énergie. Aucune recette réelle attestée ici. |
+
+**Décision de qualification :** tant qu'une production native v2 vérifiable de #36, la preuve serveur #37 de la sélection effective et l'exclusivité transactionnelle L7 ne sont pas démontrées ensemble, #164 demeure **NON PRÊTE pour une activation de l'ajout groupé Énergie**. Cela n'exige ni exhaustivité globale du fournisseur, ni recette CET réelle avant publication ; la sécurité des mutations demeure un prérequis indépendant. Requalifier les workflows et tous les jobs obligatoires sur le SHA final exact avant avis MOE #45.
+
+### EN — Source reconciliation and safety outcome
+
+- #159 (`f23ba0f…`) native Recorder code/tests and #160 (`37bea29…`) native physical-lineage code/tests already match #164 **by blob SHA**. #158 (`ee08cc3…`) native L6/L7 modules also match. Do not replay stacked historical commits or overwrite converged files.
+- #158's historical Gitleaks scan detects one finding and fails; #164's earlier exact-SHA Gitleaks run succeeds. Do not relax scanning rules.
+- #167 (`254cddf…`) supplies two previously missing independent files integrated at `a1bb3e95…`. A dedicated native readback-to-lineage-to-L6 refusal test was added at `9acd8f3…`.
+- **Synthetic positive L6** exercises real analysis functions with a *fixture-generated* v2 Recorder certificate. **Native isolated HA tests** produce a **real v1** attempt receipt from a temporary on-disk journal; it lacks independent future-writer exclusion and cannot be silently upgraded to v2. Native Energy admission and write transaction therefore remain denied.
+- The integration does not claim external-writer exclusivity, real backup restoration, production Recorder persistence or real CET Energy dashboard compatibility. These require distinct qualification or post-install acceptance as specified. Keep the write gate off; do not merge, publish, install or change HA from this convergence task.
