@@ -11,8 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from custom_components.trybatec import panel_history_coverage as shared
 from custom_components.trybatec.history import combine_payloads
 from custom_components.trybatec.units import meter_key
@@ -177,8 +175,7 @@ def test_cache_invalidates_on_date_and_deal_change(monkeypatch):
     assert coord._panel_history_cache_invalidation == "date_changed"
 
 
-@pytest.mark.asyncio
-async def test_tariff_concurrent_calls_single_scan_and_verified_source_reuse():
+async def _verify_tariff_concurrent_calls_single_scan_and_verified_source_reuse():
     @asynccontextmanager
     async def track(*args, **kwargs):
         yield None
@@ -219,8 +216,7 @@ async def test_tariff_concurrent_calls_single_scan_and_verified_source_reuse():
     assert one["meters"][0]["first_observed_at"].startswith("2021")
 
 
-@pytest.mark.asyncio
-async def test_preview_reuses_complete_evidence_without_vendor_call():
+async def _verify_preview_reuses_complete_evidence_without_vendor_call():
     scope = _load(PANEL_SOURCE, ["preview_history_for_panel"], {
         "date": date, "datetime": datetime, "timezone": timezone,
         "asyncio": asyncio, "SimpleNamespace": SimpleNamespace,
@@ -270,3 +266,12 @@ def test_job_error_category_and_cancel_state_remain_redacted():
     assert exposed["retry_mode"] == "restart_from_zero"
     assert "private" not in json.dumps(exposed)
     assert "result" not in exposed
+
+
+
+def test_tariff_concurrent_calls_single_scan_and_verified_source_reuse():
+    asyncio.run(_verify_tariff_concurrent_calls_single_scan_and_verified_source_reuse())
+
+
+def test_preview_reuses_complete_evidence_without_vendor_call():
+    asyncio.run(_verify_preview_reuses_complete_evidence_without_vendor_call())
