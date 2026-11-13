@@ -77,8 +77,8 @@ def test_native_sql_inventory_matches_verified_and_quarantine(monkeypatch):
     hass, witness = setup(monkeypatch)
     result = run(hass, witness)
     assert result == [
-        {"statistic_id": QUARANTINED, "state": "quarantined"},
         {"statistic_id": SID, "state": "verified"},
+        {"statistic_id": QUARANTINED, "state": "quarantined"},
     ]
 
 
