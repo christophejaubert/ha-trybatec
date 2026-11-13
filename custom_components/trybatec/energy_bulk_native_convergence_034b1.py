@@ -198,3 +198,65 @@ def reconcile_native_handoffs_034b1(
         "recorder_writes": False,
         "energy_writes": False,
     }
+
+
+async def async_collect_native_convergence_034b1(
+    hass: Any,
+    coordinator: Any,
+    *,
+    user: Any,
+    lot: str,
+    history: Mapping[str, Any],
+    verified_units: Mapping[tuple[str, str, str], str],
+    decisions: Mapping[str, Mapping[str, str]],
+    approved_origins: Mapping[str, Mapping[str, Any]] | None = None,
+    current: Mapping[str, Any] | None = None,
+    archived: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Collect all three contracts from existing server owners, in order.
+
+    Invoke only from a trusted HA backend with server-derived history, units
+    and approvals. It is deliberately NOT exposed as a websocket/service.
+    This is a diagnostics path, not an Energy transaction or eligibility grant.
+    """
+    from .energy_bulk_contract_ha_l6 import async_crosscheck_native_l6
+    from .history_plan_b15 import make_b15_plan
+    from .history_recorder_handoff_36 import async_b15_recorder_handoff_36
+    from .history_variants_b15 import variants_preview
+    from .lineage_energy_handoff_37 import prepare_energy_lineage_handoff_37
+    from .lineage_history_bridge_37 import prepare_physical_continuity_37
+
+    # L6 native reader checks the actor against Home Assistant's auth store
+    # before it reads any meter, historical or Energy preference inventory.
+    l6 = await async_crosscheck_native_l6(
+        hass, coordinator, user=user, lot=lot,
+    )
+    account = coordinator.entry.unique_id
+    plan = make_b15_plan(
+        history, verified_units, decisions, account,
+        approved_origins=approved_origins,
+    )
+    variants = variants_preview(
+        history, verified_units, decisions,
+        approved_origins=approved_origins,
+    )
+    physical = prepare_physical_continuity_37(
+        account, history, variants, current=current, archived=archived,
+    )
+    lineage = prepare_energy_lineage_handoff_37(physical)
+    recorder = await async_b15_recorder_handoff_36(
+        hass, coordinator.entry.entry_id, plan,
+    )
+    result = reconcile_native_handoffs_034b1(
+        recorder_36=recorder, lineage_37=lineage,
+        historical_l6=l6, lot=lot,
+    )
+    return {
+        **result,
+        "historical_plan_fingerprint": plan["fingerprint"],
+        "lineage_fingerprint": lineage["fingerprint"],
+        "native_recorder_persistence_observed": recorder[
+            "recorder_persistence_verified"
+        ],
+        "historical_scope_crosscheck": l6["mode"],
+    }
