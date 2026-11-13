@@ -180,13 +180,13 @@ async def test_native_unit_mismatch_never_marks_version_verified(hass, monkeypat
         "recorder", "get_statistics", persisted,
         supports_response=SupportsResponse.ONLY,
     )
-    async def incompatible(_hass, ids):
+    async def incompatible(_hass, statistic_ids):
         return [{
             "statistic_id": stat, "source": "trybatec",
             "statistics_unit_of_measurement": "kWh",
             "unit_class": "energy", "has_sum": True,
             "mean_type": recorder.StatisticMeanType.NONE,
-        } for stat in ids]
+        } for stat in statistic_ids]
     monkeypatch.setattr(recorder, "async_list_statistic_ids", incompatible)
     store = recorder.ledger_store(hass, "synthetic-36-wrong-unit")
     before = await store.async_load()
