@@ -2039,7 +2039,9 @@ class TrybatecPanel extends HTMLElement {
     const item=(this._historyPreview?.history_summary?.by_meter||[]).find(row=>
       row.physical_key===m.physical_key);
     if (!item) return "";
-    return '<section class="line" style="margin-top:16px"><h3>Contrôles historiques de ce compteur</h3>'+
+    return '<section class="line fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+
+      '" style="margin-top:16px"><h3>'+trybatecFluidTag(m.fluid)+
+      ' · Contrôles historiques de ce compteur</h3>'+
       '<p class="muted">Indicateurs issus du dernier aperçu ; un écart ou conflit n’est pas nécessairement une erreur de mesure.</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Intervalles lacunaires</span><strong>'+safe(item.gaps)+'</strong></div>'+
@@ -2461,7 +2463,8 @@ class TrybatecPanel extends HTMLElement {
     (list.length?list.map(c=>
       '<div class="meter-row"><button type="button" data-reading-select="'+safe(c.key)+'" class="'+
       (this._readingSelected===c.key?"selected":"")+'">'+
-      '<span class="meter-name">'+safe(c.fluid+" · "+c.meter_serial+" · "+this._number(c.index))+'</span>'+
+      '<span class="meter-name">'+trybatecFluidTag(c.fluid)+' · '+
+        safe(c.meter_serial+" · "+this._number(c.index))+'</span>'+
       '<span class="meter-sub">'+safe(this._date(c.source_date,true))+'</span>'+
       '<span class="meter-sub">'+safe(c.reasons.map(r=>explanation[r]||r).join(" · "))+
       " · Décision : "+safe(c.decision)+'</span></button></div>').join(""):'<div class="empty">Aucun relevé à examiner. Lancez l’analyse historique.</div>')+
@@ -2514,7 +2517,8 @@ class TrybatecPanel extends HTMLElement {
       const rowsForMeter=rows.filter(row=>row.physical_key===selected.physical_key &&
         row.fluid===selected.fluid && row.lot===selected.lot &&
         row.serial===selected.serial);
-      return '<section class="card" style="margin-top:16px"><h3>'+
+      return '<section class="card fluid-surface '+safe(FLUID_CLASS[selected.fluid]||"")+
+        '" style="margin-top:16px"><h3>'+trybatecFluidTag(selected.fluid)+' · '+
         safe(this._t("Synthèse du compteur sélectionné","Selected meter summary"))+
         '</h3><p class="muted">'+safe(
           this._t("Période analysée (compte) : ","Analyzed period (account): "))+
@@ -2544,7 +2548,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="grid-two">'+["EF","ECS","CET"].map(fluid=>{
         const item=summary.by_fluid?.[fluid]||{};
         return '<div class="line '+safe(FLUID_CLASS[fluid]||"")+'" style="border-inline-start:4px solid var(--fluid-fg)">'+
-          '<strong>'+safe(FLUID[fluid])+'</strong><div class="muted">'+
+          '<strong>'+trybatecFluidTag(fluid)+'</strong><div class="muted">'+
           safe(this._number(item.meters??0))+' compteur(s) · '+
           safe(this._number(item.gaps??0))+' intervalle(s) lacunaire(s) · '+
           safe(this._number(item.conflicts??0))+' conflit(s)</div></div>';
@@ -2552,7 +2556,7 @@ class TrybatecPanel extends HTMLElement {
       (rows.length?'<details style="margin-top:16px"><summary>Voir les indicateurs par compteur physique</summary>'+
         '<div class="scroll"><table><thead><tr><th>Fluide</th><th>Compteur</th><th>Première observation</th>'+
         '<th>Dernière observation</th><th>Lacunes</th><th>Baisses</th><th>Conflits</th></tr></thead><tbody>'+
-        rows.map(m=>'<tr><td>'+safe(m.fluid)+'</td><td class="mono">'+safe(m.serial)+
+        rows.map(m=>'<tr><td>'+trybatecFluidTag(m.fluid)+'</td><td class="mono">'+safe(m.serial)+
           '</td><td>'+safe(this._date(m.first_observed_at))+'</td><td>'+
           safe(this._date(m.last_observed_at))+'</td><td>'+safe(this._number(m.gaps))+
           '</td><td>'+safe(this._number(m.decreases))+'</td><td>'+
@@ -2613,7 +2617,8 @@ class TrybatecPanel extends HTMLElement {
         '</button></div></section>';
     }
     const proposal=(this._historyPreview?.proposals?.intervals||[]).find(
-      x=>x.interval_key===this._historySelected
+      x=>x.interval_key===this._historySelected &&
+        (!meter || (x.fluid===meter.fluid && x.meter_serial===meter.serial && x.lot===meter.lot))
     );
     const ready=proposal&&proposal.status==="linear_available_after_explicit_confirmation";
     const list=(this._historyPreview?.proposals?.intervals||[]).filter(x=>
@@ -2627,7 +2632,8 @@ class TrybatecPanel extends HTMLElement {
     };
     return this._heading("Historique & lissage",
       "Répartition linéaire contrôlée, sans modification des relevés bruts.")+
-      (meter?'<section class="meter-history-context"><strong>'+
+      (meter?'<section class="meter-history-context fluid-surface '+safe(FLUID_CLASS[meter.fluid]||"")+'"><strong>'+
+        trybatecFluidTag(meter.fluid)+' · '+
         safe(this._t("Compteur sélectionné : ","Selected meter: ")+
           (FLUID[meter.fluid]||meter.fluid)+" · "+meter.serial+" · "+meter.lot)+'</strong>'+
         '<p class="muted">'+safe(this._t(
@@ -2669,13 +2675,14 @@ class TrybatecPanel extends HTMLElement {
       (list.length?'<div class="scroll">'+list.map(item=>'<div class="meter-row">'+
         '<button type="button" data-history-select="'+safe(item.interval_key)+'" class="'+
         (this._historySelected===item.interval_key?"selected":"")+'">'+
-        '<span class="meter-name">'+safe(item.fluid+" · "+item.meter_serial)+'</span>'+
+        '<span class="meter-name">'+trybatecFluidTag(item.fluid)+' · '+safe(item.meter_serial)+'</span>'+
         '<span class="meter-sub">'+safe(this._date(item.start_date)+" → "+this._date(item.end_date)+" · "+(blockers[item.status]||item.status))+
         '</span></button></div>').join("")+'</div>':
       '<div class="empty">'+(this._historyPreview?"Aucun intervalle à signaler sur cette période.":"Analysez une période pour afficher les intervalles concernés.")+'</div>')+
       '</section><section class="card">'+
       (proposal?'<h3>Reconstituer l’intervalle sélectionné</h3>'+
-      '<p class="muted">'+safe(proposal.lot+" · "+proposal.meter_serial+" · "+this._date(proposal.start_date)+" → "+this._date(proposal.end_date))+'</p>'+
+      '<p class="muted">'+trybatecFluidTag(proposal.fluid)+' · '+
+      safe(proposal.lot+" · "+proposal.meter_serial+" · "+this._date(proposal.start_date)+" → "+this._date(proposal.end_date))+'</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Consommation bornée</span><strong>'+
       safe(proposal.bounded_consumption===undefined?"Non déterminée":proposal.bounded_consumption+" "+proposal.unit)+'</strong></div>'+
