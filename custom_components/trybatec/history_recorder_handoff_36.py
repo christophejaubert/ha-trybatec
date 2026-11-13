@@ -141,7 +141,7 @@ async def async_b15_recorder_handoff_36(
             "version": "V" + str(selected["number"]) if selected else None,
             "statistic_id": selected["statistic_id"] if selected else None,
             "versions": competing, "active_statistic_ids": [
-                v["statistic_id"] for v in active,
+                v["statistic_id"] for v in active
             ],
             "persistence_verified": native_ok,
             "blockers": sorted(set(blockers)),
