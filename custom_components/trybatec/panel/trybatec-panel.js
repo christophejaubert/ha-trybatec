@@ -794,13 +794,16 @@ class TrybatecPanel extends HTMLElement {
     this._costBusy=false;
     this._costError="";
     this._costYear=null;
-    this._historyStart="2021-01-01";
-    this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+    this._historyStart="";
+    this._historyEnd="";
+    this._historyDateScope=null;
+    this._historyDatesEdited={start:false,end:false};
+    this._historyEndExtended=false;
     this._historyPreview=null;
     this._historyBusy=false;
     this._historySelected="";
     this._historyMode="linear";
-    this._historyReason="manual_periodic";
+    this._historyReason="undetermined";
     this._historyError="";
     this._historyMessage="";
     this._historyJobId=null;
@@ -1071,6 +1074,16 @@ class TrybatecPanel extends HTMLElement {
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
     if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
+    if (btn.dataset.historyToday!==undefined) {
+      this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+      this._historyDatesEdited.end=true;this._historyEndExtended=true;
+      this._historyPreview=null;this._versionPlan=null;this._render();return;
+    }
+    if (btn.dataset.historyResetDates!==undefined) {
+      this._historyDatesEdited={start:false,end:false};
+      this._historyEndExtended=false;this._historyDateScope=null;
+      this._historyPreview=null;this._versionPlan=null;this._render();return;
+    }
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
     if (btn.dataset.meter !== undefined) {
@@ -1137,7 +1150,9 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.historyCancel !== undefined) {this._cancelHistoryJob("historical_preview");return;}
     if (btn.dataset.tariffYearsCancel !== undefined) {this._cancelHistoryJob("tariff_year_coverage");return;}
     if (btn.dataset.historySelect !== undefined) {
-      this._historySelected=btn.dataset.historySelect;this._render();return;
+      this._historySelected=btn.dataset.historySelect;
+      this._historyReason="undetermined";this._historyMode="linear";
+      this._render();return;
     }
     if (btn.dataset.historyApprove !== undefined) {this._approveHistory();return;}
     if (btn.dataset.originPreview !== undefined) {this._previewOrigin();return;}
@@ -1170,7 +1185,7 @@ class TrybatecPanel extends HTMLElement {
         this._render();return;
       }
       this._historySelected=match.interval_key;
-      this._historyMode="linear";
+      this._historyMode="linear";this._historyReason="undetermined";
       this._historyMessage="Intervalle précédent sélectionné pour examen ; aucune décision enregistrée.";
       this._render();
       this.shadowRoot.querySelector('[data-history-approve]')?.scrollIntoView({
@@ -1248,6 +1263,7 @@ class TrybatecPanel extends HTMLElement {
         event.target.type==="checkbox"?Boolean(event.target.checked):event.target.value;
       if (["old","new"].includes(versionField)) this._versionEnergyPlan=null;
       if (["start","end"].includes(versionField)) {
+        this._historyDatesEdited[versionField]=true;this._historyEndExtended=false;
         this._versionPlan=null;
         this._versionVerify=null;
       }
@@ -1294,8 +1310,13 @@ class TrybatecPanel extends HTMLElement {
     }
     const historyField=event.target.dataset.historyField;
     if (historyField) {
-      if (historyField==="start_date") this._historyStart=event.target.value;
-      if (historyField==="end_date") this._historyEnd=event.target.value;
+      if (historyField==="start_date") {
+        this._historyStart=event.target.value;this._historyDatesEdited.start=true;
+      }
+      if (historyField==="end_date") {
+        this._historyEnd=event.target.value;this._historyDatesEdited.end=true;
+        this._historyEndExtended=false;
+      }
       if (["start_date","end_date"].includes(historyField)) {
         this._historyPreview=null;
         this._historySelected="";
@@ -2107,6 +2128,12 @@ class TrybatecPanel extends HTMLElement {
     if (!proposal) return;
     const eligible=proposal.status==="linear_available_after_explicit_confirmation";
     if (this._historyMode==="linear" && !eligible) return;
+    if (!["manual_periodic","telemetry_failure","other"].includes(this._historyReason)) {
+      this._historyError=this._t(
+        "Sélectionnez un motif qualifié avant de confirmer une décision ; l’origine indéterminée n’est pas enregistrée comme relève manuelle.",
+        "Choose a qualified reason before confirming; undetermined origin is not recorded as a manual reading.");
+      this._render();return;
+    }
     const summary=proposal.start_date+" → "+proposal.end_date+" · "+proposal.meter_serial;
     if (!this._confirm("Confirmer la décision pour "+summary+" ?\n\n"+
         (this._historyMode==="linear"?
@@ -2492,7 +2519,7 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
       '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
-      '>Analyser les relevés</button><button class="secondary" type="button" data-open-options>Ancienne IHM de révision</button>'+ 
+      '>Analyser les relevés</button>'+
       (this._historyBusy&&this._historyJobId?
         '<button type="button" class="secondary" data-history-cancel>'+
         this._t("Annuler l’analyse","Cancel analysis")+'</button>':"")+'</div>'+
@@ -2506,7 +2533,10 @@ class TrybatecPanel extends HTMLElement {
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
       '</section>'+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
-      '<p class="muted">L’analyse ne déduit jamais une origine manuelle ou automatique.</p>'+
+      '<p class="muted"><strong>'+safe(this._t("Pourquoi cet intervalle est-il espacé ?",
+        "Why are these readings spaced apart?"))+'</strong> '+
+      safe(this._t("Les dates des relevés ne permettent pas toujours de déterminer la cause d’un intervalle prolongé. Si vous connaissez cette cause, sélectionnez « Relève manuelle périodique », « Panne de télérelève » ou « Autre motif ». Sinon, laissez l’origine non déterminée.",
+        "Reading dates do not always explain a long interval. If you know the cause, select Periodic manual reading, Remote-reading failure or Other reason. Otherwise, leave the origin undetermined."))+'</p>'+
       (list.length?'<div class="scroll">'+list.map(item=>'<div class="meter-row">'+
         '<button type="button" data-history-select="'+safe(item.interval_key)+'" class="'+
         (this._historySelected===item.interval_key?"selected":"")+'">'+
@@ -2530,13 +2560,18 @@ class TrybatecPanel extends HTMLElement {
       '<option value="linear" '+(this._historyMode==="linear"?"selected":"")+'>Lisser le résiduel</option>'+
       '<option value="none" '+(this._historyMode==="none"?"selected":"")+'>Ne pas lisser</option></select></div>'+
       '<div><label for="h-reason">Motif déclaré</label><select id="h-reason" data-history-field="reason">'+
-      '<option value="manual_periodic" '+(this._historyReason==="manual_periodic"?"selected":"")+'>Relève périodique</option>'+
+      '<option value="undetermined" '+(this._historyReason==="undetermined"?"selected":"")+'>Origine indéterminée</option>'+
+      '<option value="manual_periodic" '+(this._historyReason==="manual_periodic"?"selected":"")+'>Relève manuelle périodique</option>'+
       '<option value="telemetry_failure" '+(this._historyReason==="telemetry_failure"?"selected":"")+'>Panne de télérelève</option>'+
       '<option value="other" '+(this._historyReason==="other"?"selected":"")+'>Autre motif</option></select></div></div>'+
+      (this._historyReason==="undetermined"?'<p class="muted" role="status">'+safe(this._t(
+        "Choisissez un motif avant toute confirmation. Les décisions précédemment approuvées sont conservées.",
+        "Choose a reason before confirming. Previously approved decisions remain unchanged."))+'</p>':"")+
       (proposal.choice?'<p class="muted" style="margin-top:13px">Décision actuelle : '+
         safe(proposal.choice.mode)+" · "+safe(proposal.choice.reason)+'</p>':"")+
       '<div class="actions"><button type="button" class="primary" data-history-approve '+(
-        this._historyBusy||(this._historyMode==="linear"&&!ready)?"disabled":"")+
+        this._historyBusy||this._historyReason==="undetermined"||
+        (this._historyMode==="linear"&&!ready)?"disabled":"")+
       '>Confirmer la décision</button></div>':
       '<h3>Avant / après</h3><div class="empty">Sélectionnez un intervalle pour comparer la période et éventuellement enregistrer une décision de lissage.</div>')+
       '</section></div>'+this._readingReview()+this._originView()+
