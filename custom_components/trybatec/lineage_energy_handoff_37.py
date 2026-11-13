@@ -237,7 +237,7 @@ def prepare_energy_lineage_handoff_37(
             reference_blockers.append("day_decision_requires_independent_36_match")
         all_blockers = sorted(set(raw_blockers + reference_blockers))
         qualification = (
-            "contradictoire" if blocked or any(reason in all_blockers for reason in (
+            "contradictoire" if any(reason in all_blockers for reason in (
                 "unverified_physical_period_overlap",
                 "duplicate_or_ambiguous_consumption_day",
                 "consumption_outside_observed_period",
