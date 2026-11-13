@@ -175,7 +175,7 @@ def build_coverage_evidence(
                 "contributions": [{
                     "serial": x["serial"], "variant": x["selected_variant"],
                     "measured": float(x["measured"]), "estimated": float(x["estimated"]),
-                    "decision_refs": x["decision_refs"],
+                    **({"decision_refs": x["decision_refs"]} if x["decision_refs"] else {}),
                     "retired": x["retired"],
                 } for x in sorted(items, key=lambda item: item["serial"])],
             })
