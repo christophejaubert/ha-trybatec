@@ -19,7 +19,7 @@ Le nouveau module `custom_components/trybatec/lineage_native_scoped_37.py` expos
 
 Les preuves `native_recorder_36`, `verify_user_selection`, `verify_36_day`, `verify_36_absence` sont fournies **uniquement par les propriétaires backend de confiance** : leur implémentation de production reste une dépendance #36/#88. Sans `read_native_recorder_36`, le résultat indique `selected_scope_reconciled=false`. Un callback de test peut démontrer le contrat sur un jeu fictif, mais ne fournit aucune attestation de persistance réelle. Le raccordement à C11 #162 doit être composé dans #164 ; le module #160 n'enregistre pas un nouveau flux HA.
 
-**EN — Native read-only server adapter:** The adapter authenticates the HA administrator from the server auth store, matches the configured account, reads a still-valid account-scoped C11 cache and existing historical review decisions, rebuilds source physical indexes without any supplier scan, then delegates to independent #36/user verifiers. No native #36 scoped-v2 reader is implemented by #160; without it the output remains blocked. This integration point is not registered as a WebSocket/service and cannot execute any Recorder, Energy or HA mutation.
+**EN — Native read-only server adapter:** The adapter authenticates the HA administrator from the server auth store, matches the configured account, reads a still-valid account-scoped C11 cache and existing historical review decisions, rebuilds source physical indexes without any supplier scan, then delegates to independent #36/user verifiers. The #36 owner now supplies a scoped v2 native observation reader. #160 automatically uses it when present, but its explicit false restart/writer-fence/version flags keep admission blocked. This integration point is not registered as a WebSocket/service and cannot execute any Recorder, Energy or HA mutation.
 
 ### Entrée v2 de sélection du backend (forme illustrative fictive)
 
@@ -81,7 +81,7 @@ energy_activation_authorized = false
 writes = false
 ```
 
-`selected_scope_reconciled` est une **qualification locale conditionnelle**. Les trois lecteurs de confiance (`verify_user_selection`, `verify_36_day`, `verify_36_absence`) sont des *interfaces d'injection*, et **ne sont pas raccordés à des sources persistées de production dans cette PR**. Ils doivent être fournis par un endpoint backend administrateur authentifié, jamais par des booléens de navigateur. Le producteur #36 natif scoped v2 **n'est pas encore disponible dans #159** : `history_interval_day_contract_36.py` est explicitement `synthetic_projection_read_only`, et `history_recorder_handoff_36.py` expose le v1. En leur absence, le v2 #37 doit **refuser** `selected_scope_reconciled`.
+`selected_scope_reconciled` est une **qualification locale conditionnelle**. Les trois lecteurs de confiance (`verify_user_selection`, `verify_36_day`, `verify_36_absence`) sont des *interfaces d'injection*, et **ne sont pas raccordés à des sources persistées de production dans cette PR**. Ils doivent être fournis par un endpoint backend administrateur authentifié, jamais par des booléens de navigateur. Mise à jour du HEAD #159 `91ef18462d8cebf0db11611e33d67943ff3d98d1` : `async_read_native_scoped_selection_v2_36` produit désormais une **observation native v2**, mais en mode `native_scoped_readback_no_future_writer_fence` et non `native_immutable_readback`. Les garanties post-redémarrage, unicité/exclusivité et catalogue complet restent explicitement fausses. #37 la lit directement lorsque ce module est intégré, sans lever `selected_scope_reconciled`. En l'absence de #36 sur sa branche propriétaire, #37 refuse sans tenter de fabriquer la preuve.
 
 ### Matrice de refus du producteur #37
 
@@ -115,10 +115,12 @@ Native #36 scoped v2 readback and durable day-revision approval collectors and a
 
 ## FR — Raccordement réel aux tentatives Recorder #36 (complément du 13 novembre 2026)
 
-La tête de #159 produit actuellement la preuve native
+La tête de #159 produit la preuve native
 `history_36_native_attempt_proof_v1` via
-`async_native_attempt_proof_36`, et **pas**
-`history_36_scoped_selection_v2`. Sa lecture SQL double, les
+`async_native_attempt_proof_36` **et**, depuis le SHA `91ef1846`,
+une observation `history_36_scoped_selection_v2` via
+`async_read_native_scoped_selection_v2_36`. La seconde est authentique mais
+explicitement **non immuable**. Sa lecture SQL double, les
 métadonnées Recorder, le journal durable et les références de décisions sont
 des observations utiles, mais ne valent pas garantie d'exclusion des écrivains
 tardifs, de relance après redémarrage, d'inventaire complet des versions
@@ -162,8 +164,9 @@ une recette de l'installation réelle.
 
 ## EN — Actual #36 native attempt interoperability (13 November 2026)
 
-PR #159 currently emits `history_36_native_attempt_proof_v1`,
-not the `history_36_scoped_selection_v2` required by L6.
+PR #159 now emits both `history_36_native_attempt_proof_v1` and
+`history_36_scoped_selection_v2` in the explicitly non-authorizing
+`native_scoped_readback_no_future_writer_fence` mode.
 The new pure `audit_native_attempt_link_37` checks
 the selected scope, exact versioned statistic ID, persisted snapshot
 fingerprint, daily per-physical-meter amounts, provenance and approval revision
@@ -185,3 +188,25 @@ physical arithmetic, successive generations, unknown/contradictory dates,
 missing approved days, mismatched revisions, duplicates and competing versions.
 Only the v2 #36/#37/#88 chain can be an actual L6 candidate after the
 independent native producers have been implemented and verified.
+
+
+### FR — Adaptation au nouveau lecteur natif #159 v2
+
+Dans `async_collect_server_scoped_lineage_37`, l'absence de
+lecteur injecté déclenche la découverte locale du lecteur serveur
+`async_read_native_scoped_selection_v2_36` de #159, uniquement
+lorsque le module #36 existe. La sélection est d'abord contrôlée contre
+l'administrateur HA, le compte configuré, le lot et les sources C11.
+Le résultat restitue `native_36_scoped_observation` en
+distinguant l'observation SQL réelle d'une preuve de persistance après
+redémarrage et de l'exclusion d'écrivains concurrents. Les indicateurs v2
+négatifs de #159 restent négatifs ; une preuve observée n'est jamais promue
+en révision `verified_immutable`.
+
+### EN — Latest native #159 v2 reader
+
+The #37 server adapter now auto-discovers #159's scoped v2 reader
+when both branches are integrated. It authenticates the HA administrator
+and configured account before reading the source. The result reports the
+native SQL observation separately from post-restart and concurrent-writer
+protection. No native v2 observation is upgraded into an immutable L6 proof.
