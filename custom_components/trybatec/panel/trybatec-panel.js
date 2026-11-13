@@ -2551,8 +2551,7 @@ class TrybatecPanel extends HTMLElement {
       }
       this._costPreview=result;this._costYear=year;
     } catch (_) {
-      this._costError="Coûts indisponibles : vérifiez la connexion, les unités et les relevés source. "+
-        "";
+      this._costError="Coûts indisponibles : vérifiez la connexion, les unités et les relevés source.";
     } finally {this._costBusy=false;this._render();}
   }
   _annualCostsView() {
