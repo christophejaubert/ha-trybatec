@@ -33,6 +33,7 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
             "known_versions": 0, "verified_versions": 0,
             "quarantined_attempts": 0, "meter_generations_observed": 0,
             "metadata_verified": False, "selected_statistic_id": None,
+            "known_generation_ids": [], "native_attempts": {},
         } for fluid in _FLUIDS
     }
     if (not isinstance(ledger, dict) or ledger.get("schema") != 1
@@ -184,11 +185,22 @@ def _selected_intents(
             raise EnergyTransactionRefused("Selected historical window is unbounded")
         ids = item["generation_ids"]
         known = row["known_generation_ids"]
+        attempt = row.get("native_attempts", {}).get(item["statistic_id"])
+        valid_native = (
+            isinstance(attempt, dict)
+            and attempt.get("state") == "verified"
+            and attempt.get("start") == first.isoformat()
+            and attempt.get("end") == last.isoformat()
+            and ids == attempt.get("generations")
+        )
+        valid_b15 = (
+            row["selected_statistic_id"] is not None
+            and item["statistic_id"] == row["selected_statistic_id"]
+        )
         if (not isinstance(ids, list) or not 1 <= len(ids) <= 300
                 or any(not isinstance(v, str) or v not in known for v in ids)
                 or len(set(ids)) != len(ids)
-                or item["statistic_id"] != row["selected_statistic_id"]
-                or row["selected_statistic_id"] is None):
+                or not (valid_native or valid_b15)):
             raise EnergyTransactionRefused(
                 "Selected statistic or physical generation is not in native ledger"
             )
@@ -197,8 +209,60 @@ def _selected_intents(
             "selected_generation_count": len(ids),
             "native_ledger_ids_match": True,
             "approval_and_daily_readback_verified": False,
+            "native_attempt_already_verified": valid_native,
         }
     return output
+
+
+async def _read_native_attempt_catalog_88(
+    hass: Any, entry_id: str, lot: str,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Only validated on-disk #36 immutable attempts; never create/verify one."""
+    from .history_recorder_native_attempt_36 import _validate_journal
+
+    suffix = sha256(entry_id.encode("utf-8")).hexdigest()[:20]
+    try:
+        journal = await _read_store_data(
+            hass, f"trybatec.history_attempts_36_{suffix}"
+        )
+    except FileNotFoundError:
+        return {}
+    states = _validate_journal(journal, entry_id)
+    scoped: dict[str, dict[str, dict[str, Any]]] = {}
+    for attempt in journal["attempts"]:
+        scope = attempt["scope"]
+        if scope["lot"] != lot:
+            continue
+        fluid = scope["fluid"]
+        if (fluid not in _FLUIDS or scope["kind"] != "consolidated"
+                or attempt["unit"] != _UNITS[fluid]):
+            raise ValueError("Native #36 attempt has invalid scoped fluid/unit")
+        serials = set()
+        dates = []
+        for day in attempt["daily"]:
+            if not isinstance(day, dict) or not isinstance(day.get("contributions"), list):
+                raise ValueError("Missing source-bound physical generation")
+            dates.append(day.get("date"))
+            for contribution in day["contributions"]:
+                if not isinstance(contribution, dict):
+                    raise ValueError("Invalid source-bound physical contribution")
+                serial = contribution.get("serial")
+                if not isinstance(serial, str) or not serial:
+                    raise ValueError("Missing source-bound physical identity")
+                serials.add(serial)
+        if not dates or any(not isinstance(v, str) for v in dates):
+            raise ValueError("Native attempt period unavailable")
+        stat = attempt["statistic_id"]
+        catalog = scoped.setdefault(fluid, {})
+        if stat in catalog:
+            raise ValueError("Duplicated native attempt statistic ID")
+        catalog[stat] = {
+            "state": states[stat], "generations": sorted(serials),
+            "start": min(dates), "end": max(dates),
+            "unit": attempt["unit"], "revision": attempt["revision"],
+            "snapshot_hash": attempt["snapshot_hash"],
+        }
+    return scoped
 
 
 async def async_read_recorder_metadata_88(
@@ -256,6 +320,38 @@ async def async_collect_native_scopes_88(
         groups = _ledger_scoped_summary(ledger, lot)
     except (OSError, ValueError, KeyError, TypeError, FileNotFoundError):
         groups = _ledger_scoped_summary(None, lot)
+    # #36 also owns a separate append-only one-shot attempt journal: B15
+    # alone cannot identify these immutable per-revision statistic IDs.
+    try:
+        attempts = await _read_native_attempt_catalog_88(
+            hass, entry.entry_id, lot,
+        )
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        attempts = {}
+        for group in groups.values():
+            group["reasons"].append("native_36_attempt_catalog_unavailable")
+    for fluid, journal_versions in attempts.items():
+        group = groups[fluid]
+        group["native_attempts"] = journal_versions
+        group["native_attempt_versions_observed"] = len(journal_versions)
+        group["quarantined_attempts"] += sum(
+            v["state"] == "quarantined" for v in journal_versions.values()
+        )
+        group["known_generation_ids"] = sorted(set(
+            group["known_generation_ids"]
+        ).union(
+            serial for v in journal_versions.values()
+            for serial in v["generations"]
+        ))
+        group["meter_generations_observed"] = len(group["known_generation_ids"])
+        if any(v["state"] in ("reserved", "enqueue_intent")
+               for v in journal_versions.values()):
+            group["reasons"].append("native_36_unresolved_attempt_exists")
+        if (group["selected_statistic_id"] is not None
+                and group["selected_statistic_id"] in journal_versions):
+            group["reasons"].append(
+                "statistic_id_reused_across_b15_and_native_attempt"
+            )
     # Read #37's persisted retired-meter observations independently of
     # today's cache. A missing archive is unknown, not an empty inventory.
     retired: dict[str, Any] | None = None
@@ -321,11 +417,39 @@ async def async_collect_native_scopes_88(
         # independent #37 selected generations or owner-unique immutable IDs.
         group["independent_36_37_v2_attested"] = False
     intents = _selected_intents(selections, groups)
+    # When one immutable native attempt is explicitly selected, verify
+    # each persisted SQL bucket and approval store, never mutate #36.
+    if selections:
+        from .energy_bulk_native_recorder_readback_88 import (
+            async_read_verified_native_attempt_88,
+        )
+        for choice in selections:
+            fluid, stat = choice["fluid"], choice["statistic_id"]
+            if intents[fluid]["native_attempt_already_verified"]:
+                try:
+                    proof = await async_read_verified_native_attempt_88(
+                        hass, entry.entry_id, stat,
+                    )
+                    if proof["rows_hash"] != (
+                        groups[fluid]["native_attempts"][stat]["snapshot_hash"]
+                    ):
+                        raise ValueError("Native #36 content revision changed")
+                    intents[fluid]["native_recorder_sql_readback_verified"] = True
+                    intents[fluid]["native_attempt_selected_version_hash"] = (
+                        proof["rows_hash"]
+                    )
+                except (OSError, ValueError, TypeError, RuntimeError, KeyError):
+                    groups[fluid]["reasons"].append(
+                        "selected_native_recorder_hourly_readback_failed"
+                    )
+                    intents[fluid]["native_recorder_sql_readback_verified"] = False
     # Do not expose physical serials or private ledger IDs in a compact UI
     # status response; only count and verified-match indicators.
     for fluid, group in groups.items():
         group["selection_intent"] = intents.get(fluid)
         group["known_generation_ids"] = []
+        group["native_attempts"] = {}
+        group["reasons"] = sorted(set(group["reasons"]))
     return {
         "schema": "energy_bulk_native_scopes_88_v1",
         "mode": "authenticated_native_read_only",
