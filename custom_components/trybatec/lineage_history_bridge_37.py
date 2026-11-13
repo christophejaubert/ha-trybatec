@@ -95,8 +95,13 @@ def _daily(
             for day, amount in days.items():
                 if type(day) is not date or day in allocations:
                     raise ValueError("Overlapping or noncanonical daily decision")
-                expected[day] = _amount(amount)
-                if expected[day] <= 0:
+                if type(amount) not in (str, int, float, Decimal):
+                    raise ValueError("Invalid exact daily allocation quantity")
+                try:
+                    expected[day] = Decimal(str(amount))
+                except (InvalidOperation, ValueError) as exc:
+                    raise ValueError("Invalid exact daily allocation quantity") from exc
+                if not expected[day].is_finite() or expected[day] <= 0:
                     raise ValueError("Decision must cover a positive estimated amount")
                 allocations[day] = ref
                 revisions[day] = revision
