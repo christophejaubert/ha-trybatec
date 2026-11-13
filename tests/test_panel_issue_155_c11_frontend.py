@@ -71,15 +71,16 @@ const account={entry_id:"SYNTH-C11-A",data_loaded:true,meters,
   meter_tariffs:{},ledger:{pending:0,series:[]}};
 const fullCoverage={
   status:"complete",completeness:"account_full",
+  observed_years:[2021,2023,2026],
   coverage_start:"2000-01-01",coverage_end:"2026-11-13",
   first_observed_at:"2021-12-21T12:00:00+01:00",
   last_observed_at:"2026-11-01T10:00:00+01:00",
   meters:[
-    {physical_key:key1,first_observed_at:"2021-12-21T12:00:00+01:00",
+    {physical_key:key1,fluid:"EF",observed_years:[2021,2026],first_observed_at:"2021-12-21T12:00:00+01:00",
       last_observed_at:"2026-11-01T10:00:00+01:00",
       covered_start:"2000-01-01",covered_end:"2026-11-13",
       provenance:"verified_supplier_observation"},
-    {physical_key:key2,first_observed_at:"2023-02-01T10:00:00+01:00",
+    {physical_key:key2,fluid:"CET",observed_years:[2023],first_observed_at:"2023-02-01T10:00:00+01:00",
       last_observed_at:"2024-04-01T11:00:00+02:00",
       provenance:"verified_supplier_observation"},
   ],
@@ -93,7 +94,8 @@ const fullCoverage={
 };
 const base={
   id:null,kind:null,status:"complete",discovery_status:"complete",
-  coverage:fullCoverage,progress:null,periods_verified:34,api_requests:0,
+  coverage:fullCoverage,verified_coverage:fullCoverage,
+  progress:null,periods_verified:34,api_requests:0,
   cache_reused:true,failure_category:null,retry_mode:"restart_from_zero",
   retry_reason:"no_atomic_window_checkpoints",
   recorder_writes:false,energy_writes:false
@@ -102,6 +104,8 @@ const complete=view(base);
 assert.equal(complete.discovery_status,"complete");
 assert.equal(complete.coverage.completeness,"account_full");
 assert.equal(complete.coverage.suggested_years.length,6);
+assert.equal(complete.verified_coverage.observed_years.join(","),"2021,2023,2026");
+assert.equal(complete.verified_coverage.meters[1].fluid,"CET");
 assert.equal(complete.cache_reused,true);
 // A successful *bounded job* is not complete account discovery.
 const partialCoverage={...fullCoverage,status:"incomplete",
@@ -114,16 +118,19 @@ const partialCoverage={...fullCoverage,status:"incomplete",
       last_observed_at:"2023-12-01T10:00:00+01:00"},
   ]};
 const partial=view({...base,status:"complete",discovery_status:"incomplete",
-  coverage:partialCoverage,cache_reused:false});
+  coverage:partialCoverage,verified_coverage:partialCoverage,cache_reused:false});
 assert.equal(partial.discovery_status,"incomplete");
 assert.equal(partial.coverage.completeness,"bounded_period_only");
 assert.equal(view({...base,coverage:partialCoverage,
   discovery_status:"complete"}).discovery_status,"unverified");
 // Failed/cancelled windows are not resumable and must not leak raw errors.
 const failed=view({...base,status:"failed",discovery_status:"error",coverage:null,
+  verified_coverage:fullCoverage,
   failure_category:"network",failure_type:"Authorization: private-body"});
 assert.equal(failed.discovery_status,"error");
 assert.equal(failed.failure_category,"network");
+assert.equal(failed.coverage,null);
+assert.equal(failed.verified_coverage.completeness,"account_full");
 assert.equal(JSON.stringify(failed).includes("private-body"),false);
 const interrupted=view({...base,status:"cancelled",
   discovery_status:"interrupted",failure_category:"cancelled",coverage:null});
@@ -192,7 +199,8 @@ fake._hass={user:{is_admin:true},callWS:async req=>{
   const notice=P._historyDiscoveryView.call(fake,"history");
   assert.match(notice,/Découverte historique : Complète/);
   assert.match(notice,/Période source vérifiée/);
-  assert.match(notice,/Résultats déjà vérifiés réutilisés/);
+  assert.match(notice,/Statut issu du cache mémoire/);
+  assert.match(notice,/Années avec relevés effectivement datés/);
   assert.match(notice,/data-discovery-refresh/);
   P._syncHistoryDates.call(fake);
   assert.equal(fake._historyStart,"2021-12-21");
@@ -221,6 +229,9 @@ fake._hass={user:{is_admin:true},callWS:async req=>{
   assert.match(tariff,/data-tariff-field="rate"/);
   assert.match(tariff,/Failure category|Échec catégorisé/);
   assert.match(tariff,/restart_from_zero/);
+  assert.match(tariff,/Preuve historique antérieure encore valide/);
+  assert.match(tariff,/Années avec des relevés effectivement datés/);
+  assert.match(tariff,/Années seulement suggérées par les bornes/);
   assert.doesNotMatch(tariff,/private-body/);
   fake._historyDiscovery.set(account.entry_id,interrupted);
   const stopped=P._historyDiscoveryView.call(fake,"meters");
