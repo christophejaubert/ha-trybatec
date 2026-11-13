@@ -212,6 +212,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Heures","Hours"],
   ["Minutes","Minutes"],
   ["Rechercher les relevés de tous les compteurs","Search historical readings for all meters"],
+  ["Interrompre la recherche globale","Cancel global scan"],
   ["Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.","No Trybatec source found in current Energy configuration."],
   ["Dernier index historique source (non qualifié)","Latest historical source index (unqualified)"],
   ["Entités indisponibles détectées","Unavailable entities detected"],
@@ -1994,11 +1995,19 @@ class TrybatecPanel extends HTMLElement {
     const matched=coverage?.status==="complete" && Array.isArray(coverage.meters)?
       meters.filter(m=>coverage.meters.some(row=>row.physical_key===m.physical_key)).length:0;
     const historyHelp='<div class="notice" role="status">'+
-      (coverage?.status==="loading"?"Recherche globale en cours pour tous les compteurs du compte…":
-       coverage?.status==="error"?"Recherche historique globale incomplète. Relancez l’analyse.":
-       coverage?.status==="complete"?"Recherche globale achevée : "+matched+
-         " compteur(s) avec relevés datés sur "+meters.length+" dans cet inventaire.":
-       String(missing.length)+" compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.")+
+      (coverage?.status==="loading"?this._t(
+         "Recherche globale en cours pour tous les compteurs du compte…",
+         "Account-wide historical scan running for every meter…"):
+       coverage?.status==="error"?this._t(
+         "Recherche historique globale incomplète. Relancez l’analyse.",
+         "Account-wide historical scan incomplete. Retry the analysis."):
+       coverage?.status==="complete"?this._t(
+         "Recherche globale achevée : ","Global scan complete: ")+matched+
+         this._t(" compteur(s) avec relevés datés sur "," meter(s) with dated readings out of ")+
+         meters.length+this._t(" dans cet inventaire."," in this inventory."):
+       String(missing.length)+this._t(
+         " compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.",
+         " retired meter(s) without confirmed historical dates in the current inventory."))+
       (coverage?.status==="loading" && this._tariffJobId?
         '<div class="actions"><button type="button" class="secondary" data-tariff-years-cancel>'+
         'Interrompre la recherche globale</button></div>':"")+
