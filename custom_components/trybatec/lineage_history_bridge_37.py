@@ -7,7 +7,7 @@ The output deliberately NEVER asserts independent historical completeness.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
@@ -52,6 +52,9 @@ def _amount(value: Any) -> Decimal:
 def _daily(
     raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[str],
     daily_decisions: Mapping[date, str] | None = None,
+    decision_allocations: Mapping[str, Mapping[str, Any]] | None = None,
+    physical_identity: tuple[str, str, str] | None = None,
+    source_fingerprint: str | None = None,
 ) -> dict:
     if not isinstance(raw, Mapping) or not isinstance(smoothed, Mapping):
         raise ValueError("Unqualified daily variants")
@@ -69,6 +72,39 @@ def _daily(
         if selected != "smoothed":
             raise ValueError("Per-day approvals cannot attach to raw selection")
     individual = daily_decisions or {}
+    revisions: dict[date, str] = {}
+    if decision_allocations is not None:
+        if (not isinstance(decision_allocations, Mapping)
+                or not decisions or set(decision_allocations) != set(decisions)
+                or physical_identity is None or source_fingerprint is None):
+            raise ValueError("Incomplete revision-scoped daily decision catalog")
+        allocations: dict[date, str] = {}
+        expected: dict[date, Decimal] = {}
+        for ref, record in decision_allocations.items():
+            if not isinstance(record, Mapping):
+                raise ValueError("Invalid revision-scoped decision record")
+            revision = record.get("revision_fingerprint")
+            if (not isinstance(revision, str) or len(revision) != 64
+                    or any(ch not in "0123456789abcdef" for ch in revision)
+                    or record.get("source_fingerprint") != source_fingerprint
+                    or tuple(record.get(k) for k in ("lot", "fluid", "serial")) != physical_identity):
+                raise ValueError("Decision revision or physical source mismatch")
+            days = record.get("daily_estimated")
+            if not isinstance(days, Mapping) or not days or len(days) > 36600:
+                raise ValueError("Decision must list exact estimated days")
+            for day, amount in days.items():
+                if type(day) is not date or day in allocations:
+                    raise ValueError("Overlapping or noncanonical daily decision")
+                expected[day] = _amount(amount)
+                if expected[day] <= 0:
+                    raise ValueError("Decision must cover a positive estimated amount")
+                allocations[day] = ref
+                revisions[day] = revision
+        if daily_decisions is not None and dict(individual) != allocations:
+            raise ValueError("Daily references disagree with revision-scoped allocations")
+        individual = allocations
+    else:
+        expected = {}
     used_individual: set[date] = set()
     # A selected set of gap approvals is not a day-by-day attribution.
     # Never label every estimated day with the first unrelated approval.
@@ -102,8 +138,15 @@ def _daily(
         entry = {"amount": str(quantity), "provenance": provenance}
         if delta:
             if day in individual:
+                if expected and expected[day] != delta:
+                    raise ValueError("Daily estimate disagrees with revision-scoped decision")
                 entry["decision_fingerprint"] = individual[day]
-                entry["decision_attribution"] = "day_candidate_unverified"
+                entry["decision_attribution"] = (
+                    "day_revision_candidate_unverified" if day in revisions
+                    else "day_candidate_unverified"
+                )
+                if day in revisions:
+                    entry["revision_fingerprint"] = revisions[day]
                 used_individual.add(day)
             else:
                 # A pooled decision fingerprint is a set membership hint, never
@@ -297,6 +340,9 @@ def prepare_physical_continuity_37(
                     variant.get("raw"), variant.get("smoothed"),
                     selected=choice, decisions=decisions,
                     daily_decisions=variant.get("day_decision_fingerprints"),
+                    decision_allocations=variant.get("decision_daily_allocations"),
+                    physical_identity=key,
+                    source_fingerprint=row["source_fingerprint"],
                 ),
             })
         if missing:
