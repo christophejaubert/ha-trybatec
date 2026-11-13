@@ -19,9 +19,10 @@ from homeassistant.core import SupportsResponse
 from custom_components.trybatec import history_recorder_native_attempt_36 as native
 from custom_components.trybatec import history_recorder_b15 as b15
 from custom_components.trybatec.history_plan_b15 import _digest, statistic_rows
+from custom_components.trybatec.history_reconstruction import logical_series_id
 
 
-LOGICAL = "trybatec:logical_ef_synthetic_lot"
+LOGICAL = logical_series_id("SYNTH-ACCOUNT-36", "SYNTH", "EF")
 SOURCE = "a" * 64
 COVERAGE = "b" * 64
 STAMP = "2026-11-01T12:00:00+00:00"
@@ -145,6 +146,19 @@ def native_fixture(hass, monkeypatch):
     async def fake_barrier(_hass):
         return None
 
+    # The owned attempt must belong to an actual HA config entry in the test,
+    # not merely to a caller-supplied plan fingerprint.
+    from types import SimpleNamespace
+
+    registry = type(hass.config_entries)
+    previous_get_entry = registry.async_get_entry
+
+    def account_entry(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="SYNTH-ACCOUNT-36")
+        return previous_get_entry(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", account_entry)
     monkeypatch.setattr(native, "async_list_statistic_ids", list_meta)
     monkeypatch.setattr(b15, "async_list_statistic_ids", list_meta)
     monkeypatch.setattr(native, "async_add_external_statistics", enqueue)
@@ -522,7 +536,19 @@ async def test_synthetic_third_party_overwrite_detected_on_reverification(
         hass, "synthetic-36", stat,
     )
     assert result["status"] == "blocked_native_readback_incomplete"
-    assert not result["scoped_recorder_persistence_verified"]
+    assert result["detected_integrity_drift"] is True
+    assert result["verified_attempt_tombstoned"] is True
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(journal, "synthetic-36")[stat] == "compromised"
+    assert journal["events"][-1]["reason"] == "readback_mismatch"
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_compromised"
+    with pytest.raises(ValueError, match="no requeue"):
+        await _enqueue(hass, plan, stat)
+    replacement = await _reserve(hass, plan)
+    assert replacement["statistic_id"] != stat
+    assert "_v1_a2_" in replacement["statistic_id"]
     assert native_fixture["queued"] == [stat]
 
 
@@ -589,3 +615,341 @@ async def test_estimate_cannot_be_relabelled_as_measured(hass, native_fixture):
     with pytest.raises(ValueError, match="cannot be called supplier measurement"):
         await _reserve(hass, plan)
     assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_delayed_writer_between_double_readbacks_is_detected(
+    hass, native_fixture, monkeypatch,
+):
+    """An optimistic barrier cannot protect the second live read."""
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    calls = 0
+
+    async def race(_hass, _stat, _snapshot):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            native_fixture["rows"][stat][-1]["sum"] += 5
+        return deepcopy(native_fixture["rows"][stat])
+
+    monkeypatch.setattr(native, "_read_recorder_rows", race)
+    proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert calls == 2
+    assert proof["status"] == "blocked_native_readback_incomplete"
+    assert proof["detected_integrity_drift"]
+    assert not proof["verified_attempt_tombstoned"]  # not previously verified
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "enqueue_intent"
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_corrupt_tombstone_chain_cannot_be_rehabilitated(hass, native_fixture):
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", stat, reason="administrator_review",
+    )
+    path = Path(hass.config.path(".storage", native._journal_key("synthetic-36")))
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    envelope["data"]["events"][-1]["reason"] = "erased"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="Tombstone cause missing"):
+        await _reserve(hass, plan)
+    with pytest.raises(ValueError, match="Tombstone cause missing"):
+        await _enqueue(hass, plan, stat)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_pending_and_quarantined_attempts_remain_non_admissible(
+    hass, native_fixture,
+):
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_reserved"
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", stat, reason="interrupted",
+    )
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_quarantined"
+    assert native_fixture["queued"] == []
+
+
+
+def _selected_v2(statistic_id: str, snapshot_hash: str) -> dict:
+    return {
+        "account": "SYNTH-ACCOUNT-36", "lot": "SYNTH", "fluid": "EF",
+        "start": "2026-01-01", "end": "2026-01-02",
+        "statistic_id": statistic_id, "unit": "m³",
+        "serials": ["SYNTH-A"], "generation_ids": ["SYNTH-A"],
+        "rows_hash": snapshot_hash, "accepted_missing_days": [],
+    }
+
+
+@pytest.fixture
+def scoped_entry(hass, monkeypatch):
+    """Synthetic HA config entry for read-only scoped selection tests."""
+    from types import SimpleNamespace
+
+    registry = type(hass.config_entries)
+    original = registry.async_get_entry
+
+    def from_fixture(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="SYNTH-ACCOUNT-36")
+        return original(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", from_fixture)
+
+
+@pytest.mark.asyncio
+async def test_readonly_scoped_v2_refuses_global_immutability(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    native_proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert native_proof["scoped_recorder_persistence_verified"] is True
+    before = await native._read_disk(hass, "synthetic-36")
+    selected = _selected_v2(stat, reservation["snapshot_hash"])
+    v2 = await native.async_read_native_scoped_selection_v2_36(
+        hass, "synthetic-36", selected,
+    )
+    after = await native._read_disk(hass, "synthetic-36")
+    assert before == after  # v2 producer never mutates Store or Recorder
+    assert v2["schema"] == "history_36_scoped_selection_v2"
+    assert v2["account"] == "SYNTH-ACCOUNT-36"
+    assert v2["statistic_id"] == stat
+    assert v2["metadata"]["persisted_readback_hash"] == reservation["snapshot_hash"]
+    assert v2["approved_days"][0]["revision_hash"] == _decision_fingerprint(
+        "undetermined_confirmed"
+    )
+    assert v2["selected_series_persisted"] is True
+    assert v2["scoped_double_readback_observed"] is True
+    assert v2["post_restart_readback_verified"] is False
+    assert v2["selected_statistic_id_owned_by_one_scope"] is False
+    assert v2["version_catalog_complete_for_selected_scope"] is False
+    assert v2["selected_version_state"] != "verified_immutable"
+    assert v2["independent_future_writer_exclusion_verified"] is False
+    assert v2["energy_activation_authorized"] is False
+    assert v2["recorder_writes"] is False
+    assert v2["energy_writes"] is False
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_rejects_unverified_or_quarantined_candidate(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    selection = _selected_v2(
+        reservation["statistic_id"], reservation["snapshot_hash"],
+    )
+    with pytest.raises(ValueError, match="pending, quarantined or compromised"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", reservation["statistic_id"], reason="interrupted",
+    )
+    with pytest.raises(ValueError, match="pending, quarantined or compromised"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_rejects_foreign_account_day_serial_hash_and_absence(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    await native.async_native_attempt_proof_36(hass, "synthetic-36", stat)
+    base = _selected_v2(stat, reservation["snapshot_hash"])
+    samples = [
+        ("account", "FOREIGN-ACCOUNT", "Selected account"),
+        ("start", "2025-12-31", "Selected period"),
+        ("serials", ["SYNTH-OTHER"], "Selected physical meter serials"),
+        ("generation_ids", ["fake-opaque"], "Physical generation identifiers"),
+        ("rows_hash", "f" * 64, "Selected native rows hash"),
+        ("accepted_missing_days", ["2026-01-01"], "absence receipts"),
+    ]
+    for key, value, error in samples:
+        chosen = deepcopy(base)
+        chosen[key] = value
+        with pytest.raises(ValueError, match=error):
+            await native.async_read_native_scoped_selection_v2_36(
+                hass, "synthetic-36", chosen,
+            )
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_detects_late_writer_without_fabricating_fence(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    await native.async_native_attempt_proof_36(hass, "synthetic-36", stat)
+    selected = _selected_v2(stat, reservation["snapshot_hash"])
+    assert (await native.async_read_native_scoped_selection_v2_36(
+        hass, "synthetic-36", selected,
+    ))["selected_series_persisted"]
+    native_fixture["rows"][stat][-1]["sum"] += 12
+    with pytest.raises(ValueError, match="Selected Recorder buckets changed"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selected,
+        )
+    # v2 is read-only: the separate active verification will quarantine
+    # this previously verified ID when it observes the same source drift.
+    proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert proof["verified_attempt_tombstoned"] is True
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "compromised"
+    assert native_fixture["queued"] == [stat]
+
+
+
+@pytest.mark.asyncio
+async def test_v2_refuses_unapproved_missing_day(
+    hass, native_fixture, scoped_entry,
+):
+    """An absent supplier observation is not a measured zero or a receipt."""
+    plan = _plan()
+    plan["series"][0]["rows"] = statistic_rows({
+        date(2026, 1, 1): 2.0, date(2026, 1, 3): 3.0,
+    })
+    group = plan["coverage_evidence"]["groups"][0]
+    group["rows"][1]["date"] = "2026-01-03"
+    _rehash_approved_group(plan)
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+    selection = _selected_v2(stat, reservation["snapshot_hash"])
+    selection["end"] = "2026-01-03"
+    with pytest.raises(ValueError, match="missing days without approved no-row receipts"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_reservation_cannot_be_enqueued_after_ha_account_changes(
+    hass, native_fixture, monkeypatch,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+    registry = type(hass.config_entries)
+    prior = registry.async_get_entry
+    from types import SimpleNamespace
+
+    def changed_account(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="FOREIGN-ACCOUNT")
+        return prior(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", changed_account)
+    with pytest.raises(ValueError, match="does not belong to HA account"):
+        await _enqueue(hass, plan, reservation["statistic_id"])
+    assert native_fixture["queued"] == []
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(
+        journal, "synthetic-36",
+    )[reservation["statistic_id"]] == "reserved"
+
+
+
+@pytest.mark.asyncio
+async def test_disk_approval_loss_overrides_cached_choice(
+    hass, native_fixture, monkeypatch,
+):
+    """A matching HA Store cache must not prove persisted user approval."""
+    from custom_components.trybatec.history_smoothing_store import _store, load_choices
+
+    plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
+    reserved = await _reserve(hass, plan)
+    cached = await load_choices(hass, "synthetic-36")
+    assert "d" * 32 in cached
+    file = Path(_store(hass, "synthetic-36").path)
+    assert file.is_file()
+    file.unlink()  # A missing file only in this isolated temporary fixture.
+
+    async def fake_cached_load(_hass, _entry_id):
+        return deepcopy(cached)
+
+    monkeypatch.setattr(native, "load_choices", fake_cached_load)
+    with pytest.raises(ValueError, match="not independently persisted on disk"):
+        await _enqueue(hass, plan, reserved["statistic_id"])
+    assert native_fixture["queued"] == []
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(
+        journal, "synthetic-36",
+    )[reserved["statistic_id"]] == "reserved"
+
+
+
+@pytest.mark.asyncio
+async def test_cached_metadata_glitch_does_not_permanently_tombstone(
+    hass, native_fixture, monkeypatch,
+):
+    """A stale metadata listing blocks approval but does not prove SQL damage."""
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+
+    original = native._check_persisted_metadata
+
+    async def stale_cached_listing(*_args, **_kwargs):
+        raise ValueError("Cached Recorder metadata unavailable")
+
+    monkeypatch.setattr(native, "_check_persisted_metadata", stale_cached_listing)
+    blocked = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert blocked["status"] == "blocked_native_readback_incomplete"
+    assert not blocked["verified_attempt_tombstoned"]
+    assert not blocked["scoped_recorder_persistence_verified"]
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "verified"
+    monkeypatch.setattr(native, "_check_persisted_metadata", original)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+    assert native_fixture["queued"] == [stat]

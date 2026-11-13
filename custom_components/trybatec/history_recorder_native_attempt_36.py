@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
 from hashlib import sha256
 import json
@@ -30,13 +30,18 @@ from homeassistant.components.recorder.models import StatisticMeanType
 
 from .const import DOMAIN
 from .history_plan_b15 import _digest as plan_digest
+from .history_reconstruction import logical_series_id
 from .history_recorder_b15 import (
     _check_persisted_metadata, _metadata, _read_recorder_rows,
     _recorder_writer_barrier, ledger_store as b15_store,
 )
 from .history_v4 import _snapshot
-from .history_smoothing_store import load_choices
-from .history_origin_store import load_origin_choices
+from .history_smoothing_store import (
+    _store as smoothing_store, load_choices,
+    validate_store as validate_smoothing_store,
+)
+from .history_origin_store import load_origin_choices, origin_store
+from .history_origin_decisions import validate_store as validate_origin_store
 from .recorder_guard import verified_snapshot
 
 _SCHEMA = "history_36_native_attempt_journal_v1"
@@ -49,8 +54,9 @@ _EVENT_STATES = {
     None: {"reserved"},
     "reserved": {"enqueue_intent", "quarantined"},
     "enqueue_intent": {"verified", "quarantined"},
-    "verified": set(),
+    "verified": {"compromised"},
     "quarantined": set(),
+    "compromised": set(),
 }
 _LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
@@ -90,7 +96,7 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
             or not isinstance(document["attempts"], list)
             or not isinstance(document["events"], list)
             or len(document["attempts"]) > _MAX_ATTEMPTS
-            or len(document["events"]) > _MAX_ATTEMPTS * 3):
+            or len(document["events"]) > _MAX_ATTEMPTS * 4):
         raise ValueError("Missing, restored or corrupted native attempt journal")
     seen_ids: set[str] = set()
     seen_tokens: set[str] = set()
@@ -167,13 +173,15 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                     states.get(entry["statistic_id"]), set()
                 )):
             raise ValueError("Conflicting or broken append-only event ledger")
-        if (entry["state"] == "quarantined"
+        if (entry["state"] in ("quarantined", "compromised")
                 and entry["reason"] not in (
                     "cancelled", "interrupted", "partial_import", "late_writer",
                     "concurrent_version", "readback_mismatch", "administrator_review",
                 )):
-            raise ValueError("Quarantine cause missing from event")
-        if entry["state"] != "quarantined" and entry["reason"] is not None:
+            raise ValueError("Tombstone cause missing from event")
+        if entry["state"] == "compromised" and entry["reason"] != "readback_mismatch":
+            raise ValueError("Compromised version needs recorded readback mismatch")
+        if entry["state"] not in ("quarantined", "compromised") and entry["reason"] is not None:
             raise ValueError("Unexpected state transition reason")
         raw = {k: v for k, v in entry.items() if k != "hash"}
         if entry["hash"] != _event_hash(raw):
@@ -402,6 +410,22 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
     return item, snapshot, approved
 
 
+async def _read_approval_file(hass: Any, store: Store, validator: Any) -> dict:
+    """Read the actual .storage file, not HA's shared Store memory cache."""
+    try:
+        envelope = await hass.async_add_executor_job(_file_read, store.path)
+    except FileNotFoundError:
+        return validator(None)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("Exact approval Store cannot be read from disk") from exc
+    if (not isinstance(envelope, dict)
+            or envelope.get("key") != store.key
+            or envelope.get("version") != 1
+            or not isinstance(envelope.get("data"), dict)):
+        raise ValueError("Persisted administrator approval envelope does not match")
+    return validator(envelope["data"])
+
+
 async def _verify_stored_day_approvals(
     hass: Any, entry_id: str, days: list[dict[str, Any]],
 ) -> None:
@@ -415,6 +439,22 @@ async def _verify_stored_day_approvals(
     origins = await load_origin_choices(hass, entry_id)
     if not isinstance(choices, dict) or not isinstance(origins, dict):
         raise ValueError("Approved source decisions unavailable")
+    refs = [
+        ref for day in days for contribution in day["contributions"]
+        for ref in contribution["decision_refs"]
+    ]
+    if any(ref.get("kind") == "sparse_residual" for ref in refs):
+        on_disk = await _read_approval_file(
+            hass, smoothing_store(hass, entry_id), validate_smoothing_store,
+        )
+        if on_disk != choices:
+            raise ValueError("Sparse day approval is not independently persisted on disk")
+    if any(ref.get("kind") == "estimated_origin" for ref in refs):
+        on_disk = await _read_approval_file(
+            hass, origin_store(hass, entry_id), validate_origin_store,
+        )
+        if on_disk != origins:
+            raise ValueError("Initial-origin approval is not independently persisted on disk")
     for day in days:
         for contribution in day["contributions"]:
             for ref in contribution["decision_refs"]:
@@ -470,6 +510,23 @@ async def _legacy_ids(hass: Any, entry_id: str) -> set[str]:
     return values
 
 
+def _account_binding(hass: Any, entry_id: str, record: dict) -> str:
+    """Bind each attempt to the trusted HA account, lot and fluid.
+
+    A plan hash alone is not authority over another configuration entry.
+    Reject replay under a different HA account.
+    """
+    entry = hass.config_entries.async_get_entry(entry_id)
+    account = getattr(entry, "unique_id", None)
+    if not isinstance(account, str) or not account:
+        raise ValueError("Native HA account unique identity is unavailable")
+    scope = record.get("scope", record)
+    expected = logical_series_id(account, scope["lot"], scope["fluid"])
+    if record["logical_id"] != expected:
+        raise ValueError("Attempt logical identity does not belong to HA account and scope")
+    return account
+
+
 async def async_reserve_native_attempt_36(
     hass: Any, entry_id: str, plan: dict, logical_id: str, *,
     expected_plan_fingerprint: str, confirm: bool,
@@ -483,6 +540,7 @@ async def async_reserve_native_attempt_36(
     if confirm is not True or plan.get("fingerprint") != expected_plan_fingerprint:
         raise ValueError("Explicit exact current plan approval required")
     item, snapshot, days = _approved_plan(plan, logical_id)
+    _account_binding(hass, entry_id, {**item, "logical_id": logical_id})
     source = item["source_fingerprint"]
     async with _lock(hass):
         journal = await _read_disk(hass, entry_id)
@@ -499,7 +557,7 @@ async def async_reserve_native_attempt_36(
         if previous:
             latest = previous[-1]
             status = states[latest["statistic_id"]]
-            if status not in ("quarantined", "verified"):
+            if status not in ("quarantined", "verified", "compromised"):
                 raise ValueError("Prior attempt unresolved; quarantine without requeue first")
             same = (
                 latest["source_fingerprint"] == source
@@ -597,8 +655,8 @@ async def async_quarantine_native_attempt_36(
         if states[statistic_id] == "quarantined":
             return {"status": "already_quarantined", "statistic_id": statistic_id,
                     "recorder_writes": False, "energy_activation_authorized": False}
-        if states[statistic_id] == "verified":
-            raise ValueError("Verified version cannot be silently quarantined")
+        if states[statistic_id] in ("verified", "compromised"):
+            raise ValueError("Verified or compromised version cannot be silently quarantined")
         _append_event(journal, statistic_id, "quarantined", reason=reason)
         await _persist(hass, entry_id, journal)
         return {"status": "quarantined_no_requeue", "statistic_id": statistic_id,
@@ -623,6 +681,7 @@ async def async_enqueue_native_attempt_36(
             raise ValueError("Missing native attempt journal")
         states = _validate_journal(journal, entry_id)
         record = _find(journal, statistic_id)
+        _account_binding(hass, entry_id, record)
         if states[statistic_id] != "reserved":
             raise ValueError("Attempt already queued, quarantined or verified; no requeue")
         item, snapshot, days = _approved_plan(plan, record["logical_id"])
@@ -666,7 +725,7 @@ async def _read_db_metadata(
     statistics.get_metadata opens a read-only SQL session.
     """
     rows = await hass.async_add_executor_job(partial(
-        get_metadata, hass, statistic_ids={statistic_id}, statistic_source=DOMAIN,
+        get_metadata, hass, statistic_ids={statistic_id},
     ))
     if not isinstance(rows, dict) or set(rows) != {statistic_id}:
         raise ValueError("Native Recorder database metadata missing or duplicated")
@@ -714,6 +773,7 @@ async def async_native_attempt_proof_36(
             raise ValueError("Missing journal after crash or incomplete restore")
         states = _validate_journal(journal, entry_id)
         record = deepcopy(_find(journal, statistic_id))
+        _account_binding(hass, entry_id, record)
         status = states[statistic_id]
         if status not in ("enqueue_intent", "verified"):
             return {
@@ -722,30 +782,58 @@ async def async_native_attempt_proof_36(
                 "scoped_recorder_persistence_verified": False,
                 "energy_activation_authorized": False,
             }
+        integrity_failure = False
         try:
             await _verify_stored_day_approvals(hass, entry_id, record["daily"])
             await _recorder_writer_barrier(hass)
-            rows = await _read_recorder_rows(
-                hass, statistic_id, record["snapshot"],
-            )
-            match, _ = verified_snapshot(record["snapshot"], rows)
-            if not match or len(rows) != len(record["snapshot"]):
-                raise ValueError("Incomplete, changed or unexpected native Recorder buckets")
-            await _check_persisted_metadata(
-                hass, statistic_id,
-                fluid=record["scope"]["fluid"], unit=record["unit"],
-            )
-            await _read_db_metadata(
-                hass, statistic_id,
-                fluid=record["scope"]["fluid"], unit=record["unit"],
-            )
-            if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
-                raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
+            # Two independent native reads across the metadata lookup catch
+            # writes arriving between the first and last observations. This
+            # detects some delayed writers; it is NOT an inter-writer lock.
+            for _pass in range(2):
+                rows = await _read_recorder_rows(
+                    hass, statistic_id, record["snapshot"],
+                )
+                match, _ = verified_snapshot(record["snapshot"], rows)
+                if not match or len(rows) != len(record["snapshot"]):
+                    integrity_failure = True
+                    raise ValueError("Incomplete, changed or unexpected native Recorder buckets")
+                if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
+                    integrity_failure = True
+                    raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
+                # The cached/native listing can temporarily be stale.
+                # Refuse a proof on mismatch, but only tombstone a verified ID
+                # when actual SQL metadata or actual Recorder sums disagree.
+                await _check_persisted_metadata(
+                    hass, statistic_id,
+                    fluid=record["scope"]["fluid"], unit=record["unit"],
+                )
+                try:
+                    await _read_db_metadata(
+                        hass, statistic_id,
+                        fluid=record["scope"]["fluid"], unit=record["unit"],
+                    )
+                except ValueError:
+                    integrity_failure = True
+                    raise
         except (ValueError, TimeoutError, KeyError, TypeError, RuntimeError, OSError) as exc:
+            marked_compromised = False
+            # Evidence of actual bucket or metadata drift after a previous
+            # verified event is a permanent tombstone. A mere timeout or
+            # unavailable approval store never masquerades as integrity drift.
+            if integrity_failure and status == "verified":
+                current = await _read_disk(hass, entry_id)
+                if current != journal:
+                    raise ValueError("Journal changed during late-writer detection")
+                _append_event(journal, statistic_id, "compromised", reason="readback_mismatch")
+                await _persist(hass, entry_id, journal)
+                marked_compromised = True
             return {
                 "schema": _PROOF_SCHEMA, "status": "blocked_native_readback_incomplete",
                 "statistic_id": statistic_id,
                 "journal_disk_verified": True, "scoped_recorder_persistence_verified": False,
+                "detected_integrity_drift": integrity_failure,
+                "verified_attempt_tombstoned": marked_compromised,
+                "independent_future_writer_exclusion_verified": False,
                 "energy_activation_authorized": False, "blocker": type(exc).__name__,
             }
         # A second physical disk read ensures journal state was not based on
@@ -803,6 +891,7 @@ async def async_native_attempt_proof_36(
             "native_buckets_verified": len(record["snapshot"]),
             "recorder_sql_metadata_readback_verified": True,
             "recorder_sql_snapshot_hash_verified": True,
+            "scoped_double_readback_observed": True,
             "daily_approval_refs": deepcopy(record["daily"]),
             "day_approval_fingerprint": record["daily_hash"],
             "native_decision_store_crosscheck_verified": True,
@@ -814,6 +903,210 @@ async def async_native_attempt_proof_36(
             "scoped_recorder_persistence_verified": True,
             "global_history_exhaustiveness_claimed": False,
             "independent_future_writer_exclusion_verified": False,
+            "energy_exclusivity_verified": False,
+            "energy_activation_authorized": False,
+            "recorder_writes": False, "energy_writes": False,
+        }
+
+
+async def async_read_native_scoped_selection_v2_36(
+    hass: Any, entry_id: str, selection: dict[str, Any],
+) -> dict[str, Any]:
+    """Read-only #37/#88 scoped v2 adapter, refusing unsupported guarantees.
+
+    This is NOT registered as a user-facing service and MUST be invoked by a
+    trusted backend after HA admin authentication. No Store, Recorder or Energy
+    writes, even when a previously verified version has been tampered with.
+
+    A correct *observed* version is not "verified_immutable": other native HA
+    writers can still update its statistic_id. Do not promote the result's
+    explicit false gates or manufacture a restart/selection receipt.
+    """
+    from collections.abc import Mapping
+
+    if not isinstance(selection, Mapping):
+        raise ValueError("Missing bounded server-side v2 selection")
+    config_entry = hass.config_entries.async_get_entry(entry_id)
+    account = getattr(config_entry, "unique_id", None)
+    if not isinstance(account, str) or not account:
+        raise ValueError("Native HA account entry is unavailable")
+    if selection.get("account") != account:
+        raise ValueError("Selected account differs from native HA config entry")
+    stat = selection.get("statistic_id")
+    if not isinstance(stat, str) or not valid_statistic_id(stat):
+        raise ValueError("Selected statistic identity missing or invalid")
+    async with _lock(hass):
+        journal = await _read_disk(hass, entry_id)
+        if journal is None:
+            raise ValueError("Native attempt journal missing or restored")
+        states = _validate_journal(journal, entry_id)
+        record = deepcopy(_find(journal, stat))
+        _account_binding(hass, entry_id, record)
+        if states[stat] != "verified":
+            raise ValueError("Selected Recorder version is pending, quarantined or compromised")
+        scope = record["scope"]
+        lot, fluid = scope["lot"], scope["fluid"]
+        if (selection.get("lot") != lot or selection.get("fluid") != fluid
+                or selection.get("unit", record["unit"]) != record["unit"]):
+            raise ValueError("Selected physical scope or unit differs from native journal")
+        days = record["daily"]
+        dates = [date.fromisoformat(day["date"]) for day in days]
+        if any(right != left + timedelta(days=1)
+               for left, right in zip(dates, dates[1:])):
+            raise ValueError(
+                "Selected version contains missing days without approved no-row receipts"
+            )
+        first, last = days[0]["date"], days[-1]["date"]
+        if (selection.get("start") != first or selection.get("end") != last
+                or selection.get("accepted_missing_days", []) != []):
+            # An accepted missing day needs its *own* persisted no-row approval
+            # receipt. Never convert missing API readings to zero statistics.
+            raise ValueError("Selected period changed or lacks independent absence receipts")
+        serials = sorted({
+            contributor["serial"] for row in days
+            for contributor in row["contributions"]
+        })
+        provided_serials = selection.get("serials")
+        if (not isinstance(provided_serials, list)
+                or len(provided_serials) != len(serials)
+                or len(set(provided_serials)) != len(provided_serials)
+                or sorted(provided_serials) != serials):
+            raise ValueError("Selected physical meter serials do not match journal")
+        opaque_ids = [
+            "trybatec:physical_" + sha256(
+                "\x00".join((account, lot, fluid, serial)).encode("utf-8")
+            ).hexdigest()[:32]
+            for serial in provided_serials
+        ]
+        ids = selection.get("generation_ids")
+        if ids not in (provided_serials, opaque_ids):
+            raise ValueError("Physical generation identifiers are foreign or mixed")
+        # The backend's source selection cannot attest full identity solely
+        # from the journal. #37 will recheck actual supplier index pairs.
+        selection_hash = plan_digest(dict(selection))
+        if not isinstance(selection.get("rows_hash"), str) or len(selection["rows_hash"]) != 64:
+            raise ValueError("Missing selected native Recorder rows hash")
+        await _verify_stored_day_approvals(hass, entry_id, days)
+        await _recorder_writer_barrier(hass)
+        for _pass in range(2):
+            rows = await _read_recorder_rows(hass, stat, record["snapshot"])
+            match, _ = verified_snapshot(record["snapshot"], rows)
+            if (not match or len(rows) != len(record["snapshot"])
+                    or _actual_snapshot_hash(rows) != record["snapshot_hash"]):
+                raise ValueError("Selected Recorder buckets changed or incomplete")
+            await _check_persisted_metadata(
+                hass, stat, fluid=fluid, unit=record["unit"],
+            )
+            await _read_db_metadata(
+                hass, stat, fluid=fluid, unit=record["unit"],
+            )
+        if record["snapshot_hash"] != selection["rows_hash"]:
+            raise ValueError("Selected native rows hash differs from persisted version")
+        if await _read_disk(hass, entry_id) != journal:
+            raise ValueError("Native journal changed during scoped readback")
+        # An orphaned version (including a restored journal missing tombstones)
+        # must be rejected, not treated as unused. This inventory is a present
+        # observation; it cannot exclude a queued but not-yet-committed writer.
+        visible = await async_list_statistic_ids(hass)
+        if not isinstance(visible, list):
+            raise ValueError("Native version metadata inventory unavailable")
+        listed = {v.get("statistic_id") for v in visible if isinstance(v, dict)}
+        known = {v["statistic_id"] for v in journal["attempts"]}
+        if any(isinstance(s, str) and s.startswith(record["logical_id"] + "_v")
+               and "_a" in s and s not in known for s in listed):
+            raise ValueError("Orphan native version indicates a missing tombstone")
+        versions = [{
+            "statistic_id": version["statistic_id"],
+            "revision": version["revision"],
+            "attempt": version["attempt"],
+            "state": ("verified_scoped_observation_only"
+                      if states[version["statistic_id"]] == "verified"
+                      else states[version["statistic_id"]]),
+        } for version in journal["attempts"]
+            if version["logical_id"] == record["logical_id"]]
+        legacy = await b15_store(hass, entry_id).async_load()
+        if legacy is not None:
+            if (not isinstance(legacy, dict) or legacy.get("schema") != 1
+                    or not isinstance(legacy.get("series"), dict)):
+                raise ValueError("Legacy version journal unavailable")
+            history = legacy["series"].get(record["logical_id"])
+            if history is not None:
+                if not isinstance(history, dict) or not isinstance(history.get("versions"), list):
+                    raise ValueError("Legacy version records unavailable")
+                for version in history["versions"]:
+                    if not isinstance(version, dict) or not isinstance(version.get("statistic_id"), str):
+                        raise ValueError("Legacy version identity missing")
+                    versions.append({
+                        "statistic_id": version["statistic_id"],
+                        "state": "legacy_unverified_observation",
+                    })
+        selected_total = sum(
+            (Decimal(str(day["total"])) for day in days), Decimal(0),
+        )
+        if abs(selected_total - Decimal(str(record["snapshot"][-1][1]))) > Decimal("0.000001"):
+            raise ValueError("Selected daily total differs from persisted Recorder sum")
+        receipts = []
+        for day in days:
+            for part in day["contributions"]:
+                if Decimal(str(part["estimated"])) <= 0:
+                    continue
+                # #37 v2 can currently represent one explicitly approved
+                # estimate per generation/day; multiple competing approvals
+                # must remain non-admissible, not be counted twice.
+                if len(part["decision_refs"]) != 1:
+                    raise ValueError("Multiple day approvals require a new scoped lineage schema")
+                ref = part["decision_refs"][0]
+                generation_id = ids[provided_serials.index(part["serial"])]
+                receipts.append({
+                    "date": day["date"], "generation_id": generation_id,
+                    "statistic_id": stat, "ref": ref["reference"],
+                    "revision_hash": ref["decision_fingerprint"],
+                    "amount": str(Decimal(str(part["estimated"])).quantize(
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP,
+                    )),
+                    "provenance": (
+                        "portal_unattested_user_approved"
+                        if ref.get("kind") == "estimated_origin"
+                        else "linear_user_approved"
+                    ),
+                    "approved": True,
+                })
+        # Positive source/row/approval observations are deliberately separate
+        # from future-immutability or a native restart-fencing claim.
+        return {
+            "schema": "history_36_scoped_selection_v2",
+            "mode": "native_scoped_readback_no_future_writer_fence",
+            "account": account, "lot": lot, "fluid": fluid,
+            "start": first, "end": last, "unit": record["unit"],
+            "statistic_id": stat, "selection_digest": selection_hash,
+            "selected_total": str(selected_total.quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP,
+            )),
+            "selected_series_persisted": True,
+            "selected_statistic_id_owned_by_one_scope": False,
+            "post_restart_readback_verified": False,
+            "version_catalog_complete_for_selected_scope": False,
+            "pending_for_selected_id": False,
+            "quarantined_selected_id": False,
+            "selected_version_state": "verified_scoped_observation_only",
+            "approved_days": receipts, "approved_absences": [],
+            "daily": [{
+                "date": day["date"],
+                "measured": day["measured"], "estimated": day["estimated"],
+            } for day in days],
+            "metadata": {
+                "persisted_readback_hash": record["snapshot_hash"],
+                "source": DOMAIN, "unit": record["unit"],
+                "sql_readback_verified": True,
+            },
+            "versions": versions,
+            "journal_disk_verified": True,
+            "scoped_double_readback_observed": True,
+            "native_decision_store_crosscheck_verified": True,
+            "independent_future_writer_exclusion_verified": False,
+            "physical_lineage_independently_attested": False,
+            "native_global_writer_fencing_available": False,
+            "global_historical_exhaustiveness_required": False,
             "energy_exclusivity_verified": False,
             "energy_activation_authorized": False,
             "recorder_writes": False, "energy_writes": False,
