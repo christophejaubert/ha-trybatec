@@ -119,7 +119,8 @@ def test_native_verified_sql_receipt_projects_into_positive_l6_v2():
     assert result["writes"] is False
     assert recorder["durable_disk_and_sql_readback_verified"] is True
     assert recorder["versions"][1]["state"] == "quarantined"
-    assert recorder["selected_total"] == "3"
+    from decimal import Decimal
+    assert Decimal(recorder["selected_total"]) == Decimal("3")
     assert copy_choice == CHOICE and copy_witness == witness()
 
 
