@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import secrets
 from typing import Any
@@ -82,6 +83,78 @@ def _file_read(path: str) -> Any:
         return json.load(handle)
 
 
+def _sync_native_journal_file_and_directory(path: str) -> None:
+    """Require OS-backed local file and directory sync after atomic Store save.
+
+    A successful atomic rename alone is not a power-loss durability receipt.
+    This is a local filesystem barrier, NOT an external backup or Recorder
+    transaction. Failure leaves the attempt ambiguous and must fail closed.
+    """
+    with Path(path).open("rb") as handle:
+        os.fsync(handle.fileno())
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(str(Path(path).parent), flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _verify_native_daily_conservation(snapshot: list[list], days: list[dict]) -> None:
+    """Require exact per-generation and per-day consumption conservation.
+
+    Rehashed plan fingerprints or locally modified journal files must not
+    bypass the sum of selected physical contributors. Only approved
+    consumption can enter a cumulative Recorder statistic.
+    """
+    epsilon = Decimal("0.000001")
+    try:
+        if len(snapshot) != len(days) + 1:
+            raise ValueError("Native daily and Recorder bucket counts differ")
+        origin = Decimal(str(snapshot[0][1]))
+        if not origin.is_finite() or abs(origin) > epsilon:
+            raise ValueError("Native Recorder statistical origin must be zero")
+        cumulative = origin
+        for index, day in enumerate(days, 1):
+            contributions = day["contributions"]
+            if not isinstance(contributions, list) or not contributions:
+                raise ValueError("Native day has no physical source contributions")
+            serials = set()
+            measured = Decimal(0)
+            estimated = Decimal(0)
+            for part in contributions:
+                serial = part["serial"]
+                if not isinstance(serial, str) or not serial:
+                    raise ValueError("Native physical meter serial is missing")
+                if serial in serials:
+                    raise ValueError("Daily physical contribution counted twice")
+                serials.add(serial)
+                if part["variant"] not in ("raw", "smoothed"):
+                    raise ValueError("Unrecognized selected physical variant")
+                actual = Decimal(str(part["measured"]))
+                projected = Decimal(str(part["estimated"]))
+                if not actual.is_finite() or not projected.is_finite() or min(actual, projected) < 0:
+                    raise ValueError("Invalid nonnegative physical consumption")
+                measured += actual
+                estimated += projected
+            approved_measured = Decimal(str(day["measured"]))
+            approved_estimated = Decimal(str(day["estimated"]))
+            approved_total = Decimal(str(day["total"]))
+            if (any(not value.is_finite() for value in (
+                    approved_measured, approved_estimated, approved_total))
+                    or min(approved_measured, approved_estimated, approved_total) < 0
+                    or abs(measured - approved_measured) > epsilon
+                    or abs(estimated - approved_estimated) > epsilon
+                    or abs(measured + estimated - approved_total) > epsilon):
+                raise ValueError("Daily physical contributions differ from approved totals")
+            cumulative += approved_total
+            observed = Decimal(str(snapshot[index][1]))
+            if not observed.is_finite() or abs(observed - cumulative) > epsilon:
+                raise ValueError("Recorder daily cumulative sum differs from approved days")
+    except (KeyError, IndexError, TypeError, InvalidOperation) as exc:
+        raise ValueError("Invalid native physical/day conservation evidence") from exc
+
+
 def _event_hash(event: dict[str, Any]) -> str:
     return sha256(json.dumps(
         event, sort_keys=True, separators=(",", ":"), allow_nan=False,
@@ -147,6 +220,7 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                 or not 1 <= len(row["daily"]) <= _MAX_DECISIONS
                 or _event_hash({"daily": row["daily"]}) != row["daily_hash"]):
             raise ValueError("Daily provenance hash has changed")
+        _verify_native_daily_conservation(snapshot, row["daily"])
         scope = row["scope"]
         if (not isinstance(scope, dict)
                 or set(scope) != {"lot", "fluid", "kind", "serial", "variant"}
@@ -250,6 +324,10 @@ async def _persist(hass: Any, entry_id: str, document: dict) -> None:
     if len(raw.encode()) > _MAX_BYTES:
         raise ValueError("Append-only attempt journal size limit exceeded")
     await _store(hass, entry_id).async_save(deepcopy(document))
+    await hass.async_add_executor_job(
+        _sync_native_journal_file_and_directory,
+        hass.config.path(".storage", _journal_key(entry_id)),
+    )
     persisted = await _read_disk(hass, entry_id)
     if persisted != document:
         # Report key names only, NEVER journal values (which may be private).
@@ -404,6 +482,7 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
             "provenance": day["provenance"],
             "contributions": contributions,
         })
+    _verify_native_daily_conservation(snapshot, approved)
     totals = sum((Decimal(str(x["total"])) for x in approved), Decimal(0))
     if abs(totals - Decimal(str(snapshot[-1][1]))) > Decimal("0.000001"):
         raise ValueError("Approved daily consumption does not match Recorder final sum")
@@ -944,6 +1023,16 @@ async def async_read_native_scoped_selection_v2_36(
         _account_binding(hass, entry_id, record)
         if states[stat] != "verified":
             raise ValueError("Selected Recorder version is pending, quarantined or compromised")
+        # Two verified generations would be independently readable but could
+        # be selected together and double-count the same physical consumption.
+        # Never call either version exclusive while both remain verified.
+        if any(
+            other["logical_id"] == record["logical_id"]
+            and other["statistic_id"] != stat
+            and states[other["statistic_id"]] == "verified"
+            for other in journal["attempts"]
+        ):
+            raise ValueError("Multiple verified physical versions require explicit reconciliation")
         scope = record["scope"]
         lot, fluid = scope["lot"], scope["fluid"]
         if (selection.get("lot") != lot or selection.get("fluid") != fluid
@@ -1103,6 +1192,9 @@ async def async_read_native_scoped_selection_v2_36(
             "journal_disk_verified": True,
             "scoped_double_readback_observed": True,
             "native_decision_store_crosscheck_verified": True,
+            "selected_daily_conservation_verified": True,
+            "single_verified_native_generation_observed": True,
+            "observed_scope_only_not_future_write_authority": True,
             "independent_future_writer_exclusion_verified": False,
             "physical_lineage_independently_attested": False,
             "native_global_writer_fencing_available": False,

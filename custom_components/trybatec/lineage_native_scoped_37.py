@@ -448,6 +448,9 @@ def prepare_native_scoped_lineage_37(
         reasons.add("selected_physical_unit_incompatible")
     if group.get("status") == "blocked_incomplete_physical_series":
         reasons.add("selected_physical_variant_incomplete")
+    group_blockers = group.get("blockers")
+    if not isinstance(group_blockers, list) or group_blockers:
+        reasons.add("selected_physical_bridge_has_unresolved_blockers")
     unit = _UNITS[fluid]
     generations = []
     expected = {}
@@ -557,6 +560,9 @@ def prepare_native_scoped_lineage_37(
             or native.get("quarantined_selected_id") is not False
             or native.get("selected_version_state") != "verified_immutable"):
         reasons.add("selected_recorder_revision_not_immutable")
+    # Disk/SQL observations do not exclude a late Home Assistant writer.
+    if native.get("independent_future_writer_exclusion_verified") is not True:
+        reasons.add("native_36_future_writer_exclusion_unverified")
 
     daily = group.get("rows")
     if not isinstance(daily, list) or len(daily) > _MAX_ROWS:
@@ -576,6 +582,24 @@ def prepare_native_scoped_lineage_37(
         reasons.add("native_36_approved_days_unbounded")
         approved = approved[:_MAX_DAYS]
     used_approved_receipts: set[int] = set()
+    # A consolidated daily sum can conceal a swapped physical serial.
+    # Require #36's actual persisted contributions for each selected day.
+    recorded_by_day: dict[str, Mapping[str, Any]] = {}
+    if not isinstance(native.get("daily"), list) or len(native["daily"]) > _MAX_DAYS:
+        reasons.add("native_36_daily_physical_readback_unavailable")
+    else:
+        for recorded in native["daily"]:
+            if not isinstance(recorded, Mapping):
+                reasons.add("native_36_daily_physical_readback_invalid")
+                continue
+            try:
+                recorded_date = _date(recorded.get("date")).isoformat()
+            except (TypeError, ValueError):
+                reasons.add("native_36_daily_physical_readback_invalid")
+                continue
+            if recorded_date in recorded_by_day:
+                reasons.add("native_36_duplicate_daily_physical_readback")
+            recorded_by_day[recorded_date] = recorded
     for row in sorted(daily, key=lambda x: x.get("date", "") if isinstance(x, Mapping) else ""):
         if not isinstance(row, Mapping):
             raise ValueError("Invalid physical contribution")
@@ -594,8 +618,6 @@ def prepare_native_scoped_lineage_37(
         if len(contributors) > _MAX_METERS:
             reasons.add("selected_daily_contributors_unbounded")
             continue
-        if len(contributors) > 1:
-            reasons.add("concurrent_physical_generations_not_apportioned")
         used = set()
         members = []
         total = Decimal(0)
@@ -680,8 +702,59 @@ def prepare_native_scoped_lineage_37(
                 })
             else:
                 reasons.add("unqualified_source_provenance")
-        if len(members) > 1:
-            reasons.add("concurrent_physical_generations_not_apportioned")
+        persisted_day = recorded_by_day.get(ds)
+        if persisted_day is None:
+            reasons.add("native_36_selected_physical_day_not_persisted")
+        else:
+            persisted_members = persisted_day.get("contributions")
+            if not isinstance(persisted_members, list) or len(persisted_members) > _MAX_METERS:
+                reasons.add("native_36_daily_physical_readback_unavailable")
+            else:
+                persisted_by_serial = {}
+                for stored in persisted_members:
+                    if (not isinstance(stored, Mapping)
+                            or not isinstance(stored.get("serial"), str)
+                            or stored["serial"] in persisted_by_serial):
+                        reasons.add("native_36_duplicate_or_invalid_physical_member")
+                        continue
+                    persisted_by_serial[stored["serial"]] = stored
+                source_serials = {
+                    part.get("serial") for part in contributors
+                    if isinstance(part, Mapping)
+                }
+                if set(persisted_by_serial) != source_serials:
+                    reasons.add("native_36_physical_member_set_mismatch")
+                for part in contributors:
+                    if not isinstance(part, Mapping):
+                        continue
+                    stored = persisted_by_serial.get(part.get("serial"))
+                    if stored is None:
+                        continue
+                    try:
+                        amount = _decimal(part.get("consumption"))
+                        origin = part.get("provenance")
+                        measured = amount if origin == "measured" else Decimal(0)
+                        estimated = amount if origin == "estimated_linear_confirmed" else Decimal(0)
+                        if (_decimal(stored.get("measured")).quantize(_MICRO)
+                                != measured.quantize(_MICRO)
+                                or _decimal(stored.get("estimated")).quantize(_MICRO)
+                                != estimated.quantize(_MICRO)):
+                            reasons.add("native_36_physical_member_amount_or_origin_mismatch")
+                        refs = stored.get("decision_refs")
+                        if not isinstance(refs, list):
+                            reasons.add("native_36_physical_member_decisions_missing")
+                        elif origin == "measured" and refs:
+                            reasons.add("native_36_measured_member_has_approval")
+                        elif origin == "estimated_linear_confirmed" and (
+                            len(refs) != 1
+                            or not isinstance(refs[0], Mapping)
+                            or refs[0].get("reference") != part.get("decision_fingerprint")
+                            or refs[0].get("decision_fingerprint")
+                            != part.get("revision_fingerprint")
+                        ):
+                            reasons.add("native_36_physical_member_day_revision_mismatch")
+                    except (ValueError, TypeError):
+                        reasons.add("native_36_physical_member_quantity_invalid")
         if total.quantize(_MICRO) != _decimal(row.get("consumption")).quantize(_MICRO):
             reasons.add("physical_contributor_sum_mismatch")
         if len(members) != len(contributors):
@@ -787,6 +860,10 @@ def prepare_native_scoped_lineage_37(
         if (sid == stat and version.get("state") != "verified_immutable"
                 or sid != stat and version.get("state") == "verified_immutable"):
             reasons.add("physical_selected_version_not_exclusive")
+        if sid != stat and version.get("state") not in (
+            "archived_immutable", "quarantined",
+        ):
+            reasons.add("unresolved_competing_version_in_selected_scope")
     if sum(v.get("statistic_id") == stat for v in versions
            if isinstance(v, Mapping)) != 1:
         reasons.add("selected_statistic_version_not_unique")

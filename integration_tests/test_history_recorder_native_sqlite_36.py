@@ -179,6 +179,25 @@ async def test_native_attempt_real_sqlite_persists_exact_rows_and_metadata(
     assert (await native._read_disk(
         hass, entry.entry_id,
     ))["events"][-1]["state"] == "verified"
+    # A genuine isolated HA SQLite readback now exercises the server-facing
+    # #37/#88 v2 handoff. Positive physical/day observations must never
+    # manufacture a cross-writer fence or Energy activation permission.
+    selected = {
+        "account": entry.unique_id, "lot": "CI-NATIVE-LOT", "fluid": "EF",
+        "unit": "m³", "start": "2026-02-02", "end": "2026-02-03",
+        "statistic_id": stat, "serials": ["CI-PHYSICAL-36"],
+        "generation_ids": ["CI-PHYSICAL-36"],
+        "rows_hash": reservation["snapshot_hash"], "accepted_missing_days": [],
+    }
+    v2 = await native.async_read_native_scoped_selection_v2_36(
+        hass, entry.entry_id, selected,
+    )
+    assert v2["schema"] == "history_36_scoped_selection_v2"
+    assert v2["selected_daily_conservation_verified"] is True
+    assert v2["single_verified_native_generation_observed"] is True
+    assert v2["selected_series_persisted"] is True
+    assert v2["independent_future_writer_exclusion_verified"] is False
+    assert v2["energy_activation_authorized"] is False
 
 
 async def test_native_sqlite_late_writer_overwrites_old_version_and_is_tombstoned(
