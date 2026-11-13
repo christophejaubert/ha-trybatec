@@ -13,6 +13,7 @@ import pytest
 from homeassistant.core import SupportsResponse
 
 from custom_components.trybatec import history_recorder_b15 as recorder
+from custom_components.trybatec import energy_runtime_b15 as energy
 
 @pytest.fixture(autouse=True)
 def _synthetic_recorder_metadata(monkeypatch):
@@ -26,7 +27,6 @@ def _synthetic_recorder_metadata(monkeypatch):
         } for stat in statistic_ids]
     monkeypatch.setattr(recorder, "async_list_statistic_ids", lookup)
 
-from custom_components.trybatec import energy_runtime_b15 as energy
 
 
 @pytest.mark.asyncio
