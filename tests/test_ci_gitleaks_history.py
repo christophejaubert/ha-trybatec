@@ -13,10 +13,17 @@ FINGERPRINT = (
 )
 
 
-def test_single_scoped_historical_gitleaks_exception():
+ENERGY_STORAGE_FINGERPRINT = (
+    "5de2f7291555ba0e6a058f6265498876ee562fd4:"
+    "custom_components/trybatec/energy_bulk_native_port_l7.py:generic-api-key:55"
+)
+
+
+def test_precisely_scoped_historical_gitleaks_exceptions():
     lines = (ROOT / ".gitleaksignore").read_text(encoding="utf-8").splitlines()
     active = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
-    assert active == [FINGERPRINT]
+    assert active == [FINGERPRINT, ENERGY_STORAGE_FINGERPRINT]
+    assert len(active) == len(set(active))
     assert re.fullmatch(r"[a-f0-9]{40}:[a-zA-Z0-9_./-]+:[a-zA-Z0-9_-]+:[1-9][0-9]*", active[0])
 
 
