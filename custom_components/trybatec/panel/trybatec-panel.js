@@ -1339,7 +1339,8 @@ class TrybatecPanel extends HTMLElement {
     const action=status==="running"?
       (canCancel?'<button type="button" class="secondary" data-tariff-years-cancel>'+
         safe(t("Interrompre la recherche globale","Cancel account-wide scan"))+'</button>':""):
-      '<button type="button" class="secondary" data-historical-scan>'+
+      '<button type="button" class="secondary" '+
+        (place==="tariffs"?"data-tariff-years-retry":"data-historical-scan")+'>'+
         safe(t("Rechercher les relevés de tous les compteurs",
           "Search historical readings for all meters"))+'</button>';
     return '<div class="notice" role="region" aria-label="'+
