@@ -36,6 +36,11 @@
     "writes": false,
     "activation_authorized": false
   },
+  "l6_diagnostics": {
+    "EF": {"status": "blocked", "blockers": ["native_36_37_evidence_missing"], "activation_authorized": false},
+    "ECS": {"status": "blocked", "blockers": ["native_36_37_evidence_missing"], "activation_authorized": false},
+    "CET": {"status": "blocked", "blockers": ["native_36_37_evidence_missing"], "activation_authorized": false}
+  },
   "fluids": {
     "EF": {"status": "insufficient_evidence", "reasons": []},
     "ECS": {"status": "insufficient_evidence", "reasons": []},
@@ -141,7 +146,7 @@ Requête d'aperçu (WebSocket HA, authentification déjà établie) :
 {"type":"trybatec/energy_bulk_88/preview","entry_id":"synthetic-entry","lot":"synthetic-lot"}
 ```
 
-Résultat : `schema = energy_bulk_admin_actions_88_v1`, `status = blocked`, `preview`, `fluids.EF/ECS/CET`, `prerequisites`, `blockers`, `transaction.journal_status`, `transaction.recovery_required`, `actions.preview.enabled = true`, `actions.confirm.enabled = false`, `fallback = setup_assistant`. La réponse ne contient jamais les copies de préférences ou les identifiants de sauvegarde.
+Résultat : `schema = energy_bulk_admin_actions_88_v1`, `status = blocked`, `preview`, `fluids.EF/ECS/CET`, `l6_diagnostics.EF/ECS/CET`, `prerequisites`, `blockers`, `transaction.journal_status`, `transaction.recovery_required`, `actions.preview.enabled = true`, `actions.confirm.enabled = false`, `fallback = setup_assistant`. La réponse ne contient jamais les copies de préférences ou les identifiants de sauvegarde.
 
 Confirmation (conservée pour le futur protocole, **actuellement refusée**) :
 
@@ -167,6 +172,6 @@ The positive test builds **synthetic, fictional** future-owner evidence and cann
 
 Two HA WebSocket routes are registered after the admin panel: `trybatec/energy_bulk_88/preview` (authenticated admin, strict native account/lot scope, read-only) and `trybatec/energy_bulk_88/confirm` (authenticated admin, explicit fingerprint/digest/boolean, **hard-disabled** by the shared non-configurable backend constant `NATIVE_ENERGY_BULK_WRITES_ENABLED_88 = False`). The disabled route returns `energy_bulk_not_qualified` before constructing a transaction port. No startup Energy/Recorder mutation, provider scan, backup or restore is performed.
 
-Frontend #156 owns only presentation of `energy_bulk_admin_actions_88_v1`: per-fluid states and blockers, native prerequisites, immutable preview token fields, journal/recovery status, disabled confirmation and setup fallback. Do not expose backup IDs, internal journal preference snapshots or any browser-controlled proof flag. No automatic recovery endpoint is supplied.
+Frontend #156 owns only presentation of `energy_bulk_admin_actions_88_v1`: per-fluid states and blockers, independent `l6_diagnostics` (all `activation_authorized=false`), native prerequisites, immutable preview token fields, journal/recovery status, disabled confirmation and setup fallback. Do not expose backup IDs, internal journal preference snapshots or any browser-controlled proof flag. No automatic recovery endpoint is supplied.
 
 Isolated HA route tests, synthetic positive/negative cross-contract cases and existing L7 transaction regressions must pass on the exact SHA. Live fencing, actual restore, category semantics, external-writer concurrency, native acceptance, and CI security remain separate **blocking** requirements. Historical Gitleaks failure should be reconciled by CI/CD (#124), not bypassed. No merge, release, deployment or real HA mutation is authorized.
