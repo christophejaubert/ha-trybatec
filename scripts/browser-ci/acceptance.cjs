@@ -148,6 +148,12 @@ async function runCase(browser, locale, device, dark=false) {
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
+        if (command.type==="trybatec/panel_history_discovery_status") return {
+          status:"not_started",discovery_status:"not_started",
+          coverage:{status:"not_started",completeness:"unknown"},
+          verified_coverage:null,recorder_writes:false,energy_writes:false,
+          retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints"
+        };
         if (command.type==="trybatec/panel_history_job_start") {
           globalThis.__lastJobKind=command.kind;
           return {id:"SYNTHETIC-JOB",kind:command.kind,status:"running"};
@@ -503,6 +509,7 @@ async function runCase(browser, locale, device, dark=false) {
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
   assert.ok(observed.every(x=>["trybatec/panel_snapshot",
+      "trybatec/panel_history_discovery_status",
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"].includes(x)),
     "Only read-only snapshots and historical preview jobs are allowed in visual acceptance");
   assert.ok(observed.includes("trybatec/panel_history_job_start"),
