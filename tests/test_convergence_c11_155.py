@@ -31,6 +31,7 @@ def _scope_and_clock():
         "date": date,
         "datetime": datetime,
         "ZoneInfo": ZoneInfo,
+        "TIMEZONE": "Europe/Paris",
         "timezone": timezone,
         "sha256": sha256,
         "timedelta": __import__("datetime").timedelta,
