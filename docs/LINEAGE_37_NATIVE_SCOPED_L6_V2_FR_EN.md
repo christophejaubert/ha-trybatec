@@ -109,3 +109,79 @@ Même un exemple synthétique « v2 positif » ne peut pas prouver la réalité 
 An approved missing day remains absent with a separately verified `quantity=null` receipt, **not** an invented zero. All-time supplier meter-population completeness is **not** required. Unknown replacement dates and retired generations are retained. Actual conflicting or unknown evidence **inside the selection** is refused; unrelated unknown history outside it is not globally vetoed. The producer refuses stale source snapshots, bad readback, foreign sources, reused days, wrong revision/quantity and potential double counting.
 
 Native #36 scoped v2 readback and durable day-revision approval collectors and authenticated administrator-choice retrieval are **not implemented by #37**; their absence keeps the producer fail-closed. A v2 synthetic positive proves the contract's arithmetic/shape, not production authority. The current #88 contract cannot yet represent mixed measured+estimated amounts for the same generation/day; that case remains blocked pending a separate #88 contract enhancement. #81 remains read-only, and all merge, release, migration, deletion, Recorder/Energy writes and HA operations remain outside this mandate.
+
+
+---
+
+## FR — Raccordement réel aux tentatives Recorder #36 (complément du 13 novembre 2026)
+
+La tête de #159 produit actuellement la preuve native
+`history_36_native_attempt_proof_v1` via
+`async_native_attempt_proof_36`, et **pas**
+`history_36_scoped_selection_v2`. Sa lecture SQL double, les
+métadonnées Recorder, le journal durable et les références de décisions sont
+des observations utiles, mais ne valent pas garantie d'exclusion des écrivains
+tardifs, de relance après redémarrage, d'inventaire complet des versions
+sélectionnées ni d'exclusivité Énergie.
+
+`lineage_native_scoped_37.audit_native_attempt_link_37(selection, selected_physical_days, proof_36)`
+effectue désormais un recoupement distinct et **non autorisant** :
+
+- même lot, fluide, ID statistique, unité, génération de tentative et révision
+  exacte intégrées à l'identifiant natif ;
+- même empreinte du snapshot Recorder et mêmes journées et contributions
+  par compteur physique, sans soustraire leurs index respectifs ;
+- conservation des étiquettes mesurée/estimée, des références journalières et
+  de leurs empreintes de révision ; une contradiction est refusée ;
+- les absences explicitement sélectionnées ne sont jamais transformées en zéro.
+
+Le producteur `prepare_native_scoped_lineage_37` expose ce diagnostic
+dans `native_36_attempt_link` lorsque le schéma v1 est reçu.
+Il maintient **toujours** `selected_scope_reconciled=false`
+sur cette voie et ne produit aucun document de remplacement v2. Les causes
+de refus incluent `native_36_scoped_selection_v2_not_issued`,
+`native_attempt_future_writer_exclusion_unverified` et, selon
+les observations, les conflits de jours, de séries ou de révisions.
+
+Le chemin v2 déjà défini reste utilisable avec un **authentique producteur
+backend #36** fournissant des lectures et décisions de la même révision.
+La preuve documentaire #37, la preuve native Recorder #36 et
+l'admissibilité L6 Énergie #88 sont trois résultats distincts. Les simples
+drapeaux issus d'un test synthétique n'autorisent jamais une écriture HA.
+
+La filiation refuse aussi les reçus d'approbation ou d'absence étrangers,
+les versions dupliquées ou simultanément déclarées vérifiées et les journées
+hors bornes de service connues. Une date de remplacement inconnue reste
+inconnue ; aucune migration #81 ni intervention sur les entités HA n'est faite.
+
+**Reste à fournir par #159/#158/#164 :** producteur natif v2 authentifié,
+contrôle de révisions post-redémarrage et des écrivains concurrents,
+inventaire des versions, relecture indépendante des décisions et audit Énergie
+au moment de L6/L7. Aucun résultat positif de tests fictifs n'équivaut à
+une recette de l'installation réelle.
+
+## EN — Actual #36 native attempt interoperability (13 November 2026)
+
+PR #159 currently emits `history_36_native_attempt_proof_v1`,
+not the `history_36_scoped_selection_v2` required by L6.
+The new pure `audit_native_attempt_link_37` checks
+the selected scope, exact versioned statistic ID, persisted snapshot
+fingerprint, daily per-physical-meter amounts, provenance and approval revision
+references. It reports mismatches and never subtracts indexes from separate
+physical meters. Approved absences remain absent.
+
+When a native v1 proof is supplied, the #37 producer places its diagnostics
+under `native_36_attempt_link` and **keeps L6 blocked**.
+A genuine independently authenticated v2 producer, post-restart readback,
+complete scoped version inventory, future-writer protection and Energy
+exclusivity are still dependencies. Unknown replacement dates are retained,
+while contradictory dates, extra approvals, competing verified versions and
+out-of-service contributions are rejected. #81 identity migration, Home
+Assistant changes, merge and release remain outside this PR.
+
+**Synthetic coverage:** `tests/test_lineage_native_recorder_link_37.py`
+and `tests/test_lineage_native_scoped_37.py` cover positive
+physical arithmetic, successive generations, unknown/contradictory dates,
+missing approved days, mismatched revisions, duplicates and competing versions.
+Only the v2 #36/#37/#88 chain can be an actual L6 candidate after the
+independent native producers have been implemented and verified.
