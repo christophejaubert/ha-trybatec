@@ -1208,7 +1208,7 @@ class TrybatecPanel extends HTMLElement {
       const view=trybatecC11Presentation(response);
       this._historyDiscovery.set(entryId,view);
       // Old local projections must not outlive a backend cache invalidation.
-      if (view.coverage?.completeness!=="account_full" &&
+      if (view.verified_coverage?.completeness!=="account_full" &&
           view.discovery_status!=="running") this._tariffCoverage?.delete(entryId);
       if (view.discovery_status==="running" && view.id &&
           view.kind==="tariff_year_coverage") {
@@ -1254,8 +1254,14 @@ class TrybatecPanel extends HTMLElement {
       interrupted:t("Interrompue","Interrupted"),
       unverified:t("État non vérifié","Unverified status")
     };
-    const cover=view?.coverage;
+    const latest=view?.coverage;
+    const cover=view?.verified_coverage||latest;
+    const retained=["running","error","interrupted"].includes(status) &&
+      cover && ["complete","incomplete"].includes(cover.status);
     const rows=[];
+    if (retained) rows.push(t(
+      "Preuve historique antérieure encore valide : distincte de la tentative en cours ou échouée.",
+      "Previously verified history remains valid, independently of the running or failed attempt."));
     if (cover && cover.status!=="not_started") {
       if (cover.coverage_start && cover.coverage_end)
         rows.push(t("Période source vérifiée : ","Verified source interval: ")+
@@ -1270,6 +1276,9 @@ class TrybatecPanel extends HTMLElement {
           "Full account coverage for the supported period."):
         t("Couverture partielle : ces bornes ne prouvent pas les premières et dernières observations de toute l’histoire.",
           "Partial coverage: these bounds do not establish the first or last observations of the entire history."));
+      if (Array.isArray(cover.observed_years) && cover.observed_years.length)
+        rows.push(t("Années avec relevés effectivement datés : ",
+          "Years with actual dated readings: ")+safe(cover.observed_years.join(", ")));
       if (cover.cache_expires_at)
         rows.push(t("Cache vérifié jusqu’au ","Cache valid until ")+
           safe(this._date(cover.cache_expires_at,true)));
@@ -1285,9 +1294,9 @@ class TrybatecPanel extends HTMLElement {
         safe(progress.http_requests??t("non communiqué","not reported")));
     else if (Number.isInteger(view?.periods_verified))
       rows.push(t("Périodes vérifiées : ","Verified periods: ")+safe(view.periods_verified));
-    if (view?.cache_reused)
-      rows.push(t("Résultats déjà vérifiés réutilisés, sans nouvelle lecture fournisseur.",
-        "Previously verified results reused without a new supplier request."));
+    if (view?.cache_reused || cover?.cache_reused)
+      rows.push(t("Statut issu du cache mémoire, sans nouvelle lecture fournisseur.",
+        "Status served from memory without a new supplier read."));
     const invalidations={
       identity_changed:t("identité du compte modifiée","account identity changed"),
       date_changed:t("changement de journée","local date changed"),
@@ -2909,10 +2918,11 @@ class TrybatecPanel extends HTMLElement {
       this._historyDateEntryId=entryId;
     }
     const discovery=this._historyDiscovery?.get(entryId);
-    const verified=discovery?.coverage?.completeness==="account_full" ||
-      discovery?.coverage?.completeness==="bounded_period_only";
+    const evidence=discovery?.verified_coverage||discovery?.coverage;
+    const verified=evidence?.completeness==="account_full" ||
+      evidence?.completeness==="bounded_period_only";
     const bounds=trybatecHistoricalBounds(account,key,
-      verified?discovery.coverage:this._tariffCoverage?.get?.(entryId));
+      verified?evidence:this._tariffCoverage?.get?.(entryId));
     this._historyDateScope=scope;
     const previousStart=this._historyStart, previousEnd=this._historyEnd;
     if (!this._historyDatesEdited?.start) this._historyStart=bounds.start;
@@ -3211,7 +3221,11 @@ class TrybatecPanel extends HTMLElement {
       '<button type="button" data-tariff-years-retry>'+
       'Rechercher les exercices historiques</button></p>';
     const discovery=this._historyDiscovery?.get(a.entry_id);
-    const suggested=discovery?.coverage?.suggested_years||[];
+    const evidence=discovery?.verified_coverage||discovery?.coverage;
+    const suggested=evidence?.completeness==="account_full"?
+      evidence.suggested_years||[]:[];
+    const observed=evidence?.completeness==="account_full"?
+      evidence.observed_years||[]:[];
     const registered=Object.keys(a.tariffs||{}).concat(
       Object.keys(a.meter_tariffs||{})).filter(x=>/^[0-9]{4}$/.test(x)).map(Number);
     const yearSet=new Set([...range.years,...suggested,...registered]);
@@ -3230,10 +3244,14 @@ class TrybatecPanel extends HTMLElement {
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
       (this._historyDiscoveryView?.("tariffs")||legacyCoverageNotice)+
+      (observed.length?'<p class="muted">'+safe(this._t(
+        "Années avec des relevés effectivement datés : ",
+        "Years with actually dated readings: "))+safe(observed.join(", "))+'</p>':"")+
       (suggested.length?'<p class="muted">'+safe(this._t(
-        "Années suggérées selon les premières et dernières observations de la période vérifiée ; aucun relevé annuel intermédiaire n’est garanti.",
-        "Suggested years span the first and last observations in verified coverage; readings in intermediate years are not guaranteed."))+
-        ' '+safe(suggested.join(", "))+'</p>':"")+
+        "Années seulement suggérées par les bornes de la recherche globale : ",
+        "Years suggested by the full scan's outer bounds: "))+
+        safe(suggested.filter(y=>!observed.includes(y)).join(", ")||
+          this._t("aucune année supplémentaire","no additional year"))+'</p>':"")+
       '<p class="muted">'+safe(this._t("Exercices avec tarifs enregistrés : ",
         "Years with saved rates: "))+safe(storedYears.length?storedYears.join(", "):
         this._t("aucun","none"))+'. '+safe(this._t(
