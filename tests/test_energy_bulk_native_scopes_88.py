@@ -270,3 +270,111 @@ def test_quarantined_attempt_is_visible_but_never_selected(monkeypatch):
     assert observed["fluids"]["EF"]["quarantined_attempts"] == 1
     assert observed["fluids"]["EF"]["selected_statistic_id"] == SID
     assert observed["activation_authorized"] is False
+
+
+def test_new_verified_36_attempt_is_selectable_and_sql_rechecked(monkeypatch):
+    from custom_components.trybatec import (
+        energy_bulk_native_recorder_readback_88 as observer,
+    )
+    hass, coordinator, actor = setup(monkeypatch)
+    new_stat = "trybatec:logical_native_ef_v1_a1_" + "f" * 32
+    attempts = {
+        "EF": {
+            new_stat: {
+                "state": "verified", "generations": ["SYNTH-SERIAL"],
+                "start": "2026-03-01", "end": "2026-03-02",
+                "unit": "m³", "revision": 1, "snapshot_hash": "f" * 64,
+            },
+        },
+    }
+
+    async def genuine_native_catalog(_hass, _entry_id, _lot):
+        return deepcopy(attempts)
+
+    async def independent_sql_readback(_hass, _entry_id, stat):
+        assert stat == new_stat
+        return {"rows_hash": "f" * 64}
+
+    monkeypatch.setattr(
+        native, "_read_native_attempt_catalog_88", genuine_native_catalog,
+    )
+    monkeypatch.setattr(
+        observer, "async_read_verified_native_attempt_88",
+        independent_sql_readback,
+    )
+    choice = _user_selection(
+        statistic_id=new_stat, start="2026-03-01", end="2026-03-02",
+    )
+    result = asyncio.run(native.async_collect_native_scopes_88(
+        hass, coordinator, actor=actor, lot=LOT, selections=[choice],
+    ))
+    ef = result["fluids"]["EF"]
+    assert ef["native_attempt_versions_observed"] == 1
+    assert ef["selection_intent"]["native_attempt_already_verified"] is True
+    assert ef["selection_intent"]["native_recorder_sql_readback_verified"] is True
+    assert ef["selection_intent"]["native_attempt_selected_version_hash"] == "f" * 64
+    assert ef["native_attempts"] == {}  # never disclose raw journal
+    assert result["activation_authorized"] is False
+
+
+def test_native_unresolved_attempt_is_never_admitted_even_with_matching_ids(
+    monkeypatch,
+):
+    hass, coordinator, actor = setup(monkeypatch)
+    new_stat = "trybatec:logical_native_ef_v1_a1_" + "f" * 32
+
+    async def pending_catalog(_hass, _entry_id, _lot):
+        return {"EF": {new_stat: {
+            "state": "enqueue_intent", "generations": ["SYNTH-SERIAL"],
+            "start": "2026-03-01", "end": "2026-03-02",
+            "unit": "m³", "revision": 1, "snapshot_hash": "f" * 64,
+        }}}
+
+    monkeypatch.setattr(native, "_read_native_attempt_catalog_88", pending_catalog)
+    with pytest.raises(native.EnergyTransactionRefused, match="not in native ledger"):
+        asyncio.run(native.async_collect_native_scopes_88(
+            hass, coordinator, actor=actor, lot=LOT, selections=[
+                _user_selection(
+                    statistic_id=new_stat, start="2026-03-01",
+                    end="2026-03-02",
+                ),
+            ],
+        ))
+
+
+def test_native_verified_attempt_sql_mismatch_is_visible_not_authorized(
+    monkeypatch,
+):
+    from custom_components.trybatec import (
+        energy_bulk_native_recorder_readback_88 as observer,
+    )
+    hass, coordinator, actor = setup(monkeypatch)
+    new_stat = "trybatec:logical_native_ef_v1_a1_" + "e" * 32
+
+    async def verified(_hass, _entry_id, _lot):
+        return {"EF": {new_stat: {
+            "state": "verified", "generations": ["SYNTH-SERIAL"],
+            "start": "2026-03-01", "end": "2026-03-02",
+            "unit": "m³", "revision": 1, "snapshot_hash": "f" * 64,
+        }}}
+
+    async def corrupt_readback(_hass, _entry_id, stat):
+        assert stat == new_stat
+        raise ValueError("simulated SQL readback mismatch")
+
+    monkeypatch.setattr(native, "_read_native_attempt_catalog_88", verified)
+    monkeypatch.setattr(
+        observer, "async_read_verified_native_attempt_88", corrupt_readback,
+    )
+    result = asyncio.run(native.async_collect_native_scopes_88(
+        hass, coordinator, actor=actor, lot=LOT, selections=[
+            _user_selection(
+                statistic_id=new_stat, start="2026-03-01",
+                end="2026-03-02",
+            ),
+        ],
+    ))
+    ef = result["fluids"]["EF"]
+    assert ef["selection_intent"]["native_recorder_sql_readback_verified"] is False
+    assert "selected_native_recorder_hourly_readback_failed" in ef["reasons"]
+    assert result["activation_authorized"] is False
