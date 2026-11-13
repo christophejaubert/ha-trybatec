@@ -221,6 +221,7 @@ async def _verify_preview_reuses_complete_evidence_without_vendor_call():
         "date": date, "datetime": datetime, "timezone": timezone,
         "asyncio": asyncio, "SimpleNamespace": SimpleNamespace,
         "_MAX_DAYS": 365 * 12, "get_source": shared.get_source,
+        "_today": shared._today, "_EARLIEST_DATE": date(2000, 1, 1),
         "_scope_for_panel": shared._scope, "coverage_view": shared.coverage_view,
         "_proposals_from_cached_history": AsyncMock(return_value={
             "recorder_writes": False, "energy_writes": False,
