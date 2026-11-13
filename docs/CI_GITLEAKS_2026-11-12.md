@@ -23,3 +23,23 @@ The [scheduled run #43254529863](https://github.com/christophejaubert/ha-trybate
 The fixed UUID belongs to a test of saved device identifiers, not an API credential. Its **single reviewed fingerprint** is ignored through `.gitleaksignore`; **the detected value is never repeated**. No rule, path or entire history range is ignored. PR and push CI additionally run Gitleaks over reachable history using the binary installed by the pinned action, matching scheduled scan coverage; no secrets artifact is uploaded. Contract tests reject broadening the exception.
 
 A default history scan covers Git commits reachable from the checked-out reference; this does not include every unreachable object or non-repository secret store. Genuine credentials require incident assessment and rotation without printing sensitive data. The PR and the next scheduled run must verify effectiveness independently. No history rewrite, workflow bypass, release or production HA changes.
+
+## FR — Complément du 13 novembre 2026 : branche expérimentale #88
+
+Le scan historique Gitleaks de #149, #150, #151 et de #147 réexécutée sur le **même SHA** retrouve une nouvelle occurrence `generic-api-key` sur l'historique accessible, tandis que la détection incrémentale reste verte. Le mode historique sans plage explicite inclut les références distantes téléchargées ; ses résultats peuvent donc évoluer sans modification du SHA du HEAD contrôlé.
+
+Le diagnostic temporaire de la PR #152 a identifié **uniquement** la référence `5de2f7291555ba0e6a058f6265498876ee562fd4`, `custom_components/trybatec/energy_bulk_native_port_l7.py`, ligne **55**, catégorie `generic-api-key`, héritée de la branche expérimentale `feat/88-native-energy-evidence-20261113`. La chaîne de 24 caractères sert à former une **clé d'indexation locale du Store Home Assistant**, assemblée avec un digest d'identifiant d'entrée ; aucune preuve d'usage pour authentification ou API extérieure. La variante de travail plus récente, dans #151, utilise un identifiant différent. **La valeur littérale n'est reproduite nulle part dans cette qualification.**
+
+Une **deuxième empreinte exacte** est ajoutée à `.gitleaksignore` pour ce faux positif historique ; l'exception précédemment qualifiée de l'UUID de test reste inchangée. Aucun chemin, règle, catégorie, branche entière ou SHA générique n'est autorisé. Le job conserve sa détection incrémentale et son analyse historique bloquante. Un contrôle autonome crée dans un dépôt Git temporaire une signature de clé AWS fictive, jamais enregistrée sur GitHub, puis exige que Gitleaks la refuse (exit 2) ; la fixture et tout secret synthétique sont supprimés à la fin du job.
+
+Limite : une empreinte ciblée n'exonère ni le contenu courant de #88 ni tout autre secret. Les contrôles doivent encore être réussis sur la PR #152 et sur la candidate composée, pour des SHA exacts ; le scheduled scan doit conserver son périmètre et rester bloquant.
+
+## EN — November 13, 2026: earlier #88 experimental branch
+
+The incremental Gitleaks scan passes, while the unbounded reachable-history scan fails even when re-running #147 on its **unchanged SHA**. Full-history scanning reads fetched remote refs, so the result can change when unrelated branches become reachable.
+
+Temporary, metadata-only PR #152 diagnostics isolated one `generic-api-key` finding: commit `5de2f7291555ba0e6a058f6265498876ee562fd4`, `custom_components/trybatec/energy_bulk_native_port_l7.py`, line **55**, in the earlier `feat/88-native-energy-evidence-20261113` branch. The 24-character constant forms a **local Home Assistant Store index key** together with an entry digest; it is not used as an API or authentication credential. The later #151 candidate uses a different name. The matched value is deliberately never reproduced.
+
+An exact, commit/path/rule/line fingerprint is added to the existing one-fixture exception. No scanning ranges, rule families, paths or branches are excluded. Incremental and historical scans remain blocking; a transient Git repository containing a freshly generated fictional AWS-shaped key must be rejected with exit status 2, without uploading artifacts or logging the value.
+
+This is a classification of one particular historical finding, not a claim that reachable history or current branches can never contain other secrets. Exact-SHA CI on #152 and the final integrated candidate is still required.

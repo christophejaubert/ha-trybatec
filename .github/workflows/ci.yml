@@ -217,6 +217,39 @@ jobs:
           set -euo pipefail
           gitleaks detect --redact --exit-code=2 --log-level=warn
 
+      # FR : utiliser une vraie signature, mais construite uniquement en mémoire.
+      # EN: verify that an ephemeral synthetic credential still blocks the detector.
+      - name: Assert synthetic Git credentials are rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          synthetic_repo="$(mktemp -d)"
+          trap 'rm -rf "$synthetic_repo"' EXIT
+          git -C "$synthetic_repo" init -q
+          python3 - "$synthetic_repo" <<'PY'
+          import secrets
+          import string
+          import sys
+          from pathlib import Path
+          alphabet = string.ascii_uppercase + string.digits
+          fake_key = "AKIA" + "".join(secrets.choice(alphabet) for _ in range(16))
+          (Path(sys.argv[1]) / "fixture.txt").write_text(
+              "aws_access_key_id = " + fake_key + "\n", encoding="utf-8"
+          )
+          PY
+          git -C "$synthetic_repo" add fixture.txt
+          git -C "$synthetic_repo" \
+            -c user.name='CI Synthetic Fixture' -c user.email='ci@example.invalid' \
+            commit -q -m 'Synthetic Git leak must be rejected'
+          synthetic_scan_code=0
+          gitleaks detect --source "$synthetic_repo" --gitleaks-ignore-path "$synthetic_repo" \
+            --redact --exit-code=2 --log-level=error >/dev/null 2>&1 || synthetic_scan_code=$?
+          if [[ "$synthetic_scan_code" -ne 2 ]]; then
+            echo "Gitleaks must reject synthetic credentials; full scan remains fail-closed." >&2
+            exit 1
+          fi
+
   # FR/EN: four verified SHA256 locks are consumed by the test jobs below.
   homeassistant-runtime-tests:
     name: ha-runtime-and-storage
