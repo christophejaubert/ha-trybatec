@@ -159,6 +159,7 @@ def reconcile_native_handoffs_034b1(
             daily_match = False
             if isinstance(physical_days, list) and len(physical_days) == observed_days:
                 physical_by_date: dict[str, Decimal] = {}
+                contributors_match = True
                 for physical_day in physical_days:
                     if not isinstance(physical_day, Mapping):
                         raise ValueError("Malformed physical daily attribution")
@@ -184,8 +185,9 @@ def reconcile_native_handoffs_034b1(
                         contributor_total += _nonnegative(contributor.get("consumption"))
                     if contributor_total != value:
                         reasons.add("physical_daily_contributions_do_not_conserve_total")
+                        contributors_match = False
                     physical_by_date[day] = value
-                daily_match = physical_by_date == date_totals
+                daily_match = contributors_match and physical_by_date == date_totals
             if not daily_match:
                 reasons.add("physical_recorder_daily_dates_or_amounts_mismatch")
             if (type(second.get("rows_observed")) is int
