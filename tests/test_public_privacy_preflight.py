@@ -147,7 +147,10 @@ def test_workflow_uses_only_trusted_main_code():
     ).read_text(encoding="utf-8")
     assert "pull_request_target:" in workflow
     assert "\n  pull_request:\n" not in workflow
-    assert "branches: [main]" in workflow
+    trigger = workflow.split("\n  pull_request_target:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert not any(keyword in trigger for keyword in (
+        "branches:", "branches-ignore:", "paths:", "paths-ignore:",
+    ))  # FR/EN: stacked PRs must be checked, not merely main-target PRs.
     assert "ref: main" in workflow
     assert "persist-credentials: false" in workflow
     assert "python3 -I scripts/public_privacy_preflight.py" in workflow
@@ -206,3 +209,16 @@ def test_ordinary_author_and_committer_email_does_not_block_full_audit(repositor
         (origin, finding.category) for origin, finding in records
     }
     assert not any(finding.severity == "error" for _, finding in records)
+
+
+def test_uninspectable_binary_commit_is_blocking(repository):
+    """FR/EN: an opaque binary blob must not silently pass privacy preflight."""
+    base = run_git(repository, "rev-parse", "HEAD")
+    (repository / "opaque-fixture.bin").write_bytes(b"fixture\x00synthetic\x01bytes")
+    run_git(repository, "add", "opaque-fixture.bin")
+    run_git(repository, "commit", "-m", "opaque synthetic binary fixture")
+    records, count = audit(base, run_git(repository, "rev-parse", "HEAD"))
+    assert count == 1
+    assert ("binary data", "non-text-content-not-inspected") in {
+        (origin, finding.category) for origin, finding in records if finding.severity == "error"
+    }
