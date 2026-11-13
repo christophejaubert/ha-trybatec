@@ -334,7 +334,7 @@ class FinalLineage37Tests(unittest.TestCase):
 
     def test_nul_delimiter_cannot_alias_another_logical_scope(self):
         with self.assertRaisesRegex(ValueError, "Invalid physical identity"):
-            meter_mod.preview_lineage("ACCOUNT\\x00FICTIF", [], [], {})
+            meter_mod.preview_lineage("ACCOUNT" + chr(0) + "FICTIF", [], [], {})
 
     def test_handoff_never_accepts_claimed_authority(self):
         a = physical("A")
