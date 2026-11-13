@@ -210,6 +210,11 @@ def prepare_energy_lineage_handoff_37(
             "unknown_meter_count": sum(physical[k].get("status") == "inconnu" for k in scoped),
             "contributors_observed": len(contributions),
             "rows_observed": len(rows),
+            "daily_consumption": [
+                {"date": item["date"], "consumption": item["consumption"],
+                 "contributors": [dict(c) for c in item["contributors"]]}
+                for item in rows
+            ],
             "total": str(cumulative) if not blocked else None,
             "logical_id": group.get("logical_id") if not blocked else None,
             "physical_scope_fingerprint": _digest(source_inventory),
