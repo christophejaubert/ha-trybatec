@@ -39,6 +39,51 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     globalThis.__crossCalls=[];
   }, snapshot);
 
+  await check("C1 verified zero / positive / unknown unavailable entities", async () => {
+    const states=await page.evaluate(() => {
+      const host=document.querySelector("trybatec-panel"),a=host._current;
+      const previous={entities:a.entities,loaded:a.data_loaded};
+      const capture=()=>{
+        host._tab="overview";host._render();
+        const card=[...host.shadowRoot.querySelectorAll(".stat")]
+          .find(el=>/Entités indisponibles|Unavailable entities/i.test(el.getAttribute("aria-label")||""));
+        return {state:card?.className,icon:card?.querySelector("ha-icon")?.getAttribute("icon"),
+          accessible:card?.getAttribute("aria-label")};
+      };
+      a.entities=[];a.data_loaded=true;const zero=capture();
+      a.entities=[{entity_id:"sensor.synthetic_unavailable",state:"unavailable"}];
+      const positive=capture();
+      a.data_loaded=false;const unknown=capture();
+      a.entities=previous.entities;a.data_loaded=previous.loaded;
+      host._tab="meters";host._render();
+      return {zero,positive,unknown};
+    });
+    assert.match(states.zero.state||"",/stat-success/);
+    assert.equal(states.zero.icon,"mdi:check-circle-outline");
+    assert.match(states.positive.state||"",/stat-warning/);
+    assert.equal(states.positive.icon,"mdi:alert-circle-outline");
+    assert.match(states.unknown.state||"",/stat-unknown/);
+    assert.equal(states.unknown.icon,"mdi:help-circle-outline");
+    assert.ok(states.zero.accessible&&states.unknown.accessible);
+  });
+
+  await check("C3 immediate selected physical detail after keyboard selection", async () => {
+    const old=locator('button[data-meter="1"]');
+    await old.focus();await page.keyboard.press("Enter");
+    const observed=await page.evaluate(()=>{
+      const host=document.querySelector("trybatec-panel"),root=host.shadowRoot;
+      return {selected:host._current.meters[host._meter]?.serial,
+        title:root.querySelector(".meter-title")?.textContent,
+        detail:root.querySelector("[data-meter-detail]")?.getAttribute("tabindex"),
+        focused:root.activeElement?.dataset?.meterDetail!==undefined||
+          root.activeElement?.dataset?.meter==="1"};
+    });
+    assert.equal(observed.selected,"SYNTH-EF-OLD");
+    assert.match(observed.title||"",/SYNTH-EF-OLD/);
+    assert.equal(observed.detail,"-1");
+    assert.equal(observed.focused,true);
+  });
+
   await check("C5-C6 meter action states and distinct retired raw index", async () => {
     const result=await page.evaluate(() => {
       const host=document.querySelector("trybatec-panel"),a=host._current;
@@ -58,6 +103,7 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       };
     });
     assert.equal(result.unique,true);
+    assert.equal(result.active.kind,"passed");
     assert.equal(result.noCurrentIndex,true);
     assert.equal(result.hasUnqualifiedRaw,true);
     assert.equal(result.retired.kind,"unverified",
@@ -81,6 +127,9 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
           )).map(n=>n.outerHTML.slice(0,180));
       });
       assert.deepEqual(old,[],"Obsolete review access in "+tab);
+      const visible=await locator("main").innerText();
+      assert.doesNotMatch(visible,/aucun relevé inventé|aucun coût fictif|no fictitious|never fabricates measured indexes/i,
+        "C4 obsolete invented-data boilerplate in "+tab);
     }
   });
 
