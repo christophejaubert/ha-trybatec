@@ -209,18 +209,33 @@ def assess_scoped_selection_l6_88(
     recorder_days = recorder.get("daily")
     physical_days = lineage.get("daily")
     approved_non_vendor = 0
+    approved_missing_count = 0
     if (not isinstance(recorder_days, list) or not isinstance(physical_days, list)
-            or days_count == 0 or len(recorder_days) != days_count
-            or len(physical_days) != days_count):
+            or days_count == 0 or not recorder_days
+            or len(recorder_days) != len(physical_days)
+            or len(recorder_days) > days_count):
         issues.add("selected_daily_window_missing_or_partial")
     else:
         total_recorder = total_physical = Decimal(0)
-        for offset, (rr, ll) in enumerate(zip(recorder_days, physical_days)):
-            day = (first + timedelta(days=offset)).isoformat()
-            if not isinstance(rr, Mapping) or not isinstance(ll, Mapping) or (
-                    rr.get("date") != day or ll.get("date") != day):
+        observed_days: set[str] = set()
+        previous_day: date | None = None
+        for rr, ll in zip(recorder_days, physical_days):
+            if not isinstance(rr, Mapping) or not isinstance(ll, Mapping):
                 issues.add("selected_days_missing_duplicated_or_reordered")
                 continue
+            try:
+                observed = _day(rr.get("date"))
+                day = observed.isoformat()
+            except (TypeError, ValueError):
+                issues.add("selected_days_missing_duplicated_or_reordered")
+                continue
+            if (ll.get("date") != day or not first <= observed <= last
+                    or day in observed_days
+                    or (previous_day is not None and observed <= previous_day)):
+                issues.add("selected_days_missing_duplicated_or_reordered")
+                continue
+            observed_days.add(day)
+            previous_day = observed
             try:
                 measured = _decimal(rr.get("measured"))
                 estimated = _decimal(rr.get("estimated"))
@@ -291,6 +306,50 @@ def assess_scoped_selection_l6_88(
             if (aggregated != amount or raw_amount != measured
                     or approved_amount != estimated):
                 issues.add("daily_contribution_or_provenance_not_conserved")
+        # An expressly approved missing day remains *absent* in Recorder;
+        # never generate an invented zero or relabel absence as a measurement.
+        expected_days = {
+            (first + timedelta(days=i)).isoformat() for i in range(days_count)
+        }
+        missing = expected_days - observed_days
+        accepted = selection.get("accepted_missing_days", [])
+        if (not isinstance(accepted, list)
+                or any(not isinstance(v, str) for v in accepted)
+                or len(set(accepted)) != len(accepted)
+                or set(accepted) != missing):
+            issues.add("missing_days_not_exactly_user_approved")
+        elif missing:
+            for source in (recorder, lineage):
+                approved = source.get("approved_absences")
+                if (not isinstance(approved, list)
+                        or len(approved) != len(missing)):
+                    issues.add("independent_missing_day_receipts_unavailable")
+                    continue
+                seen_absences = set()
+                for row in approved:
+                    if not isinstance(row, Mapping):
+                        issues.add("invalid_missing_day_approval")
+                        continue
+                    day = row.get("date")
+                    if (day not in missing or day in seen_absences
+                            or row.get("statistic_id") != stat
+                            or row.get("approved") is not True
+                            or row.get("provenance") != "portal_unattested_user_approved"
+                            or row.get("no_statistical_row") is not True
+                            or row.get("quantity") is not None
+                            or not isinstance(row.get("decision_ref"), str)
+                            or not row["decision_ref"]
+                            or not isinstance(row.get("revision_hash"), str)
+                            or len(row["revision_hash"]) != 64):
+                        issues.add("invalid_missing_day_approval")
+                    if isinstance(day, str):
+                        seen_absences.add(day)
+                if seen_absences != missing:
+                    issues.add("independent_missing_day_receipts_unavailable")
+            if (recorder.get("approved_absences") !=
+                    lineage.get("approved_absences")):
+                issues.add("missing_day_approval_producers_disagree")
+            approved_missing_count = len(missing)
         try:
             if total_recorder != _decimal(recorder.get("selected_total")) or (
                     total_physical != _decimal(lineage.get("selected_total"))):
@@ -339,6 +398,7 @@ def assess_scoped_selection_l6_88(
                   "start": selection.get("start"), "end": selection.get("end")},
         "selected_statistic_id": stat if isinstance(stat, str) else None,
         "approved_unattested_contributions": approved_non_vendor,
+        "approved_missing_days_without_fabricated_rows": approved_missing_count,
         "quarantined_alternative_versions": quarantine_count,
         "blockers": sorted(issues),
         "global_supplier_history_attested": False,
