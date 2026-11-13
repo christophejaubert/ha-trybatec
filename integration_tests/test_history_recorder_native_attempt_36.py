@@ -19,9 +19,10 @@ from homeassistant.core import SupportsResponse
 from custom_components.trybatec import history_recorder_native_attempt_36 as native
 from custom_components.trybatec import history_recorder_b15 as b15
 from custom_components.trybatec.history_plan_b15 import _digest, statistic_rows
+from custom_components.trybatec.history_reconstruction import logical_series_id
 
 
-LOGICAL = "trybatec:logical_ef_synthetic_lot"
+LOGICAL = logical_series_id("SYNTH-ACCOUNT-36", "SYNTH", "EF")
 SOURCE = "a" * 64
 COVERAGE = "b" * 64
 STAMP = "2026-11-01T12:00:00+00:00"
@@ -145,6 +146,19 @@ def native_fixture(hass, monkeypatch):
     async def fake_barrier(_hass):
         return None
 
+    # The owned attempt must belong to an actual HA config entry in the test,
+    # not merely to a caller-supplied plan fingerprint.
+    from types import SimpleNamespace
+
+    registry = type(hass.config_entries)
+    previous_get_entry = registry.async_get_entry
+
+    def account_entry(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="SYNTH-ACCOUNT-36")
+        return previous_get_entry(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", account_entry)
     monkeypatch.setattr(native, "async_list_statistic_ids", list_meta)
     monkeypatch.setattr(b15, "async_list_statistic_ids", list_meta)
     monkeypatch.setattr(native, "async_add_external_statistics", enqueue)
