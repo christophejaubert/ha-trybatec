@@ -328,8 +328,9 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
   const failures=checks.filter(c=>c.result==="FAIL");
   process.stdout.write(JSON.stringify({qualification:"C1-C11-cross-synthetic",
     matrix:prefix,results:checks,failed:failures.length})+"\n");
-  if (failures.length) throw new Error("Independent #155 assertions failed on "+
-    prefix+": "+failures.map(x=>x.id+": "+x.detail).join(" | "));
-  return {passed:checks.length,failed:0};
+  // FR/EN: preserve every failure but continue all eight browser matrices.
+  // The acceptance runner exits nonzero after its final summary.
+  return {passed:checks.length-failures.length,failed:failures.length,
+    findings:failures.map(x=>({id:x.id,detail:x.detail}))};
 }
 module.exports={runCrossQualification};
