@@ -63,6 +63,37 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
         async with self._lock:
             yield
 
+    async def collect(
+        self, actor: Any, *, account: str, lot: str,
+        selections: list[dict[str, Any]] | None = None,
+    ):
+        """Use real #36/#37/C11 L6 producers for explicitly selected scopes.
+
+        No v1 or frontend-supplied claim can produce candidates; without a
+        selection, retain the conservative legacy read-only classification.
+        The L7 mutation gate is independent and remains hard-disabled.
+        """
+        await self.assert_admin(actor)
+        if account != self._coordinator.entry.unique_id or lot != self._lot:
+            raise EnergyTransactionRefused("Native L6 account/lot mismatch")
+        if selections is None:
+            return await super().collect(actor, account=account, lot=lot)
+        try:
+            from .energy_bulk_native_selected_l6_88 import (
+                async_collect_native_selected_state_88,
+            )
+            return await async_collect_native_selected_state_88(
+                self._hass, self._coordinator, actor=actor,
+                lot=lot, selections=selections,
+            )
+        except ImportError as exc:
+            # Owner #159/#160 and C11 modules are integrated on #164, not
+            # on this PR's old stacked #153 base. Never crash the WS handler
+            # or claim the sources were independently verified when absent.
+            raise EnergyTransactionRefused(
+                "Native scoped Recorder/lineage producer not integrated"
+            ) from exc
+
     async def collect_native_scope_observations(
         self, actor: Any, *, selections: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:

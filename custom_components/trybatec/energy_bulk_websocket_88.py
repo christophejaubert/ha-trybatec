@@ -90,6 +90,7 @@ async def ws_energy_bulk_preview_88(
     vol.Required("before_fingerprint"): str,
     vol.Required("plan_digest"): str,
     vol.Required("confirm"): bool,
+    vol.Optional("selections"): list,
 })
 @websocket_api.async_response
 async def ws_energy_bulk_confirm_88(
@@ -113,6 +114,7 @@ async def ws_energy_bulk_confirm_88(
             before_fingerprint=msg["before_fingerprint"],
             plan_digest=msg["plan_digest"],
             confirm=msg["confirm"],
+            selections=msg.get("selections"),
         )
     except (EnergyTransactionRefused, EnergyRecoveryRequired, PermissionError,
             ValueError, TypeError, KeyError, OSError):

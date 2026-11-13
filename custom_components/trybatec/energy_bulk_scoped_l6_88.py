@@ -123,7 +123,10 @@ def assess_scoped_selection_l6_88(
     if (recorder.get("mode") != "native_immutable_readback"
             or recorder.get("selected_version_state") != "verified_immutable"
             or recorder.get("selected_series_persisted") is not True
-            or recorder.get("post_restart_readback_verified") is not True
+            or not (
+                recorder.get("post_restart_readback_verified") is True
+                or recorder.get("durable_disk_and_sql_readback_verified") is True
+            )
             or recorder.get("pending_for_selected_id") is not False
             or recorder.get("quarantined_selected_id") is not False
             or recorder.get("selected_statistic_id_owned_by_one_scope") is not True):
