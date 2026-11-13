@@ -232,6 +232,12 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
   await check("C5-C8 disabled reasons, keyboard and fluid-theme contrast", async () => {
     const state=await page.evaluate(()=>{
       const host=document.querySelector("trybatec-panel"),root=host.shadowRoot;
+      // The C9 refresh restores the three-meter original fixture; add a
+      // synthetic ECS meter specifically for this three-fluid contrast probe.
+      if(!host._current.meters.some(m=>m.fluid==="ECS")){
+        host._current.meters.push({...host._current.meters[0],fluid:"ECS",
+          serial:"SYNTH-ECS-VISUAL",physical_key:"c".repeat(24)});
+      }
       host._tab="energy";host._versionPlan=null;host._versionImportBackup=false;
       host._render();
       const importButton=root.querySelector("[data-version-import]");
