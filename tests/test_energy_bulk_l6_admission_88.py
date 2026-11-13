@@ -33,8 +33,8 @@ def synthetic_complete():
             "coverage": "qualified_bounds_no_gaps",
             "measured_total": "1.0", "estimated_total": "2.0",
             "daily_provenance": [
-                {"date": "2026-01-01", "measured": "1.0", "estimated": "0"},
-                {"date": "2026-01-02", "measured": "0", "estimated": "2.0"},
+                {"date": "2026-01-01", "measured": "1.0", "estimated": "0", "provenance": "measured"},
+                {"date": "2026-01-02", "measured": "0", "estimated": "2.0", "provenance": "estimated"},
             ],
         }],
     }
@@ -139,6 +139,8 @@ def test_fictional_positive_source_checks_all_days_and_versions():
     ("existing_selected_version", "existing_or_competing_energy_source_selected"),
     ("other_source_not_checked", "other_energy_sources_not_independently_disjoint"),
     ("archive_service_dates_unknown", "unknown_physical_service_boundary"),
+    ("contribution_outside_service_period", "contribution_outside_physical_service_period"),
+    ("missing_recorder_provenance", "recorder_daily_provenance_missing"),
 ])
 def test_independent_negative_evidence_never_grants_permission(mutation, blocker):
     r, l, a = synthetic_complete()
@@ -181,6 +183,10 @@ def test_independent_negative_evidence_never_grants_permission(mutation, blocker
         a["reference_catalog"][0]["relation"] = "unverified"
     elif mutation == "archive_service_dates_unknown":
         lg["verified_physical_inventory"][0]["service_end"] = None
+    elif mutation == "contribution_outside_service_period":
+        lg["verified_physical_inventory"][0]["service_end"] = "2025-12-31"
+    elif mutation == "missing_recorder_provenance":
+        rg["daily_provenance"][0].pop("provenance")
     result = assess(r, l, a)
     assert result["status"] == "blocked"
     assert blocker in result["blockers"]
