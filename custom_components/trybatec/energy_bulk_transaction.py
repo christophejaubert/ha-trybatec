@@ -87,7 +87,9 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
     for fluid in ("EF", "ECS", "CET"):
         row = statuses[fluid]
         status = row.get("status") if isinstance(row, dict) else None
-        if status not in ("admissible", "already_configured"):
+        if status not in ("admissible", "already_configured") and not (
+                evidence.get("scoped_mode") == "native_server_selected_scope_v2"
+                and status == "not_selected"):
             reasons.append(fluid + ":" + str(status or "unverified"))
     if reasons:
         return EnergyPreview("blocked", None, None, None, 0, tuple(reasons)), None
