@@ -194,6 +194,8 @@ def test_observable_bounded_incomplete_failure_interruption_and_prior_cache():
     assert failed["coverage"] is None
     assert failed["verified_coverage"]["status"] == "incomplete"
     assert failed["failure_category"] == "network"
+    assert failed["api_requests"] is None  # unknown, not a claimed zero
+    assert failed["periods_verified"] is None
     assert "result" not in failed
 
     complete_job.update(
