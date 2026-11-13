@@ -125,7 +125,8 @@ def assess_scoped_selection_l6_88(
             or recorder.get("selected_series_persisted") is not True
             or recorder.get("post_restart_readback_verified") is not True
             or recorder.get("pending_for_selected_id") is not False
-            or recorder.get("quarantined_selected_id") is not False):
+            or recorder.get("quarantined_selected_id") is not False
+            or recorder.get("selected_statistic_id_owned_by_one_scope") is not True):
         issues.add("selected_immutable_recorder_version_not_verified")
     if (lineage.get("mode") != "native_selected_generations"
             or lineage.get("selected_generation_ids") != generations
@@ -171,10 +172,12 @@ def assess_scoped_selection_l6_88(
         if (len(selected_versions) != 1
                 or selected_versions[0].get("state") != "verified_immutable"):
             issues.add("selected_version_is_not_unique_and_verified")
+    alt_ids = audit.get("alternative_ids")
     if (audit.get("catalog_complete_for_selected_scope") is not True
-            or not isinstance(audit.get("alternative_ids"), list)
-            or not candidate_ids
-            or set(audit.get("alternative_ids", [])) != candidate_ids):
+            or not isinstance(alt_ids, list)
+            or any(not isinstance(value, str) or not value for value in alt_ids)
+            or len(set(alt_ids)) != len(alt_ids)
+            or not candidate_ids or set(alt_ids) != candidate_ids):
         issues.add("competing_versions_not_independently_enumerated")
     if (lineage.get("version_catalog_reconciled") is not True
             or lineage.get("competing_version_conflict") is not False):
@@ -253,6 +256,13 @@ def assess_scoped_selection_l6_88(
                 origin = member.get("provenance")
                 if origin == "measured":
                     raw_amount += volume
+                    # A physical member merely tagged 'measured' cannot
+                    # turn an unobserved span into a vendor index. Require
+                    # direct independently linked index-pair provenance.
+                    if (member.get("source_observation_verified") is not True
+                            or not isinstance(member.get("reading_pair_hash"), str)
+                            or len(member["reading_pair_hash"]) != 64):
+                        issues.add("measured_contribution_without_vendor_readings")
                     if member.get("approval_ref") is not None:
                         issues.add("measured_day_must_not_be_relabelled")
                 elif origin in _PROVENANCES[1:]:
