@@ -72,13 +72,13 @@ def _coord():
 
 def _source(coord, *, full=True):
     return evidence.store_source(
-        coord, start=date(2000, 1, 1) if full else date(2022, 1, 1),
-        end=evidence._today() if full else date(2025, 1, 1),
+        coord, start=date(2000, 1, 1) if full else date(2021, 1, 1),
+        end=evidence._today() if full else date(2025, 7, 1),
         payloads=[{"lines": []}],
         meters=[
             {
                 "physical_key": meter_key("CI-LOT", "EF", "OLD"),
-                "fluid": "EF", "observed_years": [2021, 2025],
+                "fluid": "EF", "observed_years": [2022, 2025],
                 "first_observed_at": "2021-12-31T23:00:00+00:00",
                 "last_source_observed_at": "2025-06-01T10:00:00+00:00",
             },
@@ -162,7 +162,7 @@ def test_observable_none_running_completed_and_cached_without_new_read():
     assert success["coverage"]["meters"][0]["last_source_observed_at"] == (
         success["coverage"]["meters"][0]["last_observed_at"]
     )
-    assert success["coverage"]["observed_years"] == [2021, 2025]
+    assert success["coverage"]["observed_years"] == [2022, 2025]
     assert success["coverage"]["suggested_years"] == [
         2022, 2023, 2024, 2025,
     ]
