@@ -215,7 +215,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gitleaks detect --redact --exit-code=2 --log-level=warn
+          # FR/EN: redact all findings and expose only validated Git metadata.
+          # A private temporary report is removed even when the scan fails.
+          umask 077
+          finding_report="$(mktemp)"
+          trap 'rm -f "$finding_report"' EXIT
+          scan_code=0
+          gitleaks detect --redact --exit-code=2 --log-level=warn \
+            --report-format=json --report-path="$finding_report" || scan_code=$?
+          python3 - "$finding_report" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import PurePosixPath
+
+          payload = open(sys.argv[1], encoding="utf-8").read().strip()
+          findings = json.loads(payload) if payload else []
+          if not isinstance(findings, list):
+              raise ValueError("Unexpected Gitleaks report shape")
+          print(f"Reachable-history findings / Détections historiques : {len(findings)}")
+          for finding in findings[:25]:
+              if not isinstance(finding, dict):
+                  raise ValueError("Unexpected Gitleaks finding shape")
+              rule = str(finding.get("RuleID", "unknown"))
+              if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", rule):
+                  rule = "[redacted]"
+              sha = str(finding.get("Commit", ""))
+              if not re.fullmatch(r"[a-f0-9]{40}", sha):
+                  sha = "[redacted]"
+              path = str(finding.get("File", ""))
+              parts = PurePosixPath(path).parts
+              if (
+                  not re.fullmatch(r"[a-zA-Z0-9_./-]{1,200}", path)
+                  or path.startswith("/")
+                  or ".." in parts
+              ):
+                  path = "[redacted]"
+              line = finding.get("StartLine")
+              if not isinstance(line, int) or line < 1 or line > 10000000:
+                  line = "[redacted]"
+              # Never print Match, Secret, author, message, URLs, or raw JSON.
+              print(f"Rule={rule} Commit={sha} File={path} Line={line}")
+          PY
+          exit "$scan_code"
 
   # FR/EN: four verified SHA256 locks are consumed by the test jobs below.
   homeassistant-runtime-tests:
