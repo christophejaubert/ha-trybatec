@@ -193,6 +193,28 @@ class NativeRecorderLink37Tests(unittest.TestCase):
         self.assertIn("native_36_scoped_selection_v2_not_issued", result["blockers"])
         self.assertIn("native_36_attempt_schema_mismatch", result["blockers"])
 
+    def test_unselected_physical_period_not_required_for_v1_comparison(self):
+        bundle = fixture()
+        bundle[1].insert(0, {
+            "date": "2025-12-01", "consumption": "999",
+            "contributors": [{"serial": "RETIRED", "consumption": "999",
+                              "provenance": "measured"}],
+        })
+        result = evaluate(bundle)
+        self.assertEqual(result["selected_days_compared"], 2)
+        self.assertNotIn("native_attempt_selected_day_set_mismatch",
+                         result["blockers"])
+
+    def test_native_recorder_day_outside_selected_scope_is_rejected(self):
+        bundle = fixture()
+        row = deepcopy(bundle[2]["daily_approval_refs"][0])
+        row["date"] = "2026-01-04"
+        bundle[2]["daily_approval_refs"].append(row)
+        result = evaluate(bundle)
+        self.assertIn("native_attempt_recorder_day_outside_selection",
+                      result["blockers"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
