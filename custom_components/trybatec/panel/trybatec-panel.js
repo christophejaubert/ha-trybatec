@@ -13,26 +13,100 @@ const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
 const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
 const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
 
-/** Dates already observed by a given physical meter, not assumed history. */
+/** C9/C11: observed dates and whole-account coverage are different facts.
+ * Only exact physical-key matches may supply meter-level bounds.
+ */
 function trybatecHistoricalBounds(account, selectedKey, coverage) {
-  const all=Array.isArray(account?.meters)?account.meters:[];
-  const meters=selectedKey?all.filter(m=>m.physical_key===selectedKey):all;
-  if (selectedKey && meters.length!==1) return {start:"",end:"",complete:false,selected:true};
-  const scanned=coverage?.status==="complete" && Array.isArray(coverage.meters);
-  const readings=meters.map(m=>{
-    const matches=scanned?coverage.meters.filter(row=>row.physical_key===m.physical_key):[];
-    const row=matches.length===1?matches[0]:null;
-    return {first:row?.first_observed_at||m.first_observed_at,
-      last:row?.last_source_observed_at||m.last_source_observed_at,
-      verified:Boolean(row)};
-  });
+  const meters=Array.isArray(account?.meters)?account.meters:[];
+  const selected=Boolean(selectedKey);
+  const scoped=selected?meters.filter(m=>m.physical_key===selectedKey):meters;
+  if (selected && scoped.length!==1) return {
+    start:"",end:"",complete:false,selected:true,basis:"unknown",range:""
+  };
+  const full=coverage?.status==="complete" &&
+    (coverage.completeness===undefined || coverage.completeness==="account_full");
+  const partial=coverage?.status==="incomplete" ||
+    coverage?.completeness==="bounded_period_only";
+  const rows=Array.isArray(coverage?.meters)?coverage.meters:[];
   const iso=value=>typeof value==="string" && /^\d{4}-\d\d-\d\d/.test(value) &&
     Number.isFinite(Date.parse(value))?value.slice(0,10):"";
-  const starts=readings.map(r=>iso(r.first)).filter(Boolean).sort();
-  const ends=readings.map(r=>iso(r.last)).filter(Boolean).sort();
-  return {start:starts[0]||"",end:ends[ends.length-1]||"",
-    complete:Boolean(scanned && readings.length && readings.every(r=>r.verified)),
-    selected:Boolean(selectedKey)};
+  const dates=scoped.map(m=>{
+    const matches=rows.filter(row=>row?.physical_key===m.physical_key);
+    const row=matches.length===1?matches[0]:null;
+    const first=[m.first_observed_at,row?.first_observed_at].map(iso).filter(Boolean).sort();
+    const last=[m.last_source_observed_at,row?.last_observed_at,
+      row?.last_source_observed_at].map(iso).filter(Boolean).sort();
+    return {first:first[0]||"",last:last[last.length-1]||"",verified:Boolean(row)};
+  });
+  const starts=dates.map(r=>r.first).filter(Boolean).sort();
+  const ends=dates.map(r=>r.last).filter(Boolean).sort();
+  // Full account-wide status, when available, is authoritative for the global bounds.
+  const accountFirst=!selected && full?iso(coverage.first_observed_at):"";
+  const accountLast=!selected && full?iso(coverage.last_observed_at):"";
+  const start=accountFirst||starts[0]||"";
+  const end=accountLast||ends[ends.length-1]||"";
+  const complete=Boolean(full && scoped.length && dates.every(r=>r.verified));
+  const range=iso(coverage?.coverage_start) && iso(coverage?.coverage_end)?
+    iso(coverage.coverage_start)+" → "+iso(coverage.coverage_end):"";
+  return {start,end,complete,selected,
+    basis:complete?"account_full":partial?"bounded_period_only":"inventory_partial",
+    range};
+}
+
+/** Whitelist the backend C11 discovery contract before rendering any status. */
+function trybatecC11Presentation(response) {
+  if (!response || response.recorder_writes!==false || response.energy_writes!==false)
+    return {discovery_status:"unverified",coverage:null};
+  const possible=["not_started","running","incomplete","complete","error","interrupted"];
+  const coverage=response.coverage;
+  const supportedCoverage=coverage && ["not_started","incomplete","complete"].includes(coverage.status) &&
+    ["unknown","bounded_period_only","account_full"].includes(coverage.completeness);
+  const status=possible.includes(response.discovery_status)?response.discovery_status:"unverified";
+  const full=supportedCoverage && coverage.status==="complete" &&
+    coverage.completeness==="account_full";
+  const checkedStatus=status==="complete"&&!full?"unverified":status;
+  const categories=["cancelled","safety_budget","timeout_or_budget","supplier_response",
+    "supplier_validation","authentication","authorization","network",
+    "invalid_scope_or_period","unexpected_error"];
+  const invalidations=["identity_changed","date_changed","cache_expired","unverified_coverage"];
+  const number=value=>Number.isInteger(value)&&value>=0?value:null;
+  const p=response.progress;
+  return {
+    discovery_status:checkedStatus,
+    id:typeof response.id==="string" && /^[a-f0-9]{24}$/.test(response.id)?response.id:null,
+    kind:["tariff_year_coverage","historical_preview"].includes(response.kind)?response.kind:null,
+    status:["running","complete","failed","cancelled","not_started",
+      "incomplete","error","interrupted"].includes(response.status)?response.status:null,
+    progress:p&&typeof p==="object"?{
+      http_requests:number(p.http_requests),periods_verified:number(p.periods_verified)
+    }:null,
+    periods_verified:number(response.periods_verified),
+    api_requests:number(response.api_requests),
+    cache_reused:response.cache_reused===true || coverage?.cache_reused===true,
+    failure_category:categories.includes(response.failure_category)?response.failure_category:null,
+    retry_mode:response.retry_mode==="restart_from_zero"?"restart_from_zero":null,
+    retry_reason:response.retry_reason==="no_atomic_window_checkpoints"?
+      "no_atomic_window_checkpoints":null,
+    coverage:supportedCoverage?{
+      status:coverage.status,completeness:coverage.completeness,
+      coverage_start:coverage.coverage_start,coverage_end:coverage.coverage_end,
+      first_observed_at:coverage.first_observed_at,last_observed_at:coverage.last_observed_at,
+      meters:Array.isArray(coverage.meters)?coverage.meters.filter(row=>
+        typeof row?.physical_key==="string" && /^[a-f0-9]{24}$/.test(row.physical_key))
+        .map(row=>({physical_key:row.physical_key,
+          first_observed_at:row.first_observed_at,
+          last_observed_at:row.last_observed_at,
+          provenance:row.provenance})):[],
+      suggested_years:Array.isArray(coverage.suggested_years)?
+        coverage.suggested_years.filter(y=>Number.isInteger(y)&&y>=2000&&y<=2100):[],
+      suggested_years_basis:coverage.suggested_years_basis,
+      verified_at:coverage.verified_at,cache_expires_at:coverage.cache_expires_at,
+      cache_invalidation_reason:invalidations.includes(coverage.cache_invalidation_reason)?
+        coverage.cache_invalidation_reason:null,
+      periods_verified:number(coverage.periods_verified),
+      provenance:coverage.provenance
+    }:null
+  };
 }
 
 /** Visual meter identity does not indicate a warning or a required action. */
