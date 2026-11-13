@@ -199,6 +199,21 @@ async def test_native_attempt_real_sqlite_persists_exact_rows_and_metadata(
     assert v2["independent_future_writer_exclusion_verified"] is False
     assert v2["energy_activation_authorized"] is False
 
+    # Exercise the actual #88 admission boundary against the actual #36
+    # reader and SQLite rows, without replacing either contract producer.
+    from custom_components.trybatec.energy_bulk_native_selected_l6_88 import (
+        _assert_native_scoped_v2_contract_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused,
+    )
+
+    with pytest.raises(EnergyTransactionRefused, match="later Recorder writers"):
+        await _assert_native_scoped_v2_contract_88(
+            hass, entry.entry_id, selected,
+            {"unit": "m³", "rows_hash": v2["metadata"]["persisted_readback_hash"]},
+        )
+
 
 async def test_native_sqlite_late_writer_overwrites_old_version_and_is_tombstoned(
     hass, native_sql_fixture,
