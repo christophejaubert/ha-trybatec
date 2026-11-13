@@ -252,8 +252,16 @@ async function runC11Contract(browser,snapshot){
   let source;
   try{source=checkSourceContract();results.push({id:"backend-schema",result:"PASS",
     detail:"Admin status command, coverage semantics, retry and cache fields exist"});}
-  catch(e){source={backendContract:false,frontendStatusCommand:false};
-    results.push({id:"backend-schema",result:"FAIL",detail:String(e.message).slice(0,240)});}
+  catch(e){
+    // A missing C11 backend on the #156-only branch does NOT mean the
+    // frontend lacks the real status command. These are independent gates.
+    let frontendStatusCommand=false;
+    try{frontendStatusCommand=fs.readFileSync(frontend,"utf8")
+      .includes("trybatec/panel_history_discovery_status");}
+    catch(_){/* Missing frontend is reported by its own gate below. */}
+    source={backendContract:false,frontendStatusCommand};
+    results.push({id:"backend-schema",result:"FAIL",detail:String(e.message).slice(0,240)});
+  }
   if(!source.frontendStatusCommand)
     results.push({id:"frontend-wiring",result:"FAIL",
       detail:"Panel source has no call to trybatec/panel_history_discovery_status"});
