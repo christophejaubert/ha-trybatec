@@ -132,6 +132,18 @@ def native_fixture(hass, monkeypatch):
     monkeypatch.setattr(b15, "async_list_statistic_ids", list_meta)
     monkeypatch.setattr(native, "async_add_external_statistics", enqueue)
     monkeypatch.setattr(native, "_recorder_writer_barrier", fake_barrier)
+
+    async def synthetic_sql_metadata(_hass, statistic_id, *, fluid, unit):
+        # Only the metadata adapter is synthetic. The HA Store is real disk.
+        meta = metadata_override.get(statistic_id) or recorded.get(statistic_id)
+        if (not isinstance(meta, dict)
+                or meta.get("statistic_id") != statistic_id
+                or meta.get("source") != "trybatec"
+                or meta.get("statistics_unit_of_measurement") != unit
+                or meta.get("unit_class") != ("energy" if fluid == "CET" else "volume")
+                or meta.get("has_sum") is not True):
+            raise ValueError("Synthetic SQL metadata mismatch")
+    monkeypatch.setattr(native, "_read_db_metadata", synthetic_sql_metadata)
     hass.services.async_register(
         "recorder", "get_statistics", service,
         supports_response=SupportsResponse.ONLY,
@@ -197,6 +209,8 @@ async def test_reserve_enqueue_and_native_readback_with_real_file(hass, native_f
     assert proof["native_buckets_verified"] == len(plan["series"][0]["rows"])
     assert proof["scoped_recorder_persistence_verified"] is True
     assert proof["journal_disk_verified"] is True
+    assert proof["recorder_sql_metadata_readback_verified"] is True
+    assert proof["recorder_sql_snapshot_hash_verified"] is True
     assert proof["global_history_exhaustiveness_claimed"] is False
     assert proof["independent_future_writer_exclusion_verified"] is False
     assert proof["energy_activation_authorized"] is False
