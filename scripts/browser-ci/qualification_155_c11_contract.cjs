@@ -69,7 +69,10 @@ function fakeResponse(kind,snapshot){
   const status=kind==="invalidated"?"not_started":kind;
   return {
     id:kind==="not_started"||kind==="invalidated"?null:"SYNTH-C11-JOB",
-    kind:jobStatus==="not_started"?null:"tariff_year_coverage",
+    // A bounded preview is a legitimate running discovery state; avoid
+    // an artificial never-ending global-job poll in this static fixture.
+    kind:jobStatus==="not_started"?null:
+      kind==="running"?"historical_preview":"tariff_year_coverage",
     status:jobStatus,discovery_status:status,coverage,
     progress:kind==="running"?{periods_verified:3,http_requests:5}:null,
     failure_type:kind==="error"?"TrybatecConnectionError":null,
@@ -96,7 +99,9 @@ async function one(browser,snapshot,config,kind) {
       globalThis.__c11Calls=[];
       const host=document.createElement("trybatec-panel");
       document.querySelector("#fixture").appendChild(host);
-      host.hass={language:locale,themes:{darkMode:dark},config:{time_zone:"Europe/Paris"},
+      // C11 status is administrator-only: model an authenticated HA admin.
+      host.hass={language:locale,user:{is_admin:true},
+        themes:{darkMode:dark},config:{time_zone:"Europe/Paris"},
         callWS:async command=>{
           globalThis.__c11Calls.push(structuredClone(command));
           if(command.type==="trybatec/panel_snapshot")return structuredClone(snapshot);
