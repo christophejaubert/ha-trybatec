@@ -530,8 +530,12 @@ async function runCase(browser, locale, device, dark=false) {
       cases:results,screenshots:destinations.length*tabs.length,
       productionWrites:0,vendorRequests:0,
       qualificationFailures},null,2)+"\n");
-    assert.equal(qualificationFailures,0,
-      "Independent #155 browser qualification contains "+qualificationFailures+
-      " real assertion failures across all eight FR/EN/device/theme matrices");
+    // Independent C11 contract probe: the backend WebSocket status must be
+    // consumed by the real panel. Synthetic states never trigger vendor traffic.
+    const c11=await require("./qualification_155_c11_contract.cjs")
+      .runC11Contract(browser,snapshot);
+    assert.equal(qualificationFailures+c11.failed,0,
+      "Independent #155 qualification: "+qualificationFailures+
+      " existing and "+c11.failed+" C11 contract failures (no xfail/skip)");
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
