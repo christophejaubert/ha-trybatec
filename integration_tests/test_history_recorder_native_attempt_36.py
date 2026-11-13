@@ -832,3 +832,58 @@ async def test_scoped_v2_detects_late_writer_without_fabricating_fence(
         await native._read_disk(hass, "synthetic-36"), "synthetic-36",
     )[stat] == "compromised"
     assert native_fixture["queued"] == [stat]
+
+
+
+@pytest.mark.asyncio
+async def test_v2_refuses_unapproved_missing_day(
+    hass, native_fixture, scoped_entry,
+):
+    """An absent supplier observation is not a measured zero or a receipt."""
+    plan = _plan()
+    plan["series"][0]["rows"] = statistic_rows({
+        date(2026, 1, 1): 2.0, date(2026, 1, 3): 3.0,
+    })
+    group = plan["coverage_evidence"]["groups"][0]
+    group["rows"][1]["date"] = "2026-01-03"
+    _rehash_approved_group(plan)
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+    selection = _selected_v2(stat, reservation["snapshot_hash"])
+    selection["end"] = "2026-01-03"
+    with pytest.raises(ValueError, match="missing days without approved no-row receipts"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_reservation_cannot_be_enqueued_after_ha_account_changes(
+    hass, native_fixture, monkeypatch,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+    registry = type(hass.config_entries)
+    prior = registry.async_get_entry
+    from types import SimpleNamespace
+
+    def changed_account(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="FOREIGN-ACCOUNT")
+        return prior(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", changed_account)
+    with pytest.raises(ValueError, match="does not belong to HA account"):
+        await _enqueue(hass, plan, reservation["statistic_id"])
+    assert native_fixture["queued"] == []
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(
+        journal, "synthetic-36",
+    )[reservation["statistic_id"]] == "reserved"
