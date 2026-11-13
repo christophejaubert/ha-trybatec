@@ -256,12 +256,19 @@ def prepare_native_scoped_lineage_37(
     if len(group_rows) != 1:
         raise ValueError("Ambiguous source logical group")
     group = group_rows[0]
+    inventory_rows = preview_37.get("inventory")
+    if not isinstance(inventory_rows, list):
+        raise ValueError("Missing physical source inventory")
     inventory = {
         (m.get("lot"), m.get("fluid"), m.get("serial")): m
-        for m in preview_37.get("inventory", []) if isinstance(m, Mapping)
+        for m in inventory_rows if isinstance(m, Mapping)
     }
     raw = source_history["__physical_meters__"]
     reasons: set[str] = set()
+    if len(inventory) != len(inventory_rows):
+        reasons.add("duplicated_or_invalid_source_inventory")
+    if group.get("unit") not in (None, _UNITS[fluid]):
+        reasons.add("selected_physical_unit_incompatible")
     if group.get("status") == "blocked_incomplete_physical_series":
         reasons.add("selected_physical_variant_incomplete")
     unit = _UNITS[fluid]
@@ -313,6 +320,27 @@ def prepare_native_scoped_lineage_37(
         })
     if len(generations) != len(ids):
         reasons.add("selected_physical_generations_incomplete")
+    # A partially overlapping observed lifetime requires independent
+    # apportionment even if each source contributes on a different day.
+    observed_spans = []
+    for serial in serials:
+        source = raw.get((lot, fluid, serial))
+        if not isinstance(source, Mapping):
+            continue
+        readings = source.get("reviewed_readings")
+        if not isinstance(readings, (list, tuple)) or not readings:
+            continue
+        stamps = sorted(_timestamp(record[0]) for record in readings)
+        observed_spans.append((serial, stamps[0], stamps[-1]))
+    for i, (left_id, left_start, left_end) in enumerate(observed_spans):
+        for right_id, right_start, right_end in observed_spans[i + 1:]:
+            overlap_start = max(left_start, right_start)
+            overlap_end = min(left_end, right_end)
+            if overlap_start < overlap_end and (
+                overlap_start.astimezone(_LOCAL).date() <= last
+                and overlap_end.astimezone(_LOCAL).date() >= first
+            ):
+                reasons.add("selected_generations_observation_spans_overlap")
     if any(not callable(x) for x in (
         verify_user_selection, verify_36_day, verify_36_absence
     )):
