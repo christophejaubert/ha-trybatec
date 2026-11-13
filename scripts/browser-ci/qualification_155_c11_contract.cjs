@@ -147,10 +147,10 @@ async function one(browser,snapshot,config,kind) {
       "A private supplier diagnostic was rendered to the administrator");
     const text=viewed.map(x=>x.text).join(" | ");
     const matches={
-      not_started:/non lancée|not started/i,
+      not_started:/aucune recherche historique vérifiée|no verified historical scan|non lancée|not started/i,
       running:/en cours|running|progress/i,
       incomplete:/incomplète|partielle|incomplete|partial|bounded/i,
-      complete:/complète|achevée|complete|completed/i,
+      complete:/fenêtre historique globale vérifiée|full historical window verified|complète|achevée|complete|completed/i,
       error:/erreur|échec|échouée|error|failed/i,
       interrupted:/interrompue|annulée|interrupted|cancelled/i,
       invalidated:/invalidé|changement d.identité|identity changed|invalidated|cache invalid/i,
@@ -172,12 +172,12 @@ async function one(browser,snapshot,config,kind) {
       assert.match(text,/2021|2024|2025/,"Physical meter historical dates should be visible");
     }
     if(kind==="error"){
-      assert.match(text,/réseau|network/i,"Redacted error category must be visible");
-      assert.match(text,/zéro|zero|début|beginning|recommenc/i,
+      assert.match(text,/réseau|network|erreur de communication|communication error/i,"Redacted error category must be visible");
+      assert.match(text,/zéro|zero|début|beginning|recommenc|nouvelle recherche complète nécessaire|full restart required/i,
         "Restart from zero must be explained when no safe checkpoints exist");
     }
     if(kind==="interrupted")
-      assert.match(text,/zéro|zero|début|beginning|recommenc/i);
+      assert.match(text,/zéro|zero|début|beginning|recommenc|nouvelle recherche complète nécessaire|full restart required/i);
     if(kind==="invalidated")
       assert.doesNotMatch(text,/couverture historique complète du compte|full account coverage/i);
     if(kind==="error"||kind==="interrupted"){
