@@ -299,7 +299,9 @@ async def test_native_id_collision_fails_without_queuing(hass, native_fixture, m
     monkeypatch.setattr(native.secrets, "token_hex", lambda _n: "a" * 32)
     candidate = LOGICAL + "_v1_a1_" + "a" * 32
     native_fixture["metadata_override"][candidate] = {"statistic_id": candidate}
-    with pytest.raises(ValueError, match="cannot be reserved"):
+    # An unjournaled matching native ID is stronger evidence of a potentially
+    # restored/missing tombstone than an ordinary collision. Deny immediately.
+    with pytest.raises(ValueError, match="without durable tombstone"):
         await _reserve(hass, plan)
     assert await native._read_disk(hass, "synthetic-36") is None
     assert native_fixture["queued"] == []
