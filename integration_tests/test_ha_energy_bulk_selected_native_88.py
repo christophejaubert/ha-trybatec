@@ -197,6 +197,16 @@ def arrange(monkeypatch, *, reconciled=True, third_party_water=False):
         selected, "async_verify_native_version_catalog_88", sql_inventory,
     )
     monkeypatch.setattr(selected, "_energy_without_initializing", energy)
+    # The positive adapter remains synthetic: #36's actual v2 reader does
+    # NOT claim an independent late-writer fence on Core 2026.11.
+    async def synthetic_future_36(_hass, _entry, scope, proof):
+        assert scope["statistic_id"] == SID
+        assert proof["rows_hash"] == "a" * 64
+        hass.events.append("independent-36-v2-synthetic")
+
+    monkeypatch.setattr(
+        selected, "_assert_native_scoped_v2_contract_88", synthetic_future_36,
+    )
     monkeypatch.setattr(
         port7.HAGuardedEnergyPort, "collect_native_scope_observations",
         lambda self, _actor, **_kwargs: observed(
@@ -231,6 +241,7 @@ async def test_admin_native_selected_scope_creates_real_l7_plan_no_writes(
     assert plan["proposed"]["device_consumption_water"] == []
     assert preview.activation_authorized is False
     assert "recorder-sql" in hass.events
+    assert "independent-36-v2-synthetic" in hass.events
     assert "version-SQL" in hass.events
     assert "C11-source" in hass.events
     assert hass.data["energy_manager"].data == PREFS
@@ -314,3 +325,87 @@ async def test_missing_independent_native_owner_module_is_safe_refusal(monkeypat
         )
     assert hass.data["energy_manager"].data == PREFS
     assert not any("backup" in event or "write" in event for event in hass.events)
+
+
+@pytest.mark.asyncio
+async def test_actual_36_v2_observation_must_not_be_promoted_to_immutable(monkeypatch):
+    """Production #36's real observed-only contract has no late-writer fence."""
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused,
+    )
+
+    native = ModuleType(
+        "custom_components.trybatec.history_recorder_native_attempt_36"
+    )
+    async def reader(_hass, _entry_id, selection):
+        return {
+            "schema": "history_36_scoped_selection_v2",
+            **{k: selection[k] for k in (
+                "account", "lot", "fluid", "start", "end", "statistic_id",
+            )},
+            "unit": "m³",
+            "metadata": {"persisted_readback_hash": "a" * 64},
+            "selected_series_persisted": True,
+            "journal_disk_verified": True,
+            "scoped_double_readback_observed": True,
+            "native_decision_store_crosscheck_verified": True,
+            "mode": "native_scoped_readback_no_future_writer_fence",
+            "selected_version_state": "verified_scoped_observation_only",
+            "selected_statistic_id_owned_by_one_scope": False,
+            "version_catalog_complete_for_selected_scope": False,
+            "independent_future_writer_exclusion_verified": False,
+        }
+
+    native.async_read_native_scoped_selection_v2_36 = reader
+    monkeypatch.setitem(sys.modules, native.__name__, native)
+    selection = {
+        **CHOICE, "account": ACCOUNT, "lot": LOT,
+        "serials": ["GEN-A"], "rows_hash": "a" * 64,
+        "accepted_missing_days": [],
+    }
+    with pytest.raises(EnergyTransactionRefused, match="later Recorder writers"):
+        await selected._assert_native_scoped_v2_contract_88(
+            object(), "synthetic-config", selection, witness(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_reader_scope_mismatch_refuses_even_if_fenced(monkeypatch):
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused,
+    )
+
+    native = ModuleType(
+        "custom_components.trybatec.history_recorder_native_attempt_36"
+    )
+    async def reader(_hass, _entry_id, selection):
+        return {
+            "schema": "history_36_scoped_selection_v2",
+            **{k: selection[k] for k in (
+                "account", "lot", "fluid", "start", "end", "statistic_id",
+            )},
+            "lot": "FOREIGN-LOT",
+            "unit": "m³",
+            "metadata": {"persisted_readback_hash": "a" * 64},
+            "selected_series_persisted": True,
+            "journal_disk_verified": True,
+            "scoped_double_readback_observed": True,
+            "native_decision_store_crosscheck_verified": True,
+            "mode": "native_immutable_readback",
+            "selected_version_state": "verified_immutable",
+            "selected_statistic_id_owned_by_one_scope": True,
+            "version_catalog_complete_for_selected_scope": True,
+            "independent_future_writer_exclusion_verified": True,
+        }
+
+    native.async_read_native_scoped_selection_v2_36 = reader
+    monkeypatch.setitem(sys.modules, native.__name__, native)
+    selection = {
+        **CHOICE, "account": ACCOUNT, "lot": LOT,
+        "serials": ["GEN-A"], "rows_hash": "a" * 64,
+        "accepted_missing_days": [],
+    }
+    with pytest.raises(EnergyTransactionRefused, match="scope disagree"):
+        await selected._assert_native_scoped_v2_contract_88(
+            object(), "synthetic-config", selection, witness(),
+        )
