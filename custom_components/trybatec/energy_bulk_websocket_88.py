@@ -16,6 +16,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .energy_bulk_activation_gate_88 import NATIVE_ENERGY_BULK_WRITES_ENABLED_88
 from .energy_bulk_admin_service_88 import (
     EnergyBulkAdminService88, EnergyRecoveryRequired,
     EnergyTransactionRefused,
@@ -23,7 +24,7 @@ from .energy_bulk_admin_service_88 import (
 
 # NOT a configurable frontend flag. Making production writes possible requires
 # a separate reviewed code change plus independent source qualification.
-_NATIVE_MUTATION_ROUTE_QUALIFIED_88 = False
+_NATIVE_MUTATION_ROUTE_QUALIFIED_88 = NATIVE_ENERGY_BULK_WRITES_ENABLED_88
 
 
 def _scope(hass: HomeAssistant, entry_id: str, lot: str) -> Any:
