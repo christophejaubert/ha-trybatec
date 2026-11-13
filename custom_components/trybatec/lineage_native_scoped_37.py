@@ -447,6 +447,7 @@ def prepare_native_scoped_lineage_37(
     hashes = {}
     uncertain = {}
     source_hashes = {}
+    service_bounds: dict[str, tuple[date | None, date | None]] = {}
     original, original_conflicts = _original_supplier_points(
         original_supplier_payloads, {(lot, fluid, s) for s in serials}
     )
@@ -471,6 +472,17 @@ def prepare_native_scoped_lineage_37(
         if physical.get("fatal_conflicts") is True:
             reasons.add("selected_physical_source_has_conflicts")
         source_hashes[gen_id] = fingerprint
+        try:
+            known_start = (_date(observed["service_start"])
+                           if observed.get("service_start") is not None else None)
+            known_end = (_date(observed["service_end"])
+                         if observed.get("service_end") is not None else None)
+        except (ValueError, KeyError, TypeError):
+            reasons.add("selected_physical_replacement_date_invalid")
+            known_start, known_end = None, None
+        if known_start and known_end and known_end < known_start:
+            reasons.add("selected_physical_replacement_dates_contradict")
+        service_bounds[gen_id] = (known_start, known_end)
         computed, pair_hashes, warnings, uncertain_days = _measured_from_raw(
             physical, fingerprint, first, last, original.get(key, set()),
         )
@@ -553,6 +565,10 @@ def prepare_native_scoped_lineage_37(
     if not isinstance(approved, list):
         reasons.add("native_36_approved_days_unavailable")
         approved = []
+    if len(approved) > _MAX_DAYS:
+        reasons.add("native_36_approved_days_unbounded")
+        approved = approved[:_MAX_DAYS]
+    used_approved_receipts: set[int] = set()
     for row in sorted(daily, key=lambda x: x.get("date", "") if isinstance(x, Mapping) else ""):
         if not isinstance(row, Mapping):
             raise ValueError("Invalid physical contribution")
@@ -568,6 +584,9 @@ def prepare_native_scoped_lineage_37(
         if not isinstance(contributors, list) or not contributors:
             reasons.add("selected_daily_contributors_missing")
             continue
+        if len(contributors) > _MAX_METERS:
+            reasons.add("selected_daily_contributors_unbounded")
+            continue
         if len(contributors) > 1:
             reasons.add("concurrent_physical_generations_not_apportioned")
         used = set()
@@ -581,6 +600,10 @@ def prepare_native_scoped_lineage_37(
                 reasons.add("foreign_physical_generation_contribution")
                 continue
             gen_id = id_by_serial[serial]
+            known_start, known_end = service_bounds.get(gen_id, (None, None))
+            if ((known_start is not None and day < known_start)
+                    or (known_end is not None and day > known_end)):
+                reasons.add("selected_day_outside_confirmed_service_period")
             if gen_id in used:
                 reasons.add("duplicate_physical_generation_on_day")
                 continue
@@ -631,6 +654,7 @@ def prepare_native_scoped_lineage_37(
                         ) or receipts[0].get("approved") is not True):
                     reasons.add("native_36_exact_day_revision_receipt_mismatch")
                     continue
+                used_approved_receipts.add(id(receipts[0]))
                 payload = {
                     "account": account, "lot": lot, "fluid": fluid,
                     "serial": serial, "generation_id": gen_id, "date": ds,
@@ -661,6 +685,8 @@ def prepare_native_scoped_lineage_37(
                 "contributors": members,
             })
             totals += total
+    if any(id(receipt) not in used_approved_receipts for receipt in approved):
+        reasons.add("native_36_foreign_or_unused_day_approval_receipt")
     missing = {
         (first + timedelta(days=i)).isoformat()
         for i in range((last - first).days + 1)
@@ -672,6 +698,8 @@ def prepare_native_scoped_lineage_37(
     if not isinstance(native_absences, list):
         native_absences = []
         reasons.add("native_36_missing_day_receipts_unavailable")
+    if len(native_absences) != len(missing):
+        reasons.add("native_36_foreign_or_duplicate_absence_receipts")
     for day in sorted(missing):
         matches = [r for r in native_absences if isinstance(r, Mapping)
                    and r.get("date") == day]
@@ -735,14 +763,25 @@ def prepare_native_scoped_lineage_37(
             if (_decimal(recorded.get("measured")) != measured_sum
                     or _decimal(recorded.get("estimated")) != estimated_sum):
                 reasons.add("native_36_daily_measured_estimated_mismatch")
-    for version in native.get("versions", []) if isinstance(native.get("versions"), list) else []:
-        if not isinstance(version, Mapping) or version.get("statistic_id") == stat and (
-            version.get("state") != "verified_immutable"
-        ):
+    versions = native.get("versions")
+    if not isinstance(versions, list) or len(versions) > 500:
+        reasons.add("selected_version_catalog_missing_or_unbounded")
+        versions = []
+    observed_version_ids: set[str] = set()
+    for version in versions:
+        if not isinstance(version, Mapping):
             reasons.add("physical_selected_version_not_exclusive")
-    if (not isinstance(native.get("versions"), list)
-            or sum(v.get("statistic_id") == stat for v in native["versions"]
-                   if isinstance(v, Mapping)) != 1):
+            continue
+        sid = version.get("statistic_id")
+        if not isinstance(sid, str) or sid in observed_version_ids:
+            reasons.add("selected_statistic_version_reused_or_duplicated")
+        else:
+            observed_version_ids.add(sid)
+        if (sid == stat and version.get("state") != "verified_immutable"
+                or sid != stat and version.get("state") == "verified_immutable"):
+            reasons.add("physical_selected_version_not_exclusive")
+    if sum(v.get("statistic_id") == stat for v in versions
+           if isinstance(v, Mapping)) != 1:
         reasons.add("selected_statistic_version_not_unique")
     result = {
         "schema": "lineage_37_scoped_selection_v2",
