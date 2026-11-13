@@ -509,8 +509,12 @@ async function runCase(browser, locale, device, dark=false) {
     "Explicit tariff-year request must start a monitored read-only job");
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
     "The panel must verify a completed job before accepting historical bounds");
+  // FR/EN: independent cross-module acceptance (the original 56 views remain unchanged).
+  const qualification=await require("./qualification_155_cross.cjs")
+    .runCrossQualification(page,{locale,device,dark,snapshot});
   await context.close();
-  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,errors:errors.length};
+  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,
+    errors:errors.length,qualification};
 }
 
 (async()=>{
@@ -520,8 +524,14 @@ async function runCase(browser, locale, device, dark=false) {
     for(const [locale,device,dark] of destinations){
       results.push(await runCase(browser,locale,device,dark));
     }
+    const qualificationFailures=results.reduce((total,record)=>
+      total+(record.qualification?.failed||0),0);
     process.stdout.write(JSON.stringify({mode:"synthetic-browser-not-real-HA",
       cases:results,screenshots:destinations.length*tabs.length,
-      productionWrites:0,vendorRequests:0},null,2)+"\n");
+      productionWrites:0,vendorRequests:0,
+      qualificationFailures},null,2)+"\n");
+    assert.equal(qualificationFailures,0,
+      "Independent #155 browser qualification contains "+qualificationFailures+
+      " real assertion failures across all eight FR/EN/device/theme matrices");
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
