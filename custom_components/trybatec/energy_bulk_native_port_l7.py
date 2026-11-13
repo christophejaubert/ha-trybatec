@@ -63,6 +63,17 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
         async with self._lock:
             yield
 
+    async def collect_native_scope_observations(self, actor: Any) -> dict[str, Any]:
+        """Authoritative bounded read-only Recorder and Energy observation.
+
+        Facts are not v2 authorization certificates; L7 keeps its gates.
+        """
+        from .energy_bulk_native_scopes_88 import async_collect_native_scopes_88
+
+        return await async_collect_native_scopes_88(
+            self._hass, self._coordinator, actor=actor, lot=self._lot,
+        )
+
     async def read_live(self) -> dict[str, Any]:
         _core_only()
         manager = self._hass.data.get("energy_manager")
