@@ -155,6 +155,10 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
   await check("C9 account/meter evidence bounds, unknowns, custom preservation", async () => {
     const state=await page.evaluate(() => {
       const host=document.querySelector("trybatec-panel");
+      // The inventory-only subcase must not inherit the completed C11 scan
+      // from earlier tariff navigation. Later C11 tests cover that scan.
+      const previousDiscovery=host._historyDiscovery?.get(host._current.entry_id);
+      host._historyDiscovery?.delete(host._current.entry_id);
       host._historyContextKey=null;host._historyDatesEdited={start:false,end:false};
       host._historyStart="";host._historyEnd="";
       host._syncHistoryDates();
@@ -178,6 +182,8 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       host._historyContextKey=null;host._historyDatesEdited={start:false,end:false};
       host._historyStart="";host._historyEnd="";host._syncHistoryDates();
       host._tab="history";host._render();
+      if(previousDiscovery) host._historyDiscovery?.set(
+        host._current.entry_id,previousDiscovery);
       return {account,meter,custom,unknown};
     });
     assert.equal(state.account.start,"2020-04-03");
@@ -284,15 +290,22 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       assert.ok(ratio>=4.5,"Fluid text contrast below 4.5:1: "+
         shade.fluid+" ratio="+ratio.toFixed(2)+" theme="+(dark?"dark":"light"));
     }
+    // Trigger keyboard modality before :focus-visible, then inspect the
+    // focus outline before Enter re-renders the navigation element.
+    await page.keyboard.press("Tab");
     await locator('nav button[data-tab="history"]').focus();
-    await page.keyboard.press("Enter");
     const focused=await locator('nav button[data-tab="history"]').evaluate(el=>{
-      const s=getComputedStyle(el);
-      return {name:el.innerText.trim(),outline:s.outlineStyle,width:parseFloat(s.outlineWidth)};
+      const style=getComputedStyle(el);
+      return {name:el.innerText.trim(),outline:style.outlineStyle,
+        width:parseFloat(style.outlineWidth)};
     });
     assert.ok(focused.name.length>0);
-    assert.notEqual(focused.outline,"none");
+    assert.notEqual(focused.outline,"none",
+      "A keyboard-focused navigation button must expose its focus indicator");
     assert.ok(focused.width>=2);
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(()=>
+      document.querySelector("trybatec-panel")._tab),"history");
   });
 
   await check("C10 unknown origin blocks unapproved smoothing", async () => {
