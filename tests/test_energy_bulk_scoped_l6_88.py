@@ -329,7 +329,7 @@ def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
     from contextlib import asynccontextmanager
 
     from custom_components.trybatec.energy_bulk_transaction import (
-        EnergyTransactionRefused, ServerEnergyState,
+        EnergyTransactionRefused,
         apply_bulk_energy_transaction, preview_bulk_energy_transaction,
     )
     from custom_components.trybatec.energy_switch import preferences_fingerprint
@@ -357,44 +357,20 @@ def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
         async def collect(self, actor, *, account, lot):
             await self.assert_admin(actor)
             assert account == "SYNTH-ACCOUNT" and lot == "SYNTH-LOT"
-            # This toy actor is intentionally *not* connected to real #36/#37.
-            proof = validate(proofs)
-            allowed = proof["status"] == "eligible_for_scoped_review"
-            choice = proofs[0]
-            candidates = []
-            if allowed:
-                flags = dict.fromkeys((
-                    "account_lot_verified", "unit_verified",
-                    "recorder_verified", "recorder_has_sum",
-                    "recorder_has_data", "historical_coverage_verified",
-                    "physical_meter_coverage_verified",
-                    "version_exclusivity_verified", "alternatives_complete",
-                    "energy_schema_verified",
-                ), True)
-                candidates.append({
-                    "account": choice["account"], "lot": choice["lot"],
-                    "fluid": choice["fluid"], "statistic_id": choice["statistic_id"],
-                    "unit": "m³", "kind": "consolidated",
-                    "recorder_device_class": "water",
-                    "competing_statistic_ids": [OLD],
-                    **flags,
-                })
-            states = {
-                "EF": {"status": "admissible" if allowed else "insufficient_evidence"},
-                "ECS": {"status": "already_configured"},
-                "CET": {"status": "already_configured"},
-            }
-            report = {
-                "activation_authorized": False, "writes": False,
-                "fluids": states,
-                "preferences_fingerprint": preferences_fingerprint(self.prefs),
-                "scoped_selections_v2": [{
+            from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+                build_native_scoped_energy_state_88,
+            )
+
+            # This fixture supplies fictional independent v2 envelopes,
+            # but exercises the exact L6 candidate builder and native L7
+            # state machine rather than bypassing with arbitrary booleans.
+            return build_native_scoped_energy_state_88(
+                deepcopy(self.prefs),
+                [{
                     "selection": proofs[0], "history_36": proofs[1],
                     "lineage_37": proofs[2], "energy_audit": proofs[3],
                 }],
-            }
-            return ServerEnergyState(
-                deepcopy(self.prefs), report, tuple(candidates), "2026.11.1"
+                account=account, lot=lot, schema_version="2026.11.1",
             )
 
         async def read_live(self):
