@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,6 +12,7 @@ import pytest
 from custom_components.trybatec import panel_history, panel_history_jobs, panel_tariff_years
 from custom_components.trybatec.panel_history_coverage import get_source
 from custom_components.trybatec.units import meter_key
+from custom_components.trybatec.panel_tariffs import change_tariff, tariff_fingerprint
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -132,3 +133,36 @@ async def test_invalid_or_cancelled_scan_never_publishes_incomplete_source(hass)
     assert job["result"] is None
     assert get_source(coord) is None
     assert job.get("recorder_writes") is None
+
+
+async def test_manual_tariff_edit_survives_supplier_failure_without_rescan():
+    """Tariff persistence is independent of history and source availability."""
+    client = SimpleNamespace(indexes=AsyncMock(return_value={"lines": "invalid"}))
+    coord = _synthetic_coordinator(client)
+    coord.entry.options = {
+        "annual_tariffs": '{"2022":{"EF":{"rate":2.5,"status":"approved"}}}',
+        "poll_minutes": 180,
+    }
+    def update(entry, *, options):
+        entry.options = options
+    hass = SimpleNamespace(config_entries=SimpleNamespace(
+        async_update_entry=Mock(side_effect=update),
+    ))
+    with pytest.raises(ValueError):
+        await panel_tariff_years.async_tariff_year_coverage(hass, coord)
+    failed_count = client.indexes.await_count
+    assert failed_count >= 1
+    before = tariff_fingerprint(coord.entry.options)
+    result = await change_tariff(
+        hass, coord, year=2040, fluid="EF", rate=3.25,
+        status="provisional", physical_key=None, remove=False,
+        expected_fingerprint=before, confirmed=True,
+    )
+    assert result["status"] == "saved"
+    assert '"2040"' in coord.entry.options["annual_tariffs"]
+    assert '"2022"' in coord.entry.options["annual_tariffs"]
+    assert coord.entry.options["poll_minutes"] == 180
+    assert hass.config_entries.async_update_entry.call_count == 1
+    assert client.indexes.await_count == failed_count  # no supplier read on edit
+    assert result["recorder_unchanged"] is True
+    assert result["energy_unchanged"] is True
