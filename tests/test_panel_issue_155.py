@@ -77,6 +77,7 @@ const account={
 };
 const fixture={
   _current:account, _data:{energy:{sources:[]}},_meter:0,_query:"",
+  _t:(fr,en)=>fr,
   _tariffCoverage:new Map(),_tariffJobId:null,
   _meters:()=>meters,_counts:()=>({en_service:1,depose:1}),
   _stat:panel._stat,_heading:()=>"",_readinessView:()=>"",
