@@ -247,7 +247,8 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       const locked=root.querySelector("fieldset.prerequisite-locked");
       const blocked={importDisabled:importButton?.disabled,
         importReason:importCard?.textContent||"",
-        locked:locked?.disabled,lockedReason:locked?.textContent||""};
+        locked:locked?.disabled,
+        lockedReason:locked?.closest("section.card")?.textContent||""};
       const shades=[];
       for(const fluid of ["EF","ECS","CET"]){
         const m=host._current.meters.find(x=>x.fluid===fluid);
