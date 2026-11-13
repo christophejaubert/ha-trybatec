@@ -192,6 +192,168 @@ def _measured_from_raw(
     return amounts, hashes, sorted(set(problems)), uncertain_days
 
 
+
+def audit_native_attempt_link_37(
+    selection: Mapping[str, Any],
+    selected_physical_days: Sequence[Mapping[str, Any]],
+    proof_36: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Independent *comparison* of a native #36 v1 readback with #37 days.
+
+    A real v1 native SQL observation cannot be promoted to the immutable
+    scoped-v2 proof required by #88. In particular, a missing writer fence,
+    post-restart readback, complete alternative-version catalog or absent-day
+    decision cannot be synthesized by this function.
+    """
+    if not isinstance(selection, Mapping) or not isinstance(proof_36, Mapping):
+        raise ValueError("Untrusted native attempt link inputs")
+    reasons = {"native_36_scoped_selection_v2_not_issued"}
+    if proof_36.get("schema") != "history_36_native_attempt_proof_v1":
+        reasons.add("native_36_attempt_schema_mismatch")
+    scope = proof_36.get("scope")
+    if (not isinstance(scope, Mapping)
+            or scope.get("lot") != selection.get("lot")
+            or scope.get("fluid") != selection.get("fluid")
+            or scope.get("kind") != "consolidated"
+            or scope.get("serial") is not None
+            or scope.get("variant") != "selected_physical_consumption"
+            or proof_36.get("statistic_id") != selection.get("statistic_id")
+            or proof_36.get("unit") != _UNITS.get(selection.get("fluid"))):
+        reasons.add("native_attempt_statistic_or_physical_scope_mismatch")
+    stat, logical = proof_36.get("statistic_id"), proof_36.get("logical_id")
+    revision, attempt = proof_36.get("revision"), proof_36.get("attempt")
+    if (type(revision) is not int or revision < 1
+            or type(attempt) is not int or attempt < 1
+            or not isinstance(logical, str)
+            or not logical.startswith("trybatec:logical_")
+            or not isinstance(stat, str)
+            or not stat.startswith(f"{logical}_v{revision}_a{attempt}_")
+            or len(stat.rsplit("_", 1)[-1]) != 32
+            or any(x not in "0123456789abcdef"
+                   for x in stat.rsplit("_", 1)[-1])):
+        reasons.add("native_attempt_exact_revision_or_nonce_mismatch")
+    if (proof_36.get("snapshot_hash") != selection.get("rows_hash")
+            or not isinstance(proof_36.get("snapshot_hash"), str)
+            or len(proof_36["snapshot_hash"]) != 64):
+        reasons.add("native_attempt_persisted_rows_hash_mismatch")
+    if any(proof_36.get(field) is not True for field in (
+        "journal_disk_verified", "scoped_recorder_persistence_verified",
+        "recorder_sql_metadata_readback_verified",
+        "recorder_sql_snapshot_hash_verified",
+        "scoped_double_readback_observed",
+        "native_decision_store_crosscheck_verified",
+    )) or proof_36.get("status") != "observed_persisted_exactly":
+        reasons.add("native_attempt_sql_or_decision_receipt_unverified")
+    if proof_36.get("quarantined_or_uncertain_attempt_ids"):
+        reasons.add("native_attempt_competing_version_unresolved")
+    if proof_36.get("independent_future_writer_exclusion_verified") is not True:
+        reasons.add("native_attempt_future_writer_exclusion_unverified")
+    if proof_36.get("energy_exclusivity_verified") is not True:
+        reasons.add("native_attempt_energy_exclusivity_unverified")
+    if (not isinstance(selected_physical_days, (list, tuple))
+            or not isinstance(proof_36.get("daily_approval_refs"), list)
+            or len(selected_physical_days) > _MAX_ROWS
+            or len(proof_36["daily_approval_refs"]) > _MAX_DAYS):
+        reasons.add("native_attempt_daily_provenance_unavailable")
+        physical_days, recorder_days = [], []
+    else:
+        physical_days = selected_physical_days
+        recorder_days = proof_36["daily_approval_refs"]
+    physical_by_date, recorder_by_date = {}, {}
+    for rows, destination, name in (
+        (physical_days, physical_by_date, "physical"),
+        (recorder_days, recorder_by_date, "recorder"),
+    ):
+        for item in rows:
+            if not isinstance(item, Mapping):
+                reasons.add(name + "_day_invalid")
+                continue
+            try:
+                day = _date(item.get("date")).isoformat()
+            except (ValueError, TypeError):
+                reasons.add(name + "_day_invalid")
+                continue
+            if day in destination:
+                reasons.add(name + "_day_duplicate")
+            destination[day] = item
+    if set(physical_by_date) != set(recorder_by_date):
+        reasons.add("native_attempt_selected_day_set_mismatch")
+    compared = 0
+    for day in sorted(set(physical_by_date) & set(recorder_by_date)):
+        source, persisted = physical_by_date[day], recorder_by_date[day]
+        physical_members = source.get("contributors")
+        stored_members = persisted.get("contributions")
+        if not isinstance(physical_members, list) or not isinstance(stored_members, list):
+            reasons.add("native_attempt_day_contributors_unavailable")
+            continue
+        source_map, stored_map = {}, {}
+        for items, dest in ((physical_members, source_map), (stored_members, stored_map)):
+            for item in items:
+                if not isinstance(item, Mapping) or not isinstance(item.get("serial"), str):
+                    reasons.add("native_attempt_day_meter_invalid")
+                    continue
+                if item["serial"] in dest:
+                    reasons.add("native_attempt_duplicate_physical_meter")
+                dest[item["serial"]] = item
+        if set(source_map) != set(stored_map):
+            reasons.add("native_attempt_physical_generation_mismatch")
+            continue
+        total = Decimal(0)
+        try:
+            for serial in source_map:
+                observed, recorded = source_map[serial], stored_map[serial]
+                quantity = _decimal(observed.get("consumption"))
+                measured = _decimal(recorded.get("measured"))
+                estimated = _decimal(recorded.get("estimated"))
+                total += quantity
+                if measured + estimated != quantity:
+                    reasons.add("native_attempt_physical_amount_mismatch")
+                provenance = observed.get("provenance")
+                if (provenance == "measured" and estimated != 0
+                        or provenance == "estimated_linear_confirmed" and measured != 0
+                        or provenance not in ("measured", "estimated_linear_confirmed", "mixed")):
+                    reasons.add("native_attempt_provenance_relabelled")
+                refs = recorded.get("decision_refs")
+                if not isinstance(refs, list):
+                    reasons.add("native_attempt_day_decisions_unavailable")
+                elif estimated > 0:
+                    matched = [x for x in refs if isinstance(x, Mapping)
+                               and x.get("reference") == observed.get("decision_fingerprint")]
+                    if (observed.get("decision_attribution") !=
+                            "day_revision_candidate_unverified"
+                            or len(matched) != 1
+                            or not isinstance(observed.get("revision_fingerprint"), str)
+                            or len(observed["revision_fingerprint"]) != 64
+                            or matched[0].get("decision_fingerprint") !=
+                            observed.get("revision_fingerprint")):
+                        reasons.add("native_attempt_day_revision_not_cross_attested")
+                elif refs:
+                    reasons.add("native_attempt_measured_day_has_approval_refs")
+            if (total != _decimal(source.get("consumption"))
+                    or total != _decimal(persisted.get("total"))
+                    or total != _decimal(persisted.get("measured")) +
+                    _decimal(persisted.get("estimated"))):
+                reasons.add("native_attempt_consolidation_or_daily_total_mismatch")
+        except (ValueError, TypeError, KeyError):
+            reasons.add("native_attempt_day_quantity_invalid")
+        compared += 1
+    if selection.get("accepted_missing_days"):
+        # V1 has no native revision-specific no-row receipt.
+        reasons.add("native_attempt_accepted_missing_day_receipts_unavailable")
+    return {
+        "schema": "lineage_37_native_attempt_comparison_v1",
+        "mode": "read_only_non_authorizing",
+        "statistic_id": selection.get("statistic_id"),
+        "revision": revision, "attempt": attempt,
+        "selected_days_compared": compared,
+        "native_sql_observed": proof_36.get("scoped_recorder_persistence_verified") is True,
+        "blockers": sorted(reasons),
+        "history_36_scoped_selection_v2_issued": False,
+        "eligible_for_l6": False, "writes": False,
+        "energy_activation_authorized": False,
+    }
+
+
 def prepare_native_scoped_lineage_37(
     selection: Mapping[str, Any],
     *,
@@ -380,6 +542,10 @@ def prepare_native_scoped_lineage_37(
     daily = group.get("rows")
     if not isinstance(daily, list) or len(daily) > _MAX_ROWS:
         raise ValueError("Unbounded physical daily rows")
+    native_attempt_link = None
+    if native.get("schema") == "history_36_native_attempt_proof_v1":
+        native_attempt_link = audit_native_attempt_link_37(selection, daily, native)
+        reasons.update(native_attempt_link["blockers"])
     proof_days = []
     totals = Decimal(0)
     seen_days = set()
@@ -593,6 +759,7 @@ def prepare_native_scoped_lineage_37(
         "generations": generations, "daily": proof_days,
         "approved_absences": approved_absences,
         "selected_total": _quantity(totals),
+        "native_36_attempt_link": native_attempt_link,
         "source_api_attestation": "not_attested_by_trybatec_api",
         "historical_global_exhaustiveness": False,
         "raw_physical_indexes_modified": False,
