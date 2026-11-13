@@ -78,14 +78,21 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
             raise EnergyTransactionRefused("Native L6 account/lot mismatch")
         if selections is None:
             return await super().collect(actor, account=account, lot=lot)
-        from .energy_bulk_native_selected_l6_88 import (
-            async_collect_native_selected_state_88,
-        )
-
-        return await async_collect_native_selected_state_88(
-            self._hass, self._coordinator, actor=actor,
-            lot=lot, selections=selections,
-        )
+        try:
+            from .energy_bulk_native_selected_l6_88 import (
+                async_collect_native_selected_state_88,
+            )
+            return await async_collect_native_selected_state_88(
+                self._hass, self._coordinator, actor=actor,
+                lot=lot, selections=selections,
+            )
+        except ImportError as exc:
+            # Owner #159/#160 and C11 modules are integrated on #164, not
+            # on this PR's old stacked #153 base. Never crash the WS handler
+            # or claim the sources were independently verified when absent.
+            raise EnergyTransactionRefused(
+                "Native scoped Recorder/lineage producer not integrated"
+            ) from exc
 
     async def collect_native_scope_observations(
         self, actor: Any, *, selections: list[dict[str, Any]] | None = None,
