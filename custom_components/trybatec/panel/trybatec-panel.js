@@ -1027,7 +1027,8 @@ class TrybatecPanel extends HTMLElement {
       this._loading = false;
       this._render();
       if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
-      if (this._current && !this._error) this._refreshDiscoveryStatus();
+      if (this._current && !this._error && this._discoveryStates instanceof Map)
+        this._refreshDiscoveryStatus();
     }
   }
   async _refreshDiscoveryStatus(entryId=this._current?.entry_id) {
@@ -1075,7 +1076,7 @@ class TrybatecPanel extends HTMLElement {
   }
   _discoveryNotice() {
     const entryId=this._current?.entry_id;
-    if (!entryId) return "";
+    if (!entryId || !(this._discoveryStates instanceof Map)) return "";
     const t=(fr,en)=>this._t(fr,en);
     const state=this._discoveryStates.get(entryId);
     const status=state?.discovery_status||"not_loaded", c=state?.coverage||{};
@@ -2258,7 +2259,7 @@ class TrybatecPanel extends HTMLElement {
       (coverage?.status!=="loading"?'<div class="actions"><button type="button" class="secondary" data-historical-scan>'+
        'Rechercher les relevés de tous les compteurs</button></div>':"")+'</div>';
     return this._heading("Compteurs","Inventaire physique : en service, déposés, ou statut non confirmé.")+
-      historyHelp+this._discoveryNotice()+'<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
+      historyHelp+(this._discoveryNotice?.()||"")+'<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
       '<div class="scroll">'+indexed.map(x=>this._meterRow(x.m,x.i,"detail")).join("")+'</div>'+
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
@@ -2810,7 +2811,7 @@ class TrybatecPanel extends HTMLElement {
         '</p>':"")+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
-      '</section>'+this._discoveryNotice()+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
+      '</section>'+(this._discoveryNotice?.()||"")+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
       '<p class="muted"><strong>'+safe(this._t("Pourquoi cet intervalle est-il espacé ?",
         "Why are these readings spaced apart?"))+'</strong> '+
       safe(this._t("Les dates des relevés ne permettent pas toujours de déterminer la cause d’un intervalle prolongé. Si vous connaissez cette cause, sélectionnez « Relève manuelle périodique », « Panne de télérelève » ou « Autre motif ». Sinon, laissez l’origine non déterminée.",
@@ -2997,7 +2998,7 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
-      coverageNotice+this._discoveryNotice()+
+      coverageNotice+(this._discoveryNotice?.()||"")+
       (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
       (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
       (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
@@ -3345,7 +3346,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
       '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
       }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
-      '</div></section></div>'+this._discoveryNotice()+this._communicationDiagnostics();
+      '</div></section></div>'+(this._discoveryNotice?.()||"")+this._communicationDiagnostics();
   }
   async _saveSettings() {
     if (!this._current || this._settingsBusy) return;
