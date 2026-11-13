@@ -800,11 +800,14 @@ async def async_native_attempt_proof_36(
                 if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
                     integrity_failure = True
                     raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
+                # The cached/native listing can temporarily be stale.
+                # Refuse a proof on mismatch, but only tombstone a verified ID
+                # when actual SQL metadata or actual Recorder sums disagree.
+                await _check_persisted_metadata(
+                    hass, statistic_id,
+                    fluid=record["scope"]["fluid"], unit=record["unit"],
+                )
                 try:
-                    await _check_persisted_metadata(
-                        hass, statistic_id,
-                        fluid=record["scope"]["fluid"], unit=record["unit"],
-                    )
                     await _read_db_metadata(
                         hass, statistic_id,
                         fluid=record["scope"]["fluid"], unit=record["unit"],
