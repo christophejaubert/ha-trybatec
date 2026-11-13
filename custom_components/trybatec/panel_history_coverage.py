@@ -159,7 +159,10 @@ def coverage_view(
     )
     # Years are suggested from first/last bounds, NOT proof of readings in every year.
     years = (
-        list(range(date.fromisoformat(first[:10]).year, date.fromisoformat(last[:10]).year + 1))
+        list(range(
+            datetime.fromisoformat(first).astimezone(ZoneInfo(TIMEZONE)).year,
+            datetime.fromisoformat(last).astimezone(ZoneInfo(TIMEZONE)).year + 1,
+        ))
         if first is not None and last is not None else []
     )
     return {
