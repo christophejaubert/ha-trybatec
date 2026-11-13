@@ -57,7 +57,15 @@ def _scope(value: Any) -> dict[str, Any]:
 def _known_ids(value: Sequence[str], name: str) -> set[str]:
     if not isinstance(value, (tuple, list)) or len(value) > 12000:
         raise ValueError("Invalid " + name + " inventory")
-    identifiers = [_stat(x) for x in value]
+    # Other HA Energy/Recorder sources may use another namespace (or native
+    # sensor entity IDs). Inventories must preserve those names as opaque
+    # exact strings rather than silently filtering them to "trybatec:".
+    identifiers = []
+    for ident in value:
+        if (not isinstance(ident, str) or not ident or len(ident) > 240
+                or any(ord(char) < 32 for char in ident)):
+            raise ValueError("Invalid external statistic reference")
+        identifiers.append(ident)
     if len(identifiers) != len(set(identifiers)):
         raise ValueError("Duplicate " + name + " inventory entry")
     return set(identifiers)
