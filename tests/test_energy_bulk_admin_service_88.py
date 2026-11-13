@@ -35,6 +35,7 @@ class FakePort:
         self.collects = 0
         self.backups = 0
         self.writes = 0
+        self.journal_state = None
 
     async def assert_admin(self, actor):
         self.admin_checks += 1
@@ -48,6 +49,9 @@ class FakePort:
             deepcopy(PREFS), deepcopy(self.evidence), (),
             "2026.11.1",
         )
+
+    async def read_last_journal(self):
+        return deepcopy(self.journal_state)
 
     async def create_backup(self):
         self.backups += 1
@@ -179,3 +183,17 @@ def test_malformed_or_unknown_evidence_remains_blocked():
     assert "l6_evidence_missing" in admin._blockers(None)
     assert "history_36_native_attestation_missing" in admin._blockers({})
     assert admin._fluid_status({})["CET"]["status"] == "insufficient_evidence"
+
+def test_pending_journal_requires_manual_recovery_before_confirmation(monkeypatch):
+    async def scenario():
+        service, port = _service(monkeypatch, _evidence())
+        port.journal_state = {"status": "prepared", "private": "not for browser"}
+        data = await service.preview("synthetic-admin")
+        assert data["transaction"]["journal_status"] == "prepared"
+        assert data["transaction"]["recovery_required"] is True
+        assert "l7_journal_recovery_required" in data["blockers"]
+        assert data["actions"]["confirm"]["enabled"] is False
+        assert "private" not in str(data)
+        assert port.backups == port.writes == 0
+
+    asyncio.run(scenario())
