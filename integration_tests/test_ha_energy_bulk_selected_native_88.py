@@ -5,9 +5,7 @@ separate owner PR #160. No actual Home Assistant, Recorder or Energy writes.
 """
 from __future__ import annotations
 
-import asyncio
 from copy import deepcopy
-from hashlib import sha256
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -199,9 +197,6 @@ def arrange(monkeypatch, *, reconciled=True, third_party_water=False):
         selected, "async_verify_native_version_catalog_88", sql_inventory,
     )
     monkeypatch.setattr(selected, "_energy_without_initializing", energy)
-    monkeypatch.setattr(
-        scopes, "async_collect_native_scopes_88", native_scope,
-    )
     monkeypatch.setattr(
         port7, "HAGuardedEnergyPort.collect_native_scope_observations",
         lambda self, _actor, **_kwargs: observed(
