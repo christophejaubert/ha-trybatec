@@ -550,5 +550,162 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertIn("trusted_native_decision_verifiers_unavailable", p["blockers"])
 
 
+    def test_known_service_date_excludes_previous_meter_generation_day(self):
+        bundle = fixtures()
+        bundle[2]["inventory"][0]["service_end"] = "2026-01-01"
+        output = evaluate(bundle)
+        self.assertFalse(output["selected_scope_reconciled"])
+        self.assertIn("selected_day_outside_confirmed_service_period", output["blockers"])
+
+    def test_unknown_replacement_date_does_not_impose_fictitious_boundary(self):
+        output = evaluate(fixtures())
+        self.assertNotIn("selected_day_outside_confirmed_service_period",
+                         output["blockers"])
+        self.assertNotIn("selected_physical_replacement_date_invalid",
+                         output["blockers"])
+
+    def test_conflicting_replacement_dates_are_refused(self):
+        bundle = fixtures()
+        bundle[2]["inventory"][1]["service_start"] = "2026-01-04"
+        bundle[2]["inventory"][1]["service_end"] = "2026-01-02"
+        output = evaluate(bundle)
+        self.assertIn("selected_physical_replacement_dates_contradict",
+                      output["blockers"])
+
+    def test_foreign_or_orphan_day_approval_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["approved_days"].append({
+            "date": "2026-01-01", "generation_id": bundle[0]["generation_ids"][0],
+            "statistic_id": SID, "ref": "UNUSED", "revision_hash": REV,
+            "amount": "0.100000", "provenance": "linear_user_approved",
+            "approved": True,
+        })
+        output = evaluate(bundle)
+        self.assertIn("native_36_foreign_or_unused_day_approval_receipt",
+                      output["blockers"])
+
+    def test_foreign_absence_receipt_without_missing_day_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["approved_absences"].append({
+            "date": "2026-01-01", "statistic_id": SID, "approved": True,
+            "provenance": "portal_unattested_user_approved",
+            "no_statistical_row": True, "quantity": None,
+            "decision_ref": "FOREIGN", "revision_hash": REV,
+        })
+        output = evaluate(bundle)
+        self.assertIn("native_36_foreign_or_duplicate_absence_receipts",
+                      output["blockers"])
+
+    def test_competing_verified_recorder_version_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["versions"][1]["state"] = "verified_immutable"
+        output = evaluate(bundle)
+        self.assertIn("physical_selected_version_not_exclusive",
+                      output["blockers"])
+
+    def test_reused_competing_statistic_id_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["versions"][1]["statistic_id"] = SID
+        output = evaluate(bundle)
+        self.assertIn("selected_statistic_version_reused_or_duplicated",
+                      output["blockers"])
+
+
+
+    def test_server_autodiscovers_new_36_scoped_v2_reader_but_keeps_fence(self):
+        selection, raw, preview, proof, payloads = fixtures()
+        observed = deepcopy(proof)
+        observed.update({
+            "mode": "native_scoped_readback_no_future_writer_fence",
+            "selected_version_state": "verified_scoped_observation_only",
+            "post_restart_readback_verified": False,
+            "selected_statistic_id_owned_by_one_scope": False,
+            "version_catalog_complete_for_selected_scope": False,
+            "independent_future_writer_exclusion_verified": False,
+            "journal_disk_verified": True,
+            "scoped_double_readback_observed": True,
+        })
+        observed["metadata"]["sql_readback_verified"] = True
+        observed["versions"][0]["state"] = "verified_scoped_observation_only"
+        calls = {"reader": 0}
+
+        def mock_history(*args, **kwargs):
+            self.assertEqual(kwargs["allowed_lots"], {LOT})
+            return raw
+
+        async def mock_decisions(*args):
+            return {}
+
+        def mock_source(*args, **kwargs):
+            return {
+                "complete": True, "payloads": payloads,
+                "coverage_start": "2026-01-01",
+                "coverage_end": "2026-01-04",
+            }
+
+        async def mock_scoped_reader(hass, entry_id, scoped):
+            calls["reader"] += 1
+            self.assertEqual(entry_id, "SYNTHETIC-ENTRY")
+            self.assertEqual(scoped, selection)
+            return observed
+
+        methods = {
+            "history": {"build_history": mock_history},
+            "history_store": {"load_decisions": mock_decisions},
+            "panel_history_coverage": {"get_source": mock_source},
+            "history_recorder_native_attempt_36": {
+                "async_read_native_scoped_selection_v2_36": mock_scoped_reader,
+            },
+        }
+        before = {}
+        for name, attrs in methods.items():
+            fullname = f"{PKG}.{name}"
+            before[fullname] = sys.modules.get(fullname)
+            module = types.ModuleType(fullname)
+            for key, value in attrs.items():
+                setattr(module, key, value)
+            sys.modules[fullname] = module
+
+        class Auth:
+            async def async_get_user(self, actor_id):
+                return SimpleNamespace(is_admin=actor_id == "admin")
+
+        hass = SimpleNamespace(auth=Auth())
+        coordinator = SimpleNamespace(entry=SimpleNamespace(
+            unique_id=ACCOUNT, entry_id="SYNTHETIC-ENTRY",
+        ))
+
+        async def run():
+            return await native.async_collect_server_scoped_lineage_37(
+                hass, coordinator, actor_id="admin", selection=selection,
+                preview_37=preview,
+                verify_user_selection=approved_user,
+                verify_36_day=approved_day,
+                verify_36_absence=approved_absence,
+            )
+
+        try:
+            result = asyncio.run(run())
+            self.assertEqual(calls["reader"], 1)
+            self.assertFalse(result["selected_scope_reconciled"])
+            self.assertIn("native_36_post_restart_readback_verified_unverified",
+                          result["blockers"])
+            self.assertIn("selected_recorder_revision_not_immutable",
+                          result["blockers"])
+            self.assertEqual(result["native_36_scoped_observation"]["mode"],
+                             "native_scoped_readback_no_future_writer_fence")
+            self.assertTrue(
+                result["native_36_scoped_observation"]["native_sql_readback_observed"]
+            )
+            self.assertFalse(result["native_36_scoped_observation"]["eligible_for_l6"])
+            self.assertFalse(result["writes"])
+        finally:
+            for key, old in before.items():
+                if old is None:
+                    sys.modules.pop(key, None)
+                else:
+                    sys.modules[key] = old
+
+
 if __name__ == "__main__":
     unittest.main()

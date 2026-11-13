@@ -207,6 +207,9 @@ def audit_native_attempt_link_37(
     """
     if not isinstance(selection, Mapping) or not isinstance(proof_36, Mapping):
         raise ValueError("Untrusted native attempt link inputs")
+    first, last = _date(selection.get("start")), _date(selection.get("end"))
+    if first > last or (last - first).days >= _MAX_DAYS:
+        raise ValueError("Invalid bounded native attempt selection")
     reasons = {"native_36_scoped_selection_v2_not_issued"}
     if proof_36.get("schema") != "history_36_native_attempt_proof_v1":
         reasons.add("native_36_attempt_schema_mismatch")
@@ -272,6 +275,10 @@ def audit_native_attempt_link_37(
                 day = _date(item.get("date")).isoformat()
             except (ValueError, TypeError):
                 reasons.add(name + "_day_invalid")
+                continue
+            if not first <= _date(day) <= last:
+                if name == "recorder":
+                    reasons.add("native_attempt_recorder_day_outside_selection")
                 continue
             if day in destination:
                 reasons.add(name + "_day_duplicate")
@@ -783,6 +790,27 @@ def prepare_native_scoped_lineage_37(
     if sum(v.get("statistic_id") == stat for v in versions
            if isinstance(v, Mapping)) != 1:
         reasons.add("selected_statistic_version_not_unique")
+    native_36_observation = None
+    if native.get("schema") == "history_36_scoped_selection_v2":
+        native_36_observation = {
+            "schema": native.get("schema"), "mode": native.get("mode"),
+            "statistic_id": native.get("statistic_id"),
+            "selected_series_persisted": native.get("selected_series_persisted") is True,
+            "native_sql_readback_observed": (
+                native.get("journal_disk_verified") is True
+                and native.get("scoped_double_readback_observed") is True
+                and isinstance(native.get("metadata"), Mapping)
+                and native["metadata"].get("sql_readback_verified") is True
+            ),
+            "post_restart_readback_verified": (
+                native.get("post_restart_readback_verified") is True
+            ),
+            "independent_future_writer_exclusion_verified": (
+                native.get("independent_future_writer_exclusion_verified") is True
+            ),
+            "eligible_for_l6": False,
+            "writes": False,
+        }
     result = {
         "schema": "lineage_37_scoped_selection_v2",
         "mode": "native_selected_generations",
@@ -799,6 +827,7 @@ def prepare_native_scoped_lineage_37(
         "approved_absences": approved_absences,
         "selected_total": _quantity(totals),
         "native_36_attempt_link": native_attempt_link,
+        "native_36_scoped_observation": native_36_observation,
         "source_api_attestation": "not_attested_by_trybatec_api",
         "historical_global_exhaustiveness": False,
         "raw_physical_indexes_modified": False,
@@ -857,11 +886,23 @@ async def async_collect_server_scoped_lineage_37(
         scoped["payloads"], start, end, allowed_lots={lot},
         decisions=decisions,
     )
+    # The native #36 owner supplies a read-only selected-scope v2 reader.
+    # Its current observed proof deliberately cannot establish global writer
+    # exclusion. On branches without #36, fail closed without importing the
+    # Home Assistant Recorder integration at module load time.
+    reader = read_native_recorder_36
+    if reader is None:
+        try:
+            from .history_recorder_native_attempt_36 import (
+                async_read_native_scoped_selection_v2_36 as reader,
+            )
+        except ImportError:
+            reader = None
     native36 = None
-    if read_native_recorder_36 is not None:
-        if not callable(read_native_recorder_36):
+    if reader is not None:
+        if not callable(reader):
             raise ValueError("Invalid native #36 read-only reader")
-        native36 = await read_native_recorder_36(
+        native36 = await reader(
             hass, entry.entry_id, dict(selection),
         )
     return prepare_native_scoped_lineage_37(
