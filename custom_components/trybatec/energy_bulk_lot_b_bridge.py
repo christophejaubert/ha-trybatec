@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .energy_bulk_provenance_bridge_l6 import reconcile_draft_provenance_l6
+from .energy_bulk_native_convergence_034b1 import reconcile_native_handoffs_034b1
 from .history_plan_b15 import make_b15_plan
 from .history_variants_b15 import variants_preview
 from .lineage_energy_handoff_37 import prepare_energy_lineage_handoff_37
@@ -26,6 +27,7 @@ def preview_lot_b_readonly(
     approved_origins: Mapping[str, Mapping[str, Any]] | None = None,
     current: Mapping[str, Any] | None = None,
     archived: Mapping[str, Any] | None = None,
+    recorder_handoff_36: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reconcile actual #36 plan, #37 lineage and #88 L6 diagnostics.
 
@@ -64,6 +66,15 @@ def preview_lot_b_readonly(
             or handoff.get("energy_activation_authorized") is not False):
         raise ValueError("Read-only safety invariant violated")
 
+    native_handoff = None
+    if recorder_handoff_36 is not None:
+        native_handoff = reconcile_native_handoffs_034b1(
+            recorder_36=recorder_handoff_36,
+            lineage_37=handoff,
+            historical_l6=l6_crosscheck,
+            lot=lot,
+        )
+
     return {
         "schema": "lot_b_readonly_preflight_v1",
         "status": "blocked_pending_independent_attestation",
@@ -73,6 +84,7 @@ def preview_lot_b_readonly(
         "physical_sources_observed": len(lineage["inventory"]),
         "consolidated_groups_observed": len(lineage["groups"]),
         "diagnostic": diagnostic,
+        "native_handoff": native_handoff,
         "required_proofs": [
             "full_retired_and_active_meter_inventory",
             "approved_historical_bounds_and_gap_decisions",
