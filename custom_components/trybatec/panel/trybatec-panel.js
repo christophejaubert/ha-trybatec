@@ -1165,6 +1165,9 @@ class TrybatecPanel extends HTMLElement {
       if (!(this._data?.accounts||[]).some(a=>a.entry_id===entryId)) return;
       const view=trybatecC11Presentation(response);
       this._historyDiscovery.set(entryId,view);
+      // Old local projections must not outlive a backend cache invalidation.
+      if (view.coverage?.completeness!=="account_full" &&
+          view.discovery_status!=="running") this._tariffCoverage?.delete(entryId);
       if (view.discovery_status==="running" && view.id &&
           view.kind==="tariff_year_coverage") {
         this._watchHistoryDiscovery(entryId,view);
@@ -1264,15 +1267,15 @@ class TrybatecPanel extends HTMLElement {
       invalid_scope_or_period:t("périmètre ou période non valide","invalid scope or interval"),
       unexpected_error:t("erreur technique non classée","unclassified technical error")
     };
-    if (["error","interrupted"].includes(status)) {
+    if (["error","interrupted"].includes(status))
       rows.push(t("Échec catégorisé : ","Failure category: ")+
         safe(failures[view?.failure_category]||t("non communiquée","not reported")));
-      if (view?.retry_mode==="restart_from_zero" &&
-          view?.retry_reason==="no_atomic_window_checkpoints")
-        rows.push(t(
-          "Nouvelle tentative : redémarrage intégral (restart_from_zero). Aucun point de reprise atomique vérifié n’est disponible.",
-          "Retry: full restart (restart_from_zero). No verified atomic window checkpoint is available."));
-    }
+    if (["error","interrupted","incomplete"].includes(status) &&
+        view?.retry_mode==="restart_from_zero" &&
+        view?.retry_reason==="no_atomic_window_checkpoints")
+      rows.push(t(
+        "Nouvelle tentative : redémarrage intégral (restart_from_zero). Aucun point de reprise atomique vérifié n’est disponible.",
+        "Retry: full restart (restart_from_zero). No verified atomic window checkpoint is available."));
     if (status==="not_started" && !view)
       rows.push(t("Statut à charger depuis Home Assistant ; aucune recherche automatique.",
         "Status has not yet been loaded from Home Assistant; no automatic scan."));
@@ -2477,7 +2480,7 @@ class TrybatecPanel extends HTMLElement {
         "Requested-period preview verified. Account-wide coverage is a separate fact.");
       this._unsavedInput=false;
     } catch (_) {
-      this._historyError=this._t(
+      if (this._current?.entry_id===entryId) this._historyError=this._t(
         "Analyse interrompue : aucun historique partiel n’est validé. Relancer « Analyser les relevés » recommence la lecture complète depuis le début. Consultez Diagnostics.",
         "History interrupted: no partial history accepted. Selecting Analyze readings again restarts the entire read from the beginning. See Diagnostics.");
     } finally {
@@ -3159,6 +3162,7 @@ class TrybatecPanel extends HTMLElement {
     const registered=Object.keys(a.tariffs||{}).concat(
       Object.keys(a.meter_tariffs||{})).filter(x=>/^[0-9]{4}$/.test(x)).map(Number);
     const yearSet=new Set([...range.years,...suggested,...registered]);
+    const storedYears=[...new Set(registered)].sort((x,y)=>y-x);
     // Suggested years do not establish a reading for each intermediate year.
     const yearOptions=[...yearSet].filter(y=>Number.isInteger(y)&&y>=2000&&y<=2100)
       .sort((x,y)=>y-x).map(year=>
@@ -3175,8 +3179,16 @@ class TrybatecPanel extends HTMLElement {
       (this._historyDiscoveryView?.("tariffs")||legacyCoverageNotice)+
       (suggested.length?'<p class="muted">'+safe(this._t(
         "Années suggérées selon les premières et dernières observations de la période vérifiée ; aucun relevé annuel intermédiaire n’est garanti.",
-        "Suggested years span the first and last observations in verified coverage; readings in intermediate years are not guaranteed."))+'</p>':"")+
-      (range.fallback && !suggested.length?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
+        "Suggested years span the first and last observations in verified coverage; readings in intermediate years are not guaranteed."))+
+        ' '+safe(suggested.join(", "))+'</p>':"")+
+      '<p class="muted">'+safe(this._t("Exercices avec tarifs enregistrés : ",
+        "Years with saved rates: "))+safe(storedYears.length?storedYears.join(", "):
+        this._t("aucun","none"))+'. '+safe(this._t(
+          "Toute année entre 2000 et 2100 reste librement saisissable, même après échec de la découverte.",
+          "Any year from 2000 to 2100 remains editable, even if discovery fails."))+'</p>'+
+      (range.fallback && !suggested.length?'<p class="notice">'+safe(this._t(
+        "Aucune borne datée actuellement connue : les années proposées par défaut ne sont pas des preuves de relevés.",
+        "No dated observation bounds currently available: default suggested years are not proof of readings."))+'</p>':"")+
       (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
       (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
