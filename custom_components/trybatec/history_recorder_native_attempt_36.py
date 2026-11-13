@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from hashlib import sha256
@@ -911,6 +911,12 @@ async def async_read_native_scoped_selection_v2_36(
                 or selection.get("unit", record["unit"]) != record["unit"]):
             raise ValueError("Selected physical scope or unit differs from native journal")
         days = record["daily"]
+        dates = [date.fromisoformat(day["date"]) for day in days]
+        if any(right != left + timedelta(days=1)
+               for left, right in zip(dates, dates[1:])):
+            raise ValueError(
+                "Selected version contains missing days without approved no-row receipts"
+            )
         first, last = days[0]["date"], days[-1]["date"]
         if (selection.get("start") != first or selection.get("end") != last
                 or selection.get("accepted_missing_days", []) != []):
@@ -1030,7 +1036,7 @@ async def async_read_native_scoped_selection_v2_36(
             "account": account, "lot": lot, "fluid": fluid,
             "start": first, "end": last, "unit": record["unit"],
             "statistic_id": stat, "selection_digest": selection_hash,
-            "selected_total": str(selected_total),
+            "selected_total": str(selected_total.quantize(Decimal("0.000001"))),
             "selected_series_persisted": True,
             "selected_statistic_id_owned_by_one_scope": False,
             "post_restart_readback_verified": False,
