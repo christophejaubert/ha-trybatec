@@ -52,6 +52,7 @@ def test_jobs_validate_ranges_and_prevent_automatic_multi_decade_reads():
         ("historical_preview", "2026-02-01", "2026-01-01"),
         ("historical_preview", "2000-01-01", "2026-01-01"),
         ("historical_preview", "2025-01-01", "2050-01-01"),
+        ("historical_preview", "1999-12-31", "2000-01-02"),
     ]:
         with pytest.raises((ValueError, TypeError)):
             validate(kind, start, end)
