@@ -321,3 +321,148 @@ def test_legacy_global_v1_does_not_gain_trust_from_scoped_business_arbitration()
     })
     assert "history_36_native_attestation_missing" in blockers
     assert "lineage_37_native_attestation_missing" in blockers
+
+
+def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
+    """A fictional native producer feeds the L7 port; the real port stays OFF."""
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused, ServerEnergyState,
+        apply_bulk_energy_transaction, preview_bulk_energy_transaction,
+    )
+    from custom_components.trybatec.energy_switch import preferences_fingerprint
+
+    proofs = synthetic()
+
+    class FictionalNativePort:
+        def __init__(self):
+            self.prefs = deepcopy(proofs[3]["live"])
+            self.disk = deepcopy(self.prefs)
+            self.last_journal = None
+            self.backups = 0
+            self.writes = 0
+            self.lock = asyncio.Lock()
+
+        async def assert_admin(self, actor):
+            if actor != "synthetic-administrator":
+                raise PermissionError("native admin required")
+
+        @asynccontextmanager
+        async def exclusive(self):
+            async with self.lock:
+                yield
+
+        async def collect(self, actor, *, account, lot):
+            await self.assert_admin(actor)
+            assert account == "SYNTH-ACCOUNT" and lot == "SYNTH-LOT"
+            # This toy actor is intentionally *not* connected to real #36/#37.
+            proof = validate(proofs)
+            allowed = proof["status"] == "eligible_for_scoped_review"
+            choice = proofs[0]
+            candidates = []
+            if allowed:
+                flags = dict.fromkeys((
+                    "account_lot_verified", "unit_verified",
+                    "recorder_verified", "recorder_has_sum",
+                    "recorder_has_data", "historical_coverage_verified",
+                    "physical_meter_coverage_verified",
+                    "version_exclusivity_verified", "alternatives_complete",
+                    "energy_schema_verified",
+                ), True)
+                candidates.append({
+                    "account": choice["account"], "lot": choice["lot"],
+                    "fluid": choice["fluid"], "statistic_id": choice["statistic_id"],
+                    "unit": "m³", "kind": "consolidated",
+                    "recorder_device_class": "water",
+                    "competing_statistic_ids": [OLD],
+                    **flags,
+                })
+            states = {
+                "EF": {"status": "admissible" if allowed else "insufficient_evidence"},
+                "ECS": {"status": "already_configured"},
+                "CET": {"status": "already_configured"},
+            }
+            report = {
+                "activation_authorized": False, "writes": False,
+                "fluids": states,
+                "preferences_fingerprint": preferences_fingerprint(self.prefs),
+                "scoped_selections_v2": [{
+                    "selection": proofs[0], "history_36": proofs[1],
+                    "lineage_37": proofs[2], "energy_audit": proofs[3],
+                }],
+            }
+            return ServerEnergyState(
+                deepcopy(self.prefs), report, tuple(candidates), "2026.11.1"
+            )
+
+        async def read_live(self):
+            return deepcopy(self.prefs)
+
+        async def read_persisted(self):
+            return deepcopy(self.disk)
+
+        async def create_backup(self):
+            self.backups += 1
+            return {"fictional_recoverable_copy": True}
+
+        async def verify_backup(self, receipt):
+            return receipt.get("fictional_recoverable_copy") is True
+
+        async def journal(self, payload):
+            self.last_journal = deepcopy(payload)
+
+        async def read_last_journal(self):
+            return deepcopy(self.last_journal)
+
+        async def write_energy_sources(self, sources):
+            if (self.last_journal is None or
+                    self.last_journal["status"] != "prepared"):
+                raise EnergyTransactionRefused("No durable synthetic journal")
+            self.writes += 1
+            self.prefs["energy_sources"] = deepcopy(sources)
+
+        async def flush_and_read_persisted(self):
+            self.disk = deepcopy(self.prefs)
+            return deepcopy(self.disk)
+
+    async def scenario():
+        port = FictionalNativePort()
+        actor = "synthetic-administrator"
+        first = deepcopy(port.prefs)
+        preview = await preview_bulk_energy_transaction(
+            port, actor, account="SYNTH-ACCOUNT", lot="SYNTH-LOT",
+        )
+        assert preview.status == "prepared_for_explicit_admin_review"
+        assert preview.proposed_count == 1
+        assert port.writes == port.backups == 0
+        result = await apply_bulk_energy_transaction(
+            port, actor, account="SYNTH-ACCOUNT", lot="SYNTH-LOT",
+            approved_before=preview.before,
+            approved_digest=preview.plan_digest, confirm=True,
+        )
+        assert result["status"] == "persisted_verified"
+        assert result["activation_authorized"] is False
+        assert port.backups == port.writes == 1
+        assert port.last_journal["status"] == "verified"
+        assert port.disk == port.prefs
+        assert port.prefs["energy_sources"][:1] == first["energy_sources"]
+        assert port.prefs["energy_sources"][1:] == [{
+            "type": "water", "stat_energy_from": SID,
+        }]
+        assert port.prefs["device_consumption"] == first["device_consumption"]
+        assert port.prefs["device_consumption_water"] == first["device_consumption_water"]
+        assert port.last_journal["backup"] == {"fictional_recoverable_copy": True}
+
+        # Unapproved range or conflicting lineage cannot reach a backup.
+        denied = FictionalNativePort()
+        denied_proofs = proofs[1]["approved_days"][0]
+        denied_proofs["approved"] = False
+        blocked = await preview_bulk_energy_transaction(
+            denied, actor, account="SYNTH-ACCOUNT", lot="SYNTH-LOT",
+        )
+        assert blocked.status == "blocked"
+        assert denied.backups == denied.writes == 0
+
+    asyncio.run(scenario())
