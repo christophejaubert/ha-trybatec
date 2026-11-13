@@ -35,6 +35,8 @@ def _load(names, scope):
 def test_jobs_validate_ranges_and_prevent_automatic_multi_decade_reads():
     scope = _load(["_validate_job_arguments"], {
         "_KINDS": ("historical_preview", "tariff_year_coverage"),
+        "_today": lambda: datetime.now(timezone.utc).date(),
+        "_EARLIEST_DATE": date(2000, 1, 1),
         "date": date, "datetime": datetime, "timezone": timezone,
     })
     validate = scope["_validate_job_arguments"]
