@@ -209,6 +209,7 @@ async def async_read_verified_native_attempt_88(
         "mode": "native_sql_readonly",
         "status": "observed_persisted_exactly",
         "statistic_id": statistic_id,
+        "logical_id": attempt["logical_id"],
         "scope": deepcopy(attempt["scope"]),
         "unit": attempt["unit"],
         "revision": attempt["revision"],
