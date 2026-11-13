@@ -126,7 +126,7 @@ class PerDayEvidenceTests(unittest.TestCase):
     def test_raw_index_decrease_detected_without_metadata_flag(self):
         outcome = prepare(source=readings(102, 100))
         self.assertEqual(outcome["groups"][0]["rows"], [])
-        self.assertEqual(outcome["groups"][0]["historical_evidence_qualification"], "inconnu")
+        self.assertEqual(outcome["groups"][0]["historical_evidence_qualification"], "contradictoire")
         self.assertIn("unresolved_physical_source_anomaly", outcome["groups"][0]["blockers"])
 
     def test_daily_amount_outside_observed_period_is_not_accepted(self):
