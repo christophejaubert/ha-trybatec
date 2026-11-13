@@ -101,6 +101,14 @@ def setup(monkeypatch, *, admin=True, ledger_data=None, disk=None,
     monkeypatch.setattr(native, "_read_store_data", store)
     monkeypatch.setattr(native, "_energy_without_initializing", prefs)
     monkeypatch.setattr(native, "async_read_recorder_metadata_88", recorder)
+    # Pure Python matrix has no Home Assistant package. Inject only the
+    # separate native #36 attempt-catalog I/O boundary; dedicated HA tests
+    # exercise its actual journal reader and stricter SQL verification.
+    async def no_native_attempts(_hass, _entry_id, _lot):
+        return {}
+    monkeypatch.setattr(
+        native, "_read_native_attempt_catalog_88", no_native_attempts,
+    )
     actor = SimpleNamespace(id="synthetic-admin")
     return hass, coordinator, actor
 
