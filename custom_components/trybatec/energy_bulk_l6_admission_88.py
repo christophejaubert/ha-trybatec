@@ -130,6 +130,7 @@ def assess_independent_admission_l6_88(
     # cannot be filled from matching dates, totals or fingerprint flags.
     inventory = lineage.get("verified_physical_inventory")
     serials: set[str] = set()
+    service_bounds: dict[str, tuple[date, date]] = {}
     if not isinstance(inventory, list) or not 1 <= len(inventory) <= _MAX_PHYSICAL:
         issues.add("complete_physical_generations_not_attested")
     else:
@@ -150,6 +151,8 @@ def assess_independent_admission_l6_88(
                 last = _calendar(meter.get("service_end"))
                 if first > last:
                     issues.add("physical_generation_invalid")
+                else:
+                    service_bounds[serial] = (first, last)
             except (ValueError, TypeError):
                 issues.add("unknown_physical_service_boundary")
             serials.add(serial)
@@ -174,6 +177,14 @@ def assess_independent_admission_l6_88(
                 day = _calendar(row.get("date")).isoformat()
                 measured = _amount(row.get("measured"))
                 estimated = _amount(row.get("estimated"))
+                provenance = row.get("provenance")
+                if provenance not in ("measured", "estimated", "mixed"):
+                    issues.add("recorder_daily_provenance_missing")
+                elif ((provenance == "measured" and estimated != 0)
+                      or (provenance == "estimated" and measured != 0)
+                      or (provenance == "mixed"
+                          and (measured == 0 or estimated == 0))):
+                    issues.add("recorder_daily_provenance_incompatible")
             except (ValueError, TypeError):
                 issues.add("recorder_daily_row_invalid")
                 continue
@@ -200,9 +211,17 @@ def assess_independent_admission_l6_88(
                     issues.add("physical_daily_contributor_invalid")
                     continue
                 serial = contributor.get("serial")
-                if serial not in serials or serial in counted:
+                if not isinstance(serial, str) or serial not in serials or serial in counted:
                     issues.add("physical_daily_meter_unknown_or_duplicated")
-                counted.add(serial)
+                else:
+                    if serial not in service_bounds:
+                        issues.add("physical_service_boundary_unknown")
+                    else:
+                        start, end = service_bounds[serial]
+                        if not start <= date.fromisoformat(day) <= end:
+                            issues.add("contribution_outside_physical_service_period")
+                if isinstance(serial, str):
+                    counted.add(serial)
                 try:
                     current += _amount(contributor.get("consumption"))
                 except (ValueError, TypeError):
