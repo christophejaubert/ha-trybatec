@@ -442,3 +442,40 @@ def test_l7_selected_source_count_and_other_sources_preserved_after_positive_fix
     assert port.audit[-1]["status"] == "verified"
     # Positive synthetic transaction deliberately does NOT mean real admission.
     assert result["activation_authorized"] is False
+
+
+def test_scoped_l6_revision_changed_during_native_backup_refuses_before_journal():
+    port = FakePort()
+    previous = preview(port)
+    original_backup = port.create_backup
+
+    async def superseded_during_backup():
+        receipt = await original_backup()
+        port.candidates[0]["competing_statistic_ids"].append(
+            "trybatec:synth_newer_version_discovered"
+        )
+        return receipt
+
+    port.create_backup = superseded_during_backup
+    with pytest.raises(EnergyTransactionRefused, match="L6 selection changed"):
+        apply(port, previous)
+    assert port.backups == 1
+    assert port.writes == 0
+    assert port.audit == []
+
+
+def test_scoped_l6_approval_revoked_during_backup_refuses_before_journal():
+    port = FakePort()
+    previous = preview(port)
+    original_backup = port.create_backup
+
+    async def approval_revoked_during_backup():
+        receipt = await original_backup()
+        port.blocked = True
+        return receipt
+
+    port.create_backup = approval_revoked_during_backup
+    with pytest.raises(EnergyTransactionRefused, match="L6 selection changed"):
+        apply(port, previous)
+    assert port.backups == 1
+    assert port.writes == 0 and port.audit == []
