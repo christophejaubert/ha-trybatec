@@ -173,6 +173,8 @@ def _native_l6_diagnostics(evidence: Any, *, account: str, lot: str) -> dict[str
                     "blockers": verdict["blockers"],
                     "approved_unattested_contributions":
                         verdict["approved_unattested_contributions"],
+                    "approved_missing_days_without_fabricated_rows":
+                        verdict["approved_missing_days_without_fabricated_rows"],
                     "quarantined_alternative_versions":
                         verdict["quarantined_alternative_versions"],
                     "global_supplier_history_attested": False,
