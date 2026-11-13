@@ -1,6 +1,8 @@
 """#88: synthetic service contract tests. No real HA or Energy mutation."""
 from __future__ import annotations
 
+import asyncio
+
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -85,81 +87,81 @@ def _service(monkeypatch, evidence):
     return admin.EnergyBulkAdminService88(object(), coordinator, lot=LOT), port
 
 
-@pytest.mark.asyncio
-async def test_readonly_contract_has_predictable_refusal_and_no_mutation(monkeypatch):
-    service, port = _service(monkeypatch, _evidence())
-    data = await service.preview("synthetic-admin")
-    assert data["schema"] == "energy_bulk_admin_actions_88_v1"
-    assert data["status"] == "blocked"
-    assert data["writes"] is False and data["activation_authorized"] is False
-    assert data["actions"]["preview"]["enabled"] is True
-    assert data["actions"]["confirm"]["enabled"] is False
-    assert data["actions"]["confirm"]["required_fields"] == [
-        "before_fingerprint", "plan_digest", "confirm"
-    ]
-    assert data["fluids"]["EF"]["reasons"] == ["history_incomplete"]
-    assert "history_36_native_attestation_missing" in data["blockers"]
-    assert "lineage_37_native_attestation_missing" in data["blockers"]
-    assert data["fallback"] == "setup_assistant"
-    assert port.collects == 1 and port.backups == port.writes == 0
+def test_readonly_contract_has_predictable_refusal_and_no_mutation(monkeypatch):
+    async def scenario():
+        service, port = _service(monkeypatch, _evidence())
+        data = await service.preview("synthetic-admin")
+        assert data["schema"] == "energy_bulk_admin_actions_88_v1"
+        assert data["status"] == "blocked"
+        assert data["writes"] is False and data["activation_authorized"] is False
+        assert data["actions"]["preview"]["enabled"] is True
+        assert data["actions"]["confirm"]["enabled"] is False
+        assert data["actions"]["confirm"]["required_fields"] == [
+            "before_fingerprint", "plan_digest", "confirm"
+        ]
+        assert data["fluids"]["EF"]["reasons"] == ["history_incomplete"]
+        assert "history_36_native_attestation_missing" in data["blockers"]
+        assert "lineage_37_native_attestation_missing" in data["blockers"]
+        assert data["fallback"] == "setup_assistant"
+        assert port.collects == 1 and port.backups == port.writes == 0
+    asyncio.run(scenario())
 
+def test_non_admin_is_refused_before_collect(monkeypatch):
+    async def scenario():
+        service, port = _service(monkeypatch, _evidence())
+        with pytest.raises(PermissionError):
+            await service.preview("synthetic-user")
+        assert port.collects == port.backups == port.writes == 0
+    asyncio.run(scenario())
 
-@pytest.mark.asyncio
-async def test_non_admin_is_refused_before_collect(monkeypatch):
-    service, port = _service(monkeypatch, _evidence())
-    with pytest.raises(PermissionError):
-        await service.preview("synthetic-user")
-    assert port.collects == port.backups == port.writes == 0
+def test_confirmation_refuses_before_any_backup(monkeypatch):
+    async def scenario():
+        service, port = _service(monkeypatch, _evidence())
+        with pytest.raises(EnergyTransactionRefused, match="Independent L6"):
+            await service.confirm(
+                "synthetic-admin", before_fingerprint="a" * 64,
+                plan_digest="b" * 64, confirm=True,
+            )
+        assert port.collects == 1 and port.backups == port.writes == 0
+        with pytest.raises(EnergyTransactionRefused, match="Explicit matching"):
+            await service.confirm(
+                "synthetic-admin", before_fingerprint="a" * 64,
+                plan_digest="b" * 64, confirm=False,
+            )
+        assert port.collects == 1
+    asyncio.run(scenario())
 
+def test_admissible_label_or_fingerprint_alone_never_unlocks(monkeypatch):
+    async def scenario():
+        evidence = _evidence()
+        for row in evidence["fluids"].values():
+            row["status"] = "admissible"
+            row["reasons"] = []
+        service, port = _service(monkeypatch, evidence)
+        data = await service.preview("synthetic-admin")
+        assert data["status"] == "blocked"
+        assert data["actions"]["confirm"]["enabled"] is False
+        assert "l6_independent_historical_inventory_unverified" in data["blockers"]
+        assert port.backups == port.writes == 0
+    asyncio.run(scenario())
 
-@pytest.mark.asyncio
-async def test_confirmation_refuses_before_any_backup(monkeypatch):
-    service, port = _service(monkeypatch, _evidence())
-    with pytest.raises(EnergyTransactionRefused, match="Independent L6"):
-        await service.confirm(
-            "synthetic-admin", before_fingerprint="a" * 64,
-            plan_digest="b" * 64, confirm=True,
-        )
-    assert port.collects == 1 and port.backups == port.writes == 0
-    with pytest.raises(EnergyTransactionRefused, match="Explicit matching"):
-        await service.confirm(
-            "synthetic-admin", before_fingerprint="a" * 64,
-            plan_digest="b" * 64, confirm=False,
-        )
-    assert port.collects == 1
-
-
-@pytest.mark.asyncio
-async def test_admissible_label_or_fingerprint_alone_never_unlocks(monkeypatch):
-    evidence = _evidence()
-    for row in evidence["fluids"].values():
-        row["status"] = "admissible"
-        row["reasons"] = []
-    service, port = _service(monkeypatch, evidence)
-    data = await service.preview("synthetic-admin")
-    assert data["status"] == "blocked"
-    assert data["actions"]["confirm"]["enabled"] is False
-    assert "l6_independent_historical_inventory_unverified" in data["blockers"]
-    assert port.backups == port.writes == 0
-
-
-@pytest.mark.asyncio
-async def test_forged_history_success_still_lacks_independent_contracts(monkeypatch):
-    evidence = _evidence()
-    evidence["historical_contract"] = {
-        "mode": "energy_l6_historical_crosscheck",
-        "complete": True, "admissible": True,
-    }
-    evidence["all_energy_sources_independently_checked"] = True
-    evidence["native_backup_restore_qualified"] = True
-    evidence["thermal_category_semantically_approved"] = True
-    service, port = _service(monkeypatch, evidence)
-    data = await service.preview("synthetic-admin")
-    assert data["actions"]["confirm"]["enabled"] is False
-    assert "history_36_native_attestation_missing" in data["blockers"]
-    assert "lineage_37_native_attestation_missing" in data["blockers"]
-    assert port.backups == port.writes == 0
-
+def test_forged_history_success_still_lacks_independent_contracts(monkeypatch):
+    async def scenario():
+        evidence = _evidence()
+        evidence["historical_contract"] = {
+            "mode": "energy_l6_historical_crosscheck",
+            "complete": True, "admissible": True,
+        }
+        evidence["all_energy_sources_independently_checked"] = True
+        evidence["native_backup_restore_qualified"] = True
+        evidence["thermal_category_semantically_approved"] = True
+        service, port = _service(monkeypatch, evidence)
+        data = await service.preview("synthetic-admin")
+        assert data["actions"]["confirm"]["enabled"] is False
+        assert "history_36_native_attestation_missing" in data["blockers"]
+        assert "lineage_37_native_attestation_missing" in data["blockers"]
+        assert port.backups == port.writes == 0
+    asyncio.run(scenario())
 
 def test_bad_server_scope_is_refused(monkeypatch):
     monkeypatch.setattr(admin, "HAGuardedEnergyPort",
