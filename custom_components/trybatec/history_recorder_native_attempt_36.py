@@ -288,6 +288,28 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
     if len(qualified) != 1 or qualified[0].get("fingerprint") != item.get("coverage_fingerprint"):
         raise ValueError("Day coverage fingerprint does not match the selected version")
     group = qualified[0]
+    source_proofs = group.get("source_proofs")
+    if (not isinstance(source_proofs, list)
+            or not isinstance(group.get("gaps"), list)
+            or not isinstance(group.get("coverage"), str)):
+        raise ValueError("Missing source-bound physical approval inventory")
+    canonical_group = {
+        "lot": item["lot"], "fluid": item["fluid"], "unit": item["unit"],
+        "rows": group.get("rows"), "coverage": group["coverage"],
+        "gaps": group["gaps"], "source_proofs": sorted(
+            source_proofs, key=lambda p: p["serial"]
+        ),
+    }
+    if plan_digest(canonical_group) != group["fingerprint"]:
+        raise ValueError("Daily provenance rows do not match group fingerprint")
+    approved_by_meter = {}
+    for evidence in source_proofs:
+        if (not isinstance(evidence, dict)
+                or not isinstance(evidence.get("serial"), str)
+                or not isinstance(evidence.get("approved_decisions"), list)
+                or evidence["serial"] in approved_by_meter):
+            raise ValueError("Invalid source-bound physical approval inventory")
+        approved_by_meter[evidence["serial"]] = set(evidence["approved_decisions"])
     days = group.get("rows")
     if not isinstance(days, list) or not 1 <= len(days) <= _MAX_DECISIONS:
         raise ValueError("Missing bounded daily provenance")
@@ -310,6 +332,8 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
             if not isinstance(c, dict) or not isinstance(c.get("decision_refs", []), list):
                 raise ValueError("Invalid per-meter approval references")
             refs = c.get("decision_refs", [])
+            if c.get("serial") not in approved_by_meter:
+                raise ValueError("Daily contribution belongs to unselected physical meter")
             if Decimal(str(c["estimated"])) > 0 and not refs:
                 raise ValueError("Estimated day lacks an exact approved interval reference")
             for ref in refs:
@@ -322,6 +346,8 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
                             "manual_periodic", "telemetry_failure", "other", "undetermined_confirmed"
                         )):
                     raise ValueError("Unknown or unbound day approval reference")
+                if ref["reference"] not in approved_by_meter[c["serial"]]:
+                    raise ValueError("Day reference is not in its physical source approval set")
                 stamp = ref.get("updated_at")
                 try:
                     at = datetime.fromisoformat(stamp)
