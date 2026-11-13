@@ -170,6 +170,8 @@ def prepare_physical_continuity_37(
     archived: Mapping[str, Any] | None = None,
     confirmed_links: Sequence[Mapping[str, Any]] = (),
     approved_parallel: set[frozenset[tuple[str, str, str]]] | None = None,
+    observed_catalog: Sequence[Mapping[str, Any]] | None = None,
+    supplier_discovery: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join physical identities; partial data stays *explicitly* incomplete.
 
@@ -214,6 +216,16 @@ def prepare_physical_continuity_37(
         fingerprint = meter.get("source_fingerprint")
         if not isinstance(fingerprint, str) or len(fingerprint) != 64:
             raise ValueError("Historical source fingerprint missing")
+        observation_gaps = [
+            {
+                "last_observed_at": before[0].isoformat(),
+                "next_observed_at": after[0].isoformat(),
+                "consumption": None,
+                "service_transition_proven": False,
+            }
+            for before, after in zip(readings, readings[1:])
+            if after[0] - before[0] > timedelta(hours=27)
+        ]
         physical[key] = {
             "lot": key[0], "fluid": key[1], "serial": key[2],
             "status": "depose" if meter.get("retired") is True else "inconnu",
@@ -221,6 +233,9 @@ def prepare_physical_continuity_37(
             "first_observed_at": _instant(readings[0][0]) if readings else None,
             "last_observed_at": _instant(readings[-1][0]) if readings else None,
             "observation_count": len(readings),
+            "unknown_observation_spans": observation_gaps[:32],
+            "unknown_observation_spans_count": len(observation_gaps),
+            "unknown_observation_spans_truncated": len(observation_gaps) > 32,
             "source": "qualified_history_range",
             "service_start": None, "service_end": None,
             "unit": None, "blockers": [],
@@ -236,7 +251,10 @@ def prepare_physical_continuity_37(
             "lot": key[0], "fluid": key[1], "serial": key[2],
             "status": "inconnu", "source_fingerprint": None,
             "first_observed_at": None, "last_observed_at": None,
-            "observation_count": 0, "source": "current_cache_only",
+            "observation_count": 0,
+            "unknown_observation_spans": [], "unknown_observation_spans_count": 0,
+            "unknown_observation_spans_truncated": False,
+            "source": "current_cache_only",
             "service_start": None, "service_end": None,
             "unit": None, "blockers": ["historical_source_not_observed"],
             "readings_origin": "unknown_manual_or_automatic",
@@ -262,7 +280,10 @@ def prepare_physical_continuity_37(
             "lot": key[0], "fluid": key[1], "serial": key[2],
             "status": "depose", "source_fingerprint": item.get("source_fingerprint"),
             "first_observed_at": None, "last_observed_at": None,
-            "observation_count": 0, "source": "archived_snapshot_only",
+            "observation_count": 0,
+            "unknown_observation_spans": [], "unknown_observation_spans_count": 0,
+            "unknown_observation_spans_truncated": False,
+            "source": "archived_snapshot_only",
             "service_start": None, "service_end": None,
             "unit": None, "blockers": ["historical_source_not_observed"],
             "readings_origin": "unknown_manual_or_automatic",
@@ -277,6 +298,108 @@ def prepare_physical_continuity_37(
         if row["source_fingerprint"] and item.get("source_fingerprint") != row["source_fingerprint"]:
             row["blockers"].append("archive_source_fingerprint_changed")
 
+    catalog_differences = []
+    catalog_match_count = 0
+    supplied_catalog_keys: set[tuple[str, str, str]] = set()
+    if observed_catalog is not None:
+        if (not isinstance(observed_catalog, (tuple, list))
+                or len(observed_catalog) > _LIMIT):
+            raise ValueError("Invalid bounded observed physical catalog")
+        for observed in observed_catalog:
+            key = _key(observed)
+            if key in supplied_catalog_keys:
+                raise ValueError("Duplicate observed physical catalog identity")
+            supplied_catalog_keys.add(key)
+            source = physical.get(key)
+            if source is None:
+                catalog_differences.append({"key": key, "reason": "catalog_meter_missing_from_history"})
+                physical[key] = {
+                    "lot": key[0], "fluid": key[1], "serial": key[2],
+                    "status": "inconnu", "source_fingerprint": None,
+                    "first_observed_at": None, "last_observed_at": None,
+                    "observation_count": None, "source": "catalog_only",
+                    "service_start": None, "service_end": None,
+                    "unit": None, "blockers": ["catalog_meter_missing_from_history"],
+                    "readings_origin": "unknown_manual_or_automatic",
+                    "historical_reading_only": False,
+                    "unknown_observation_spans": [],
+                    "unknown_observation_spans_count": 0,
+                    "unknown_observation_spans_truncated": False,
+                }
+                continue
+            differences = []
+            expected = observed.get("observation_count")
+            if expected is not None:
+                if type(expected) is not int or expected < 0 or expected > 100000:
+                    raise ValueError("Invalid catalog observation count")
+                if source["source"] == "qualified_history_range" and expected != source["observation_count"]:
+                    differences.append("catalog_observation_count_mismatch")
+            fingerprint = observed.get("source_fingerprint")
+            if fingerprint is not None:
+                if (not isinstance(fingerprint, str) or len(fingerprint) != 64
+                        or any(ch not in "0123456789abcdef" for ch in fingerprint)):
+                    raise ValueError("Invalid catalog source fingerprint")
+                if source["source_fingerprint"] is not None and fingerprint != source["source_fingerprint"]:
+                    differences.append("catalog_physical_source_fingerprint_mismatch")
+            for field in ("first_observed_at", "last_observed_at"):
+                value = observed.get(field)
+                if value is not None:
+                    if not isinstance(value, str):
+                        raise ValueError("Invalid catalog observation boundary")
+                    try:
+                        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    except ValueError as exc:
+                        raise ValueError("Invalid catalog observation boundary") from exc
+                    if parsed.tzinfo is None or parsed.utcoffset() is None:
+                        raise ValueError("Catalog observation boundary requires timezone")
+                    actual = source.get(field)
+                    if actual is not None and datetime.fromisoformat(actual) != parsed:
+                        differences.append("catalog_observation_boundary_mismatch")
+            state = observed.get("status")
+            if state is not None:
+                if state not in ("en_service", "depose", "inconnu"):
+                    raise ValueError("Invalid catalog meter state")
+                if source["status"] != "inconnu" and state != "inconnu" and state != source["status"]:
+                    differences.append("catalog_physical_status_conflict")
+            if differences:
+                source["blockers"].extend(differences)
+                catalog_differences.extend({"key": key, "reason": reason} for reason in differences)
+            else:
+                catalog_match_count += 1
+        for key in set(physical) - supplied_catalog_keys:
+            catalog_differences.append({"key": key, "reason": "observed_meter_absent_from_supplied_catalog"})
+    discovery_status = "unavailable"
+    if supplier_discovery is not None:
+        if not isinstance(supplier_discovery, Mapping):
+            raise ValueError("Invalid supplier discovery evidence")
+        discovery_status = supplier_discovery.get("status", "unknown")
+        if discovery_status not in (
+            "complete", "incomplete", "interrupted", "error", "in_progress",
+            "never_started", "cache_invalidated", "unknown",
+        ):
+            raise ValueError("Invalid supplier discovery status")
+    contradictions = any(item["reason"] in (
+        "catalog_observation_count_mismatch",
+        "catalog_physical_source_fingerprint_mismatch",
+        "catalog_observation_boundary_mismatch",
+        "catalog_physical_status_conflict",
+    ) for item in catalog_differences)
+    catalog_report = {
+        "status": "contradictoire" if contradictions else (
+            "inconnu" if observed_catalog is None else "partiel"
+        ),
+        "observed_physical_count": len(physical),
+        "supplied_catalog_count": len(supplied_catalog_keys) if observed_catalog is not None else None,
+        "catalog_rows_matching_observed_source": catalog_match_count,
+        "differences": [
+            {"lot": key[0], "fluid": key[1], "serial": key[2], "reason": item["reason"]}
+            for item in catalog_differences for key in (item["key"],)
+        ],
+        "source_discovery_status": discovery_status,
+        "complete_requested_interval_is_not_complete_account_history": True,
+        "historical_account_exhaustiveness_verified": False,
+        "writes": False,
+    }
     physical_keys = set(physical)
     if not isinstance(confirmed_links, (tuple, list)) or len(confirmed_links) > _LIMIT:
         raise ValueError("Invalid confirmed lineage collection")
@@ -374,6 +497,7 @@ def prepare_physical_continuity_37(
     return {
         "mode": "read_only_37_history_bridge",
         "inventory": [physical[k] for k in sorted(physical)],
+        "inventory_reconciliation": catalog_report,
         "groups": all_previews,
         "meter_count": len(physical),
         "historical_inventory_proven_complete": False,
