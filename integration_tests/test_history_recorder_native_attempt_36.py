@@ -669,3 +669,152 @@ async def test_pending_and_quarantined_attempts_remain_non_admissible(
         hass, "synthetic-36", stat,
     ))["status"] == "not_admissible_quarantined"
     assert native_fixture["queued"] == []
+
+
+
+def _selected_v2(statistic_id: str, snapshot_hash: str) -> dict:
+    return {
+        "account": "SYNTH-ACCOUNT-36", "lot": "SYNTH", "fluid": "EF",
+        "start": "2026-01-01", "end": "2026-01-02",
+        "statistic_id": statistic_id, "unit": "m³",
+        "serials": ["SYNTH-A"], "generation_ids": ["SYNTH-A"],
+        "rows_hash": snapshot_hash, "accepted_missing_days": [],
+    }
+
+
+@pytest.fixture
+def scoped_entry(hass, monkeypatch):
+    """Synthetic HA config entry for read-only scoped selection tests."""
+    from types import SimpleNamespace
+
+    registry = type(hass.config_entries)
+    original = registry.async_get_entry
+
+    def from_fixture(self, entry_id):
+        if entry_id == "synthetic-36":
+            return SimpleNamespace(unique_id="SYNTH-ACCOUNT-36")
+        return original(self, entry_id)
+
+    monkeypatch.setattr(registry, "async_get_entry", from_fixture)
+
+
+@pytest.mark.asyncio
+async def test_readonly_scoped_v2_refuses_global_immutability(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    native_proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert native_proof["scoped_recorder_persistence_verified"] is True
+    before = await native._read_disk(hass, "synthetic-36")
+    selected = _selected_v2(stat, reservation["snapshot_hash"])
+    v2 = await native.async_read_native_scoped_selection_v2_36(
+        hass, "synthetic-36", selected,
+    )
+    after = await native._read_disk(hass, "synthetic-36")
+    assert before == after  # v2 producer never mutates Store or Recorder
+    assert v2["schema"] == "history_36_scoped_selection_v2"
+    assert v2["account"] == "SYNTH-ACCOUNT-36"
+    assert v2["statistic_id"] == stat
+    assert v2["metadata"]["persisted_readback_hash"] == reservation["snapshot_hash"]
+    assert v2["approved_days"][0]["revision_hash"] == _decision_fingerprint(
+        "undetermined_confirmed"
+    )
+    assert v2["selected_series_persisted"] is True
+    assert v2["scoped_double_readback_observed"] is True
+    assert v2["post_restart_readback_verified"] is False
+    assert v2["selected_statistic_id_owned_by_one_scope"] is False
+    assert v2["version_catalog_complete_for_selected_scope"] is False
+    assert v2["selected_version_state"] != "verified_immutable"
+    assert v2["independent_future_writer_exclusion_verified"] is False
+    assert v2["energy_activation_authorized"] is False
+    assert v2["recorder_writes"] is False
+    assert v2["energy_writes"] is False
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_rejects_unverified_or_quarantined_candidate(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    selection = _selected_v2(
+        reservation["statistic_id"], reservation["snapshot_hash"],
+    )
+    with pytest.raises(ValueError, match="pending, quarantined or compromised"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", reservation["statistic_id"], reason="interrupted",
+    )
+    with pytest.raises(ValueError, match="pending, quarantined or compromised"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selection,
+        )
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_rejects_foreign_account_day_serial_hash_and_absence(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    await native.async_native_attempt_proof_36(hass, "synthetic-36", stat)
+    base = _selected_v2(stat, reservation["snapshot_hash"])
+    samples = [
+        ("account", "FOREIGN-ACCOUNT", "Selected account"),
+        ("start", "2025-12-31", "Selected period"),
+        ("serials", ["SYNTH-OTHER"], "Selected physical meter serials"),
+        ("generation_ids", ["fake-opaque"], "Physical generation identifiers"),
+        ("rows_hash", "f" * 64, "Selected native rows hash"),
+        ("accepted_missing_days", ["2026-01-01"], "absence receipts"),
+    ]
+    for key, value, error in samples:
+        chosen = deepcopy(base)
+        chosen[key] = value
+        with pytest.raises(ValueError, match=error):
+            await native.async_read_native_scoped_selection_v2_36(
+                hass, "synthetic-36", chosen,
+            )
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_detects_late_writer_without_fabricating_fence(
+    hass, native_fixture, scoped_entry,
+):
+    plan = _plan()
+    reservation = await _reserve(hass, plan)
+    stat = reservation["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    await native.async_native_attempt_proof_36(hass, "synthetic-36", stat)
+    selected = _selected_v2(stat, reservation["snapshot_hash"])
+    assert (await native.async_read_native_scoped_selection_v2_36(
+        hass, "synthetic-36", selected,
+    ))["selected_series_persisted"]
+    native_fixture["rows"][stat][-1]["sum"] += 12
+    with pytest.raises(ValueError, match="Selected Recorder buckets changed"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", selected,
+        )
+    # v2 is read-only: the separate active verification will quarantine
+    # this previously verified ID when it observes the same source drift.
+    proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert proof["verified_attempt_tombstoned"] is True
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "compromised"
+    assert native_fixture["queued"] == [stat]
