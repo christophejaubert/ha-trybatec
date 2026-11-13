@@ -333,7 +333,6 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Depuis le","From"],
   ["Jusqu’au","Through"],
   ["Analyser les relevés","Analyze readings"],
-  ["Ancienne IHM de révision","Existing review interface"],
   ["Intervalles entre relevés","Intervals between readings"],
   ["L’analyse ne déduit jamais une origine manuelle ou automatique.","The analysis never infers whether readings are manual or automatic."],
   ["Reconstituer l’intervalle sélectionné","Reconstruct the selected interval"],
@@ -346,6 +345,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Lisser le résiduel","Smooth the residual"],
   ["Ne pas lisser","Do not smooth"],
   ["Motif déclaré","Declared reason"],
+  ["Origine indéterminée","Undetermined origin"],
   ["Relève périodique","Periodic reading"],
   ["Autre motif","Other reason"],
   ["Avant / après","Before / after"],
@@ -2570,8 +2570,12 @@ class TrybatecPanel extends HTMLElement {
     const bounds=trybatecHistoricalBounds(account,this._historyContextKey,
       this._tariffCoverage?.get?.(account.entry_id));
     this._historyDateScope=scope;
+    const previousStart=this._historyStart, previousEnd=this._historyEnd;
     if (!this._historyDatesEdited?.start) this._historyStart=bounds.start;
     if (!this._historyDatesEdited?.end) this._historyEnd=bounds.end;
+    if (previousStart!==this._historyStart || previousEnd!==this._historyEnd) {
+      this._historyPreview=null;this._historySelected="";this._versionPlan=null;
+    }
     this._historyDateBounds=bounds;
   }
   _historyDatesHelp() {
@@ -2653,7 +2657,8 @@ class TrybatecPanel extends HTMLElement {
         "Étendre jusqu’à aujourd’hui","Extend through today"))+'</button>'+
       '<button class="secondary" type="button" data-history-reset-dates>'+safe(this._t(
         "Revenir aux bornes connues","Restore known bounds"))+'</button></div>'+
-      '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
+      '<div class="actions"><button type="button" class="primary" data-history-preview '+
+      (this._historyBusy||!this._historyStart||!this._historyEnd?"disabled":"")+
       '>Analyser les relevés</button>'+
       (this._historyBusy&&this._historyJobId?
         '<button type="button" class="secondary" data-history-cancel>'+
@@ -2903,6 +2908,13 @@ class TrybatecPanel extends HTMLElement {
   }
   async _previewRecorderVersion() {
     if (!this._current||this._versionBusy) return;
+    if (!/^\d{4}-\d\d-\d\d$/.test(this._historyStart) ||
+        !/^\d{4}-\d\d-\d\d$/.test(this._historyEnd) ||
+        this._historyStart>this._historyEnd) {
+      this._versionError=this._t("Vérifiez la période Recorder avant l’aperçu.",
+        "Check the Recorder dates before preview.");
+      this._render();return;
+    }
     this._versionBusy=true;this._versionError="";this._versionMessage="";
     this._versionPlan=null;this._versionVerify=null;this._render();
     try {
@@ -3022,7 +3034,8 @@ class TrybatecPanel extends HTMLElement {
         "The Recorder plan covers the full account for these dates; separately verify dates and scope before import."))+'</p><p class="muted">'+safe(this._t(
         "Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.",
         "Cold water, hot water and heating are included in previews subject to unit and history checks. No automatic import."
-      ))+'</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
+      ))+'</p><div class="actions"><button type="button" class="secondary" data-version-preview '+
+      (this._versionBusy||!this._historyStart||!this._historyEnd?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
       (plan?'<div class="notice"><strong>Plan non importé</strong> · '+safe(rows.length)+
         ' séries, '+safe(plan.physical_meters?.length||"?")+' compteurs, période '+
         safe(this._date(plan.start_date))+" → "+safe(this._date(plan.end_date))+
