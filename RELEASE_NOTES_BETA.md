@@ -1,3 +1,23 @@
+# 0.3.4b1 — Candidate intégrée / Integrated beta candidate
+
+## FR — Évolutions et limitations
+
+Candidate regroupant les travaux préparés : installation et réauthentification sécurisées, notifications d'accès, identités stables **pour nouveaux comptes seulement**, tarifs annuels et calculs YTD, options natives sans JSON obligatoire, corrections d'interface et de traduction, filiation historique des compteurs, contrats Recorder et prévisualisation Énergie en lecture seule. Les contrôles CI, confidentialité et accessibilité synthétique sont renforcés.
+
+**Limites bloquantes :** le rejeu sélectif Recorder reste interdit sans preuve de quiescence du writer ; L6 ne prouve pas encore l'admissibilité exhaustive Énergie, et L7 refuse toute écriture réelle. Ces éléments ne constituent pas un ajout groupé opérationnel. La migration et le nettoyage des anciens identifiants restent exclus.
+
+**Publication non autorisée :** la recette Home Assistant réelle et l'évaluation des protections de sauvegarde/reprise sur la plateforme de production restent à effectuer, ainsi que la qualification complète de #36/#37/#88. Aucune installation ni modification n'est autorisée par ces notes. Procédure : `docs/PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md`.
+
+## EN — Changes and limitations
+
+Integrated candidate combining secured setup and reauthentication, access notifications, stable physical identities **for new accounts only**, annual tariff/YTD features, native options without mandatory JSON, UI/translation fixes, retired-meter historical lineage, Recorder evidence contracts and read-only Energy previews. Synthetic CI, privacy and accessibility checks are strengthened.
+
+**Blocking limitations:** selective Recorder retry remains denied without independently proven writer quiescence; L6 has not established comprehensive Energy eligibility and the L7 adapter denies real writes. This is **not** proof of working bulk Energy enrollment. No migration or cleanup of historic identities is included.
+
+**Not approved for release:** production Home Assistant acceptance, backup/recovery safeguards and complete #36/#37/#88 qualification remain outstanding. This note grants no installation, change or release permission. See `docs/PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md`.
+
+---
+
 # 0.3.3b1 — Consolidation post-recette (bêta expérimentale)
 
 **Préversion expérimentale.** Sa publication ne constitue ni une installation sur Home Assistant ni une validation fonctionnelle en production ; consulter [le périmètre et les limites](docs/RELEASE_SCOPE_0.3.3b1.md).
