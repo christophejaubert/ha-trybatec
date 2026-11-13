@@ -1147,7 +1147,7 @@ class TrybatecPanel extends HTMLElement {
       this._loading = false;
       this._render();
       if (["meters","history","tariffs"].includes(this._tab) && this._current)
-        this._readHistoryDiscovery();
+        this._readHistoryDiscovery?.();
 
     }
   }
@@ -1191,7 +1191,8 @@ class TrybatecPanel extends HTMLElement {
   }
   /** Passive C11 read: never starts supplier traffic. */
   async _readHistoryDiscovery(entryId=this._current?.entry_id) {
-    if (!entryId || !this._hass || this._historyDiscoveryInflight?.has(entryId)) return;
+    if (!entryId || !this._hass || !this._historyDiscovery ||
+        !this._historyDiscoveryInflight || this._historyDiscoveryInflight.has(entryId)) return;
     // The command is administrator-only. Do not attempt it before HA has
     // established an administrator identity for this panel session.
     if (this._hass?.user?.is_admin!==true) {
@@ -1401,11 +1402,11 @@ class TrybatecPanel extends HTMLElement {
       }
       this._render();
       if(this._tab==="meters")this._revealSelectedMeterDetail?.();
-      if(["meters","history"].includes(this._tab))this._readHistoryDiscovery();
+      if(["meters","history"].includes(this._tab))this._readHistoryDiscovery?.();
       return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
-    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();this._readHistoryDiscovery();return;}
+    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();this._readHistoryDiscovery?.();return;}
     if (btn.dataset.historyToday!==undefined) {
       this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
       this._historyDatesEdited.end=true;this._historyEndExtended=true;
@@ -1418,11 +1419,11 @@ class TrybatecPanel extends HTMLElement {
       this._historyStart="";this._historyEnd="";
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
-    if (btn.dataset.discoveryRefresh!==undefined) {this._readHistoryDiscovery();return;}
+    if (btn.dataset.discoveryRefresh!==undefined) {this._readHistoryDiscovery?.();return;}
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tab) {
       this._tab=btn.dataset.tab;this._query="";this._render();
-      if (["meters","history","tariffs"].includes(this._tab)) this._readHistoryDiscovery();
+      if (["meters","history","tariffs"].includes(this._tab)) this._readHistoryDiscovery?.();
       return;
     }
     if (btn.dataset.meter !== undefined) {
@@ -1439,7 +1440,7 @@ class TrybatecPanel extends HTMLElement {
       this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
       this._render();
-      if(["meters","history","tariffs"].includes(this._tab))this._readHistoryDiscovery();
+      if(["meters","history","tariffs"].includes(this._tab))this._readHistoryDiscovery?.();
       return;
     }
     if (btn.dataset.reloadPanel !== undefined) {
@@ -1453,7 +1454,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();this._readHistoryDiscovery();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();this._readHistoryDiscovery?.();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffReset !== undefined) {
       const saved=this._existingTariff();
@@ -2133,12 +2134,13 @@ class TrybatecPanel extends HTMLElement {
     const conflicting=source==="conflict"||source==="unverified";
     const unchanged=draft.unit===option.selected_unit &&
       (draft.device_uuid||"")===(option.device_uuid||"");
-    const disabledReason=this._meterOptionBusy?this._t(
+    const t=(fr,en)=>this._t?.(fr,en)||fr;
+    const disabledReason=this._meterOptionBusy?t(
       "Enregistrement en cours.","Saving meter settings."):
-      conflicting && draft.unit!=="unverified"?this._t(
+      conflicting && draft.unit!=="unverified"?t(
         "Unité non sélectionnable : la source est conflictuelle ou non vérifiée.",
         "Unit cannot be saved: source is conflicting or unverified."):
-      unchanged?this._t("Aucune modification à enregistrer.",
+      unchanged?t("Aucune modification à enregistrer.",
         "No changes to save."):"";
     const origin={
       manual:"Unité enregistrée manuellement",
@@ -2235,7 +2237,7 @@ class TrybatecPanel extends HTMLElement {
       this._originMeter=meter.physical_key;
       this._historySelected="";this._readingSelected="";
       this._tab="history";this._query="";
-      this._render();this._readHistoryDiscovery();
+      this._render();this._readHistoryDiscovery?.();
       this.shadowRoot.querySelector("[data-history-preview]")?.focus();
       return;
     }
@@ -3258,7 +3260,7 @@ class TrybatecPanel extends HTMLElement {
           "Toute année entre 2000 et 2100 reste librement saisissable, même après échec de la découverte.",
           "Any year from 2000 to 2100 remains editable, even if discovery fails."))+'</p>'+
       (range.fallback && !suggested.length?'<p class="notice">'+safe(this._t(
-        "Aucune borne datée actuellement connue : les années proposées par défaut ne sont pas des preuves de relevés.",
+        "Aucun relevé daté connu dans cet inventaire : les années proposées par défaut ne sont pas des preuves de relevés.",
         "No dated observation bounds currently available: default suggested years are not proof of readings."))+'</p>':"")+
       (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
       (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
