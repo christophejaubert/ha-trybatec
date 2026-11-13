@@ -55,6 +55,21 @@ L6/L7 doit évoluer **dans le mandat distinct #88**, sur sélection explicite, e
 
 **Le code #88 actuel continue de refuser l'admission**, y compris sur sélection bornée : la nouvelle décision métier est un **contrat de modification à évaluer séparément**, pas un déverrouillage réalisé par #37.
 
+### Compatibilité précise avec #88 L6 ciblé existant
+
+Le module `energy_bulk_scoped_l6_88.py` de la PR #158 dispose déjà d'un validateur **v2 synthétique et non autorisant**. Il exige actuellement `lineage_37_scoped_selection_v2` produit par un collecteur natif (mode `native_selected_generations`), des décisions `history_36_scoped_selection_v2`, une série Recorder immuable relue et le catalogue complet des sources Energy concurrentes **dans la fenêtre**, sans preuve d'exhaustivité globale du logement.
+
+Le nouveau `lineage_37_bounded_user_selection_v1` est un **contrat préliminaire de sélection utilisateur**, pas le v2 natif exigé par #88 : les deux schémas ne sont pas interchangeables et aucune simple copie de clés n'autorise une action. La passerelle de confiance encore à développer côté #36/#88 doit rapprocher :
+- `account_digest` et décision utilisateur authentifiée côté serveur → identité réelle de compte et référence de choix persistée dans la sélection v2 ;
+- `selected_serials`, bornes et empreintes source → `generation_ids` physiques vérifiés, jamais des `entity_id` HA ;
+- `scope_snapshot_fingerprint` → sélection et `selection_digest` recalculés *dans la même version et le même schéma*, sans réutiliser à tort deux algorithmes de hash différents ;
+- `estimated_contributors` et les preuves jour/révision → `recorder.approved_days` authentifié par #36, avec source, montant, journée, génération, statistique et empreinte de révision ;
+- `accepted_missing_days` → **écart à résoudre** : le validateur v2 actuel exige `len(daily)==nombre de journées`. #88 doit soit traiter explicitement les journées exclues avec une représentation sans somme Recorder artificielle, soit découper la sélection en fenêtres contiguës réellement documentées et requalifier chacune (ainsi que la continuité globale). **Interdit de fabriquer des zéros pour satisfaire une longueur de tableau**.
+
+Les raisons de refus L6 actuelles, les règles de sécurité Recorder et la transaction L7 restent inchangées. Le candidat borné #37 **ne déverrouille pas** le validateur #88 existant.
+
+**EN — Exact v2 contract gap:** #88 already has the read-only scoped v2 L6 validator requiring `lineage_37_scoped_selection_v2`, native generation verification, immutable #36 Recorder readback and exact Energy catalogs. The new #37 v1 user-selection envelope is intentionally **not** a native v2 certificate and must not be relabelled. In particular, the existing #88 v2 validator requires daily rows for every selected day, whereas explicitly accepted gaps must stay absent. The #88 owner must implement exclusion-aware native representation or requalify contiguous observed subwindows; never pad unknown days with synthetic zero statistics.
+
 ### C11 / #162 — observations et intervention utilisateur
 
 C11 peut fournir une fenêtre effectivement consultée et des compteurs observés, mais ne doit pas annoncer les appareils non renvoyés comme inexistants. L'interface devra montrer les bornes, les erreurs et les réserves ; la vérification avec le portail et le signalement à Trybatec relèvent de l'utilisateur. Un statut de collecte complète ne certifie pas les dates de mise en service. L'interface existante n'est pas modifiée par #160.
