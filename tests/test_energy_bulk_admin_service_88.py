@@ -104,6 +104,8 @@ def test_readonly_contract_has_predictable_refusal_and_no_mutation(monkeypatch):
             "before_fingerprint", "plan_digest", "confirm"
         ]
         assert data["fluids"]["EF"]["reasons"] == ["history_incomplete"]
+    assert data["l6_diagnostics"]["EF"]["status"] == "blocked"
+    assert data["l6_diagnostics"]["CET"]["activation_authorized"] is False
         assert "history_36_native_attestation_missing" in data["blockers"]
         assert "lineage_37_native_attestation_missing" in data["blockers"]
         assert data["fallback"] == "setup_assistant"
