@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from hashlib import sha256
+import json
 from typing import Any
 
 from homeassistant.components.recorder.models import StatisticMeanType
@@ -237,6 +238,28 @@ async def queue_b15_plan(
     }
 
 
+async def _read_recorder_rows(
+    hass: Any, statistic_id: str, snapshot: list[list],
+) -> list[dict]:
+    """Read every native 90-day window without permitting missing responses."""
+    observed = []
+    for first, last in expected_windows(snapshot):
+        response = await hass.services.async_call(
+            "recorder", "get_statistics", {
+                "statistic_ids": [statistic_id], "start_time": first.isoformat(),
+                "end_time": last.isoformat(), "period": "hour",
+                "types": ["sum"],
+            }, blocking=True, return_response=True,
+        )
+        if (not isinstance(response, dict)
+                or not isinstance(response.get("statistics"), dict)
+                or statistic_id not in response["statistics"]
+                or not isinstance(response["statistics"][statistic_id], list)):
+            raise ValueError("Recorder readback missing complete statistics response")
+        observed.extend(response["statistics"][statistic_id])
+    return observed
+
+
 async def _check_persisted_metadata(
     hass: Any, statistic_id: str, *, fluid: str, unit: str,
 ) -> None:
@@ -278,18 +301,7 @@ async def verify_b15_recorder(
         stat_id = item.get("statistic_id")
         if not isinstance(snapshot, list) or len(snapshot) < 2 or not isinstance(stat_id, str):
             raise ValueError("Invalid pending statistical snapshot")
-        observed = []
-        for first, last in expected_windows(snapshot):
-            response = await hass.services.async_call(
-                "recorder", "get_statistics", {
-                    "statistic_ids": [stat_id], "start_time": first.isoformat(),
-                    "end_time": last.isoformat(), "period": "hour",
-                    "types": ["sum"],
-                }, blocking=True, return_response=True,
-            )
-            if not isinstance(response, dict) or not isinstance(response.get("statistics"), dict):
-                raise ValueError("Recorder did not return persisted statistics")
-            observed.extend(response["statistics"].get(stat_id, []))
+        observed = await _read_recorder_rows(hass, stat_id, snapshot)
         # Full-window readback is derived only from the trusted HA service,
         # never from a supplied browser flag. No queue-quiescence claim.
         readbacks[stat_id] = {"complete": True, "rows": observed}
