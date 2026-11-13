@@ -78,10 +78,15 @@ def setup(monkeypatch, *, admin=True, ledger_data=None, disk=None,
         data={"trybatec": {"synthetic-entry": coordinator}},
     )
     async def store(_hass, key, **_kwargs):
-        assert key == (
-            "trybatec.history_versions_b15_" +
-            sha256(entry.entry_id.encode()).hexdigest()[:20]
-        )
+        suffix = sha256(entry.entry_id.encode()).hexdigest()[:20]
+        if key == "trybatec.b15_retired_inventory_" + suffix:
+            return {"schema": 1, "meters": {
+                "old-meter": {
+                    "lot": LOT, "fluid": "EF", "serial": "SYNTH-SERIAL",
+                    "retired": True,
+                },
+            }}
+        assert key == "trybatec.history_versions_b15_" + suffix
         return deepcopy(ledger() if ledger_data is None else ledger_data)
 
     async def prefs(_hass):
@@ -121,6 +126,7 @@ def test_real_native_interfaces_read_fictional_account_but_do_not_authorize():
     assert ef["known_versions"] == 2
     assert ef["meter_generations_observed"] == 1
     assert ef["metadata_verified"]
+    assert ef["retired_meters_observed_in_archive"] == 1
     assert "immutable_attempt_proof_and_full_bucket_readback_missing" in ef["reasons"]
     assert result["writes"] is False and result["activation_authorized"] is False
 
