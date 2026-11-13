@@ -213,3 +213,41 @@ async def test_native_sqlite_late_writer_overwrites_old_version_and_is_tombstone
         hass, entry.entry_id,
     ))["events"][-1]["state"] == "compromised"
     assert not refusal["energy_activation_authorized"]
+    # Recover with a newly reserved ID, never by replaying the compromised
+    # physical Recorder statistic already present in the real SQLite DB.
+    next_attempt = await native.async_reserve_native_attempt_36(
+        hass, entry.entry_id, plan, plan["series"][0]["logical_id"],
+        expected_plan_fingerprint=plan["fingerprint"],
+        confirm=True, confirm_revision=True,
+    )
+    assert next_attempt["statistic_id"] != stat
+    assert "_v1_a2_" in next_attempt["statistic_id"]
+
+
+
+async def test_native_sqlite_missing_journal_blocks_reinitialization(
+    hass, native_sql_fixture,
+):
+    """A DB restore without the attempt registry cannot silently reset V1."""
+    entry = native_sql_fixture
+    plan, stat, _ = await _prepare(hass, entry)
+    assert (await native.async_native_attempt_proof_36(
+        hass, entry.entry_id, stat,
+    ))["scoped_recorder_persistence_verified"] is True
+    journal_path = Path(hass.config.path(
+        ".storage", native._journal_key(entry.entry_id),
+    ))
+    assert journal_path.is_file()
+    journal_path.unlink()  # Only isolated CI HA fixture, NEVER user installation.
+    with pytest.raises(ValueError, match="Missing journal"):
+        await native.async_native_attempt_proof_36(
+            hass, entry.entry_id, stat,
+        )
+    with pytest.raises(ValueError, match="without durable tombstone"):
+        await native.async_reserve_native_attempt_36(
+            hass, entry.entry_id, plan, plan["series"][0]["logical_id"],
+            expected_plan_fingerprint=plan["fingerprint"],
+            confirm=True, confirm_revision=True,
+            initialize_journal=True,
+        )
+    assert not journal_path.exists()
