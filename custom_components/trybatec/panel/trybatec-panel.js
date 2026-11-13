@@ -28,14 +28,22 @@ function trybatecHistoricalBounds(account, selectedKey, coverage) {
   const partial=coverage?.status==="incomplete" ||
     coverage?.completeness==="bounded_period_only";
   const rows=Array.isArray(coverage?.meters)?coverage.meters:[];
-  const iso=value=>typeof value==="string" && /^\d{4}-\d\d-\d\d/.test(value) &&
-    Number.isFinite(Date.parse(value))?value.slice(0,10):"";
+  const iso=value=>{
+    if (typeof value!=="string" || !/^\d{4}-\d\d-\d\d/.test(value)) return "";
+    if (!Number.isFinite(Date.parse(value))) return "";
+    if (/^\d{4}-\d\d-\d\d$/.test(value)) return value;
+    try {return new Intl.DateTimeFormat("sv-SE",{
+      timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
+    }).format(new Date(value));} catch (_) {return "";}
+  };
   const dates=scoped.map(m=>{
     const matches=rows.filter(row=>row?.physical_key===m.physical_key);
     const row=matches.length===1?matches[0]:null;
-    const first=[m.first_observed_at,row?.first_observed_at].map(iso).filter(Boolean).sort();
-    const last=[m.last_source_observed_at,row?.last_observed_at,
-      row?.last_source_observed_at].map(iso).filter(Boolean).sort();
+    const first=full && row?[iso(row.first_observed_at)]:
+      [m.first_observed_at,row?.first_observed_at].map(iso).filter(Boolean).sort();
+    const last=full && row?[iso(row.last_observed_at||row.last_source_observed_at)]:
+      [m.last_source_observed_at,row?.last_observed_at,
+        row?.last_source_observed_at].map(iso).filter(Boolean).sort();
     return {first:first[0]||"",last:last[last.length-1]||"",verified:Boolean(row)};
   });
   const starts=dates.map(r=>r.first).filter(Boolean).sort();
@@ -1222,6 +1230,9 @@ class TrybatecPanel extends HTMLElement {
           safe(this._date(cover.cache_expires_at,true)));
     }
     const progress=view?.progress;
+    if (status==="running" && view?.kind==="historical_preview")
+      rows.push(t("Analyse bornée en cours ; ce n’est pas une découverte exhaustive du compte.",
+        "Bounded preview running; this is not full-account discovery."));
     if (status==="running" && progress)
       rows.push(t("Périodes vérifiées : ","Verified periods: ")+
         safe(progress.periods_verified??t("non communiqué","not reported"))+
@@ -2066,6 +2077,15 @@ class TrybatecPanel extends HTMLElement {
       this._meterOptionDraft:{unit:option.selected_unit,device_uuid:option.device_uuid};
     const source=option.source_unit;
     const conflicting=source==="conflict"||source==="unverified";
+    const unchanged=draft.unit===option.selected_unit &&
+      (draft.device_uuid||"")===(option.device_uuid||"");
+    const disabledReason=this._meterOptionBusy?this._t(
+      "Enregistrement en cours.","Saving meter settings."):
+      conflicting && draft.unit!=="unverified"?this._t(
+        "Unité non sélectionnable : la source est conflictuelle ou non vérifiée.",
+        "Unit cannot be saved: source is conflicting or unverified."):
+      unchanged?this._t("Aucune modification à enregistrer.",
+        "No changes to save."):"";
     const origin={
       manual:"Unité enregistrée manuellement",
       api:"Unité déterminée par l’API",
@@ -2093,10 +2113,11 @@ class TrybatecPanel extends HTMLElement {
       (this._meterOptionError?'<div role="alert" class="notice warning">'+safe(this._meterOptionError)+'</div>':"")+
       (this._meterOptionMessage?'<div role="status" class="notice">'+safe(this._meterOptionMessage)+'</div>':"")+
       '<div class="actions"><button type="button" class="primary" data-meter-options-save '+
-      (this._meterOptionBusy ||
-        (draft.unit===option.selected_unit && (draft.device_uuid||"")===(option.device_uuid||"")) ||
-        (conflicting && draft.unit!=="unverified")?"disabled":"")+'>Enregistrer ce compteur</button>'+
+      (disabledReason?'disabled aria-describedby="meter-save-reason"':'')+
+      '>Enregistrer ce compteur</button>'+
       '<button type="button" class="secondary" data-meter-options-reset>Annuler les modifications</button></div>'+
+      (disabledReason?'<p id="meter-save-reason" class="muted" role="status">'+
+        safe(disabledReason)+'</p>':"")+
       '<p class="muted">Aucun index source, historique Recorder ou tableau Énergie n’est modifié. Un choix confirmé est associé uniquement à ce compteur.</p></section>';
   }
   async _saveMeterOptions() {
