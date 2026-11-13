@@ -118,14 +118,36 @@ def _native_schema(hass: Any) -> dict[str, Any]:
     if ha_version != SUPPORTED_HA:
         return {"version": ha_version, "energy_schema_checked": False}
     from homeassistant.components.energy.data import ENERGY_SOURCE_SCHEMA
+    from homeassistant.components.energy.validate import (
+        GAS_USAGE_UNITS, WATER_USAGE_UNITS,
+    )
+    from homeassistant.const import UnitOfEnergy, UnitOfVolume
     manager = hass.data.get("energy_manager")
     data = getattr(manager, "data", None)
     if not isinstance(data, dict):
         return {"version": ha_version, "energy_schema_checked": False}
     try:
-        # Schema applies to an isolated deep copy. Validation cannot mutate HA.
-        ENERGY_SOURCE_SCHEMA(deepcopy(data.get("energy_sources")))
-        return {"version": ha_version, "energy_schema_checked": True}
+        # Validate only isolated copies; this is NOT an actual statistic proof.
+        current_sources = deepcopy(data.get("energy_sources"))
+        ENERGY_SOURCE_SCHEMA(current_sources)
+        water_compatible = (
+            UnitOfVolume.CUBIC_METERS in WATER_USAGE_UNITS.get("water", ())
+        )
+        heat_kwh_compatible = (
+            UnitOfEnergy.KILO_WATT_HOUR in GAS_USAGE_UNITS.get("energy", ())
+        )
+        probes = [
+            {"type": "water", "stat_energy_from": "sensor.synthetic_schema_water"},
+            {"type": "gas", "stat_energy_from": "sensor.synthetic_schema_heat"},
+        ]
+        ENERGY_SOURCE_SCHEMA(deepcopy(current_sources) + probes)
+        return {
+            "version": ha_version,
+            "energy_schema_checked": True,
+            "water_m3_technical_schema_compatible": water_compatible,
+            "gas_kwh_technical_schema_compatible": heat_kwh_compatible,
+            "thermal_semantic_approval": False,
+        }
     except Exception:
         return {"version": ha_version, "energy_schema_checked": False}
 
