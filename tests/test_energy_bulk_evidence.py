@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from functools import wraps
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
@@ -426,13 +426,17 @@ async def test_recorder_probe_is_bounded_and_never_writes(monkeypatch):
     for m in (base, components, recorder, stats):
         monkeypatch.setitem(sys.modules, m.__name__, m)
 
+    def read_native(hass, first, last, ids, period, units, kinds):
+        assert ids == {STAT}
+        assert period == "day" and kinds == {"sum"} and units is None
+        assert first < last and last - first == timedelta(days=45)
+        calls["read"] += 1
+        return {STAT: [{"sum": 14.3}]}
+    stats.statistics_during_period = read_native
     class Services:
-        async def async_call(self, domain, service, payload, **kwargs):
-            assert domain == "recorder" and service == "get_statistics"
-            assert payload["statistic_ids"] == [STAT]
-            assert payload["period"] == "day" and payload["types"] == ["sum"]
-            calls["read"] += 1
-            return {"statistics": {STAT: [{"sum": 14.3}]}}
+        async def async_call(self, *args, **kwargs):
+            calls["write"] += 1
+            raise AssertionError("L3 must never call a service")
     hass = SimpleNamespace(services=Services(), config=SimpleNamespace(components={"recorder"}))
     value = await native._recorder_read(hass, [STAT],
                                        now=datetime(2026, 11, 12, tzinfo=timezone.utc))
@@ -517,3 +521,52 @@ def test_new_modules_contain_no_write_or_supplier_invocations():
         assert not (set(calls) & forbidden), (name, set(calls) & forbidden)
         assert "async_get_manager(" not in source  # No manager initialization.
         assert "from homeassistant.helpers.storage import Store" not in source
+
+
+def test_native_energy_schema_probes_kwh_and_water_without_semantic_approval(monkeypatch):
+    """HA 2026.11.1's gas/kWh compatibility is not proof of a heating sensor."""
+    base = types.ModuleType("homeassistant")
+    base.__path__ = []
+    base.__version__ = "2026.11.1"
+    components = types.ModuleType("homeassistant.components")
+    components.__path__ = []
+    energy = types.ModuleType("homeassistant.components.energy")
+    energy.__path__ = []
+    data = types.ModuleType("homeassistant.components.energy.data")
+    validate = types.ModuleType("homeassistant.components.energy.validate")
+    constants = types.ModuleType("homeassistant.const")
+    constants.UnitOfEnergy = SimpleNamespace(KILO_WATT_HOUR="kWh")
+    constants.UnitOfVolume = SimpleNamespace(CUBIC_METERS="m³")
+    validate.WATER_USAGE_UNITS = {"water": ("m³", "L")}
+    validate.GAS_USAGE_UNITS = {"energy": ("kWh",)}
+    observed = []
+
+    def check(sources):
+        observed.append(deepcopy(sources))
+        assert isinstance(sources, list)
+        return sources
+
+    data.ENERGY_SOURCE_SCHEMA = check
+    for module in (base, components, energy, data, validate, constants):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+    original = {"energy_sources": [
+        {"type": "grid", "stat_energy_from": "sensor.synthetic_unrelated"}]}
+    hass = SimpleNamespace(data={"energy_manager": SimpleNamespace(data=deepcopy(original))})
+    result = native._native_schema(hass)
+    assert result == {
+        "version": "2026.11.1",
+        "energy_schema_checked": True,
+        "water_m3_technical_schema_compatible": True,
+        "gas_kwh_technical_schema_compatible": True,
+        "thermal_semantic_approval": False,
+    }
+    assert hass.data["energy_manager"].data == original
+    assert observed[0] == original["energy_sources"]
+    assert observed[1][-2:] == [
+        {"type": "water", "stat_energy_from": "sensor.synthetic_schema_water"},
+        {"type": "gas", "stat_energy_from": "sensor.synthetic_schema_heat"},
+    ]
+    validate.GAS_USAGE_UNITS = {"energy": ("MWh",)}
+    assert native._native_schema(hass)["gas_kwh_technical_schema_compatible"] is False
+    base.__version__ = "2027.1"
+    assert native._native_schema(hass)["energy_schema_checked"] is False

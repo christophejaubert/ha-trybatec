@@ -1,6 +1,6 @@
 # 🤖 Compteurs physiques et filiation #37 / Physical-meter lineage #37
 
-> **État / Status (2026-11-12):** prototype de contrat indépendant en lecture seule; **pas** de branchement Home Assistant, Recorder ou Énergie, **pas** de migration, **pas** de validation métier réelle. / Independent read-only contract prototype; **not** connected to HA, Recorder or Energy; no migration or real-world acceptance.
+> **Mise à jour / Update (2026-11-13) :** les contrats #36→#37→#88 sont raccordés en prévisualisation côté lot B, avec durcissement de la preuve, mais **aucune activation HA, Recorder ou Énergie, aucune migration, aucune recette réelle**. Voir [finalisation et protocole de recette FR/EN](ISSUE_37_FINALIZATION_034B1_FR_EN.md). / The read-only batch-B preview is wired and evidence-hardened, but native activation, legacy migration and real HA acceptance remain unproven. See the linked finalization contract.
 
 ## FR — Décisions et matrice V-01 à V-12
 

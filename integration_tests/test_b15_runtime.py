@@ -15,6 +15,19 @@ from homeassistant.core import SupportsResponse
 from custom_components.trybatec import history_recorder_b15 as recorder
 from custom_components.trybatec import energy_runtime_b15 as energy
 
+@pytest.fixture(autouse=True)
+def _synthetic_recorder_metadata(monkeypatch):
+    """Synthetic metadata models the native Recorder statistics registry."""
+    async def lookup(_hass, statistic_ids):
+        return [{
+            "statistic_id": stat, "source": "trybatec",
+            "statistics_unit_of_measurement": "m³",
+            "unit_class": "volume", "has_sum": True,
+            "mean_type": recorder.StatisticMeanType.NONE,
+        } for stat in statistic_ids]
+    monkeypatch.setattr(recorder, "async_list_statistic_ids", lookup)
+
+
 
 @pytest.mark.asyncio
 async def test_b15_immutable_import_rejects_unverified_version_and_requires_readback(hass, monkeypatch):

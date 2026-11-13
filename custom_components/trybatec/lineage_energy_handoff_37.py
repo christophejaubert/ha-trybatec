@@ -8,11 +8,44 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 MAX_GROUPS = 3000
 MAX_ROWS = 100000
+MAX_REFERENCES = 12000
+
+
+def _digest(value: Any) -> str:
+    return sha256(json.dumps(value, sort_keys=True, ensure_ascii=True,
+                             separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def _reference_catalog(
+    catalog: Mapping[tuple[str, str], Sequence[str]] | None,
+    scopes: set[tuple[str, str]],
+) -> dict[tuple[str, str], list[str]]:
+    """Accept independently collected IDs, without claiming their completeness."""
+    if catalog is None:
+        return {}
+    if not isinstance(catalog, Mapping) or len(catalog) > MAX_GROUPS:
+        raise ValueError("Invalid statistic reference catalog")
+    result = {}
+    count = 0
+    for scope, values in catalog.items():
+        if (not isinstance(scope, tuple) or len(scope) != 2 or scope not in scopes
+                or not isinstance(values, (tuple, list))):
+            raise ValueError("Foreign or malformed statistic reference scope")
+        if any(not isinstance(item, str) or not 0 < len(item) <= 512 for item in values):
+            raise ValueError("Invalid statistic identifier")
+        if len(set(values)) != len(values):
+            raise ValueError("Duplicated statistic identifier within reference scope")
+        count += len(values)
+        if count > MAX_REFERENCES:
+            raise ValueError("Excessive statistic reference inventory")
+        result[scope] = sorted(values)
+    return result
 
 
 def _number(value: Any) -> Decimal:
@@ -31,16 +64,20 @@ def prepare_energy_lineage_handoff_37(
     preview: Mapping[str, Any],
     *,
     account_scope_verified: bool = False,
+    known_statistic_versions: Mapping[tuple[str, str], Sequence[str]] | None = None,
+    selected_energy_sources: Mapping[tuple[str, str], Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     """Describe retained physical contributions; never assert #88 admission.
 
     The boolean is *advisory*, not a trusted assertion. The #88 backend must
     independently compare trusted inventory, Recorder, versions and preferences.
     """
-    if (not isinstance(preview, Mapping) or preview.get("writes") is not False
+    if (not isinstance(preview, Mapping) or preview.get("mode") != "read_only_37_history_bridge"
+            or preview.get("writes") is not False
             or preview.get("energy_activation_authorized") is not False
             or preview.get("historical_inventory_proven_complete") is not False
-            or preview.get("recorder_persistence_proven") is not False):
+            or preview.get("recorder_persistence_proven") is not False
+            or preview.get("energy_version_exclusivity_proven") is not False):
         raise ValueError("Input must be an unactivated #37 history bridge preview")
     inventory = preview.get("inventory")
     groups = preview.get("groups")
@@ -56,8 +93,16 @@ def prepare_energy_lineage_handoff_37(
         key = (row.get("lot"), row.get("fluid"), row.get("serial"))
         if any(not isinstance(v, str) or not v or len(v) > 128 for v in key) or key in identities:
             raise ValueError("Invalid or duplicate physical identity")
+        if row.get("status") not in ("en_service", "depose", "inconnu"):
+            raise ValueError("Physical service status cannot be inferred")
+        if (row.get("status") == "en_service" and
+                row.get("historical_reading_only") is True):
+            raise ValueError("Active meter cannot be historical-only")
         identities.add(key)
         physical[key] = row
+    scopes = {key[:2] for key in identities}
+    versions = _reference_catalog(known_statistic_versions, scopes)
+    selected = _reference_catalog(selected_energy_sources, scopes)
     rendered = []
     accounted = set()
     total_rows = 0
@@ -72,11 +117,17 @@ def prepare_energy_lineage_handoff_37(
         blocked = group.get("status") == "blocked_incomplete_physical_series"
         member_rows = group.get("physical_meters") if not blocked else []
         if not blocked:
-            if not isinstance(member_rows, list) or {
+            if not isinstance(member_rows, list) or len(member_rows) != len(scoped) or {
                 (row.get("lot", lot), row.get("fluid", fluid), row.get("serial"))
                 for row in member_rows if isinstance(row, Mapping)
             } != scoped:
                 raise ValueError("Logical series does not cover all physical meters")
+            for member in member_rows:
+                key = (lot, fluid, member["serial"])
+                if (member.get("status") != physical[key]["status"]
+                        or member.get("source_fingerprint") != physical[key].get("source_fingerprint")
+                        or member.get("selected_variant") not in ("raw", "smoothed")):
+                    raise ValueError("Physical member source or selection drift")
         rows = group.get("rows")
         if not isinstance(rows, list):
             raise ValueError("Malformed consolidated consumption rows")
@@ -86,6 +137,7 @@ def prepare_energy_lineage_handoff_37(
         if total_rows > MAX_ROWS:
             raise ValueError("Excessive consolidated consumption rows")
         seen_days = set()
+        previous_day = None
         cumulative = Decimal(0)
         contributions = set()
         for item in rows:
@@ -94,6 +146,13 @@ def prepare_energy_lineage_handoff_37(
             day = item.get("date")
             if not isinstance(day, str) or day in seen_days:
                 raise ValueError("Invalid or duplicate daily date")
+            try:
+                parsed_day = date.fromisoformat(day)
+            except ValueError as exc:
+                raise ValueError("Invalid daily calendar date") from exc
+            if parsed_day.isoformat() != day or (previous_day is not None and parsed_day <= previous_day):
+                raise ValueError("Unsorted or noncanonical daily dates")
+            previous_day = parsed_day
             seen_days.add(day)
             delta = _number(item.get("consumption"))
             cumulative += delta
@@ -119,7 +178,31 @@ def prepare_energy_lineage_handoff_37(
                 raise ValueError("Physical contributions do not conserve daily consumption")
         if not blocked and _number(group.get("total")) != cumulative:
             raise ValueError("Logical total differs from daily sums")
-        all_blockers = sorted(set(group.get("blockers", [])))
+        raw_blockers = group.get("blockers")
+        if (not isinstance(raw_blockers, list)
+                or any(not isinstance(reason, str) or not reason for reason in raw_blockers)):
+            raise ValueError("Invalid physical continuity blockers")
+        known_versions = versions.get((lot, fluid), [])
+        selected_ids = selected.get((lot, fluid), [])
+        reference_blockers = []
+        if (lot, fluid) not in versions:
+            reference_blockers.append("statistic_version_catalog_not_collected")
+        if (lot, fluid) not in selected:
+            reference_blockers.append("energy_selected_references_not_collected")
+        if len(selected_ids) > 1:
+            reference_blockers.append("competing_energy_sources_selected")
+        if known_versions and any(item not in known_versions for item in selected_ids):
+            reference_blockers.append("selected_energy_source_outside_observed_versions")
+        source_inventory = [
+            {name: physical[key].get(name) for name in (
+                "lot", "fluid", "serial", "status", "unit", "source_fingerprint",
+                "first_observed_at", "last_observed_at", "service_start",
+                "service_end", "source", "observation_count",
+                "historical_reading_only", "readings_origin", "blockers"
+            )}
+            for key in sorted(scoped)
+        ]
+        all_blockers = sorted(set(raw_blockers + reference_blockers))
         rendered.append({
             "lot": lot, "fluid": fluid,
             "physical_meters_observed": len(scoped),
@@ -129,6 +212,15 @@ def prepare_energy_lineage_handoff_37(
             "rows_observed": len(rows),
             "total": str(cumulative) if not blocked else None,
             "logical_id": group.get("logical_id") if not blocked else None,
+            "physical_scope_fingerprint": _digest(source_inventory),
+            "daily_evidence_fingerprint": _digest({
+                "daily": rows, "selected_physical_meters": member_rows
+            }),
+            "observed_unread_intervals": len(group.get("unobserved_intervals", [])),
+            "statistic_reference_catalog_observed": (lot, fluid) in versions,
+            "selected_energy_catalog_observed": (lot, fluid) in selected,
+            "observed_competing_statistic_ids": known_versions,
+            "observed_selected_energy_statistic_ids": selected_ids,
             "blockers": sorted(set(all_blockers + (
                 ["historical_series_incomplete"] if blocked else []
             ))),
@@ -138,6 +230,9 @@ def prepare_energy_lineage_handoff_37(
         })
     if accounted != {k[:2] for k in identities}:
         raise ValueError("Some physical scopes have no logical series")
+    # Keep the exact v1 groups-only digest expected by #88 L6, but bind
+    # it to source fingerprints, inventory status, chosen variants, every
+    # dated contribution and observed competing-reference catalog.
     canonical = json.dumps(rendered, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     return {
         "schema": "lineage_37_energy_handoff_v1",
