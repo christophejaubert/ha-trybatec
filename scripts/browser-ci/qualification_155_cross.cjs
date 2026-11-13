@@ -303,6 +303,26 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.ok(calls.every(c=>!c.entry_id||c.entry_id==="SYNTHETIC-ENTRY-NO-SECRETS"),
       "Supplier history must remain account-isolated");
     assert.equal(await locator("#tariff-rate").isEnabled(),true);
+    await locator('nav button[data-tab="meters"]').click();
+    assert.match(await locator("main").innerText(),
+      /Résultats de recherche déjà disponibles réutilisés|Existing cached search results reused/i);
+  });
+
+  await check("C11 explicit cancellation remains read-only", async () => {
+    const observed=await page.evaluate(async()=>{
+      const host=document.querySelector("trybatec-panel");
+      const previousConfirm=host._confirm;
+      host._confirm=()=>true;
+      host._tariffJobId="SYNTHETIC-CANCEL-REQUEST";
+      try{await host._cancelHistoryJob("tariff_year_coverage");}
+      finally{host._confirm=previousConfirm;host._tariffJobId=null;}
+      return {call:globalThis.__crossCalls.at(-1),
+        status:host._tariffCoverage.get(host._current.entry_id)?.status};
+    });
+    assert.equal(observed.call.type,"trybatec/panel_history_job_cancel");
+    assert.equal(observed.call.entry_id,"SYNTHETIC-ENTRY-NO-SECRETS");
+    assert.equal(observed.status,"complete",
+      "A cancelled action must not fabricate another successful scan");
   });
 
   const failures=checks.filter(c=>c.result==="FAIL");
