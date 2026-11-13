@@ -213,12 +213,14 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       host._historyContextKey=null;host._tab="history";host._syncHistoryDates();host._render();
       const switched={start:host._historyStart,end:host._historyEnd,
         help:host._historyDatesHelp()};
-      const observed=globalThis.__crossCalls.length;
+      const observed=globalThis.__crossCalls.filter(
+        c=>c.type!=="trybatec/panel_history_discovery_status").length;
       await host._fetch();
       host._tab="history";host._syncHistoryDates();host._render();
       const refreshed={start:host._historyStart,end:host._historyEnd,
         help:host._historyDatesHelp()};
-      const calls=globalThis.__crossCalls.length-observed;
+      const calls=globalThis.__crossCalls.filter(
+        c=>c.type!=="trybatec/panel_history_discovery_status").length-observed;
       return {switched,refreshed,calls};
     });
     assert.equal(value.switched.start,"2019-07-10");
@@ -351,9 +353,11 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       };
       host._render();
     });
-    const before=await page.evaluate(()=>globalThis.__crossCalls.length);
+    const before=await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length);
     await locator('nav button[data-tab="tariffs"]').click();
-    assert.equal(await page.evaluate(()=>globalThis.__crossCalls.length),before,
+    assert.equal(await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length),before,
       "Opening tariff view must not initiate a supplier scan");
     await locator('nav button[data-tab="meters"]').click();
     await locator("[data-historical-scan]").click();
@@ -367,7 +371,8 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.equal(await locator("#tariff-year").inputValue(),"2040");
     await locator("#tariff-year").fill("2026");
     assert.equal(await locator("#tariff-rate").inputValue(),"2.25");
-    const callTypes=await page.evaluate(()=>globalThis.__crossCalls.map(c=>c.type));
+    const callTypes=await page.evaluate(()=>globalThis.__crossCalls.map(c=>c.type)
+      .filter(type=>type!=="trybatec/panel_history_discovery_status"));
     assert.deepEqual(callTypes,[
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"
     ]);
@@ -375,21 +380,25 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
 
   await check("C11 explicit retry, cached data and no duplicate/unsafe commands", async () => {
     await page.evaluate(()=>{globalThis.__crossMode="complete";});
-    await locator("[data-historical-scan]").first().click();
+    assert.equal(await locator("[data-tariff-years-retry]").count(),1,
+      "Retry in Tariffs must reuse the visible C11 action");
+    await locator("[data-tariff-years-retry]").click();
     await page.waitForFunction(()=>
       document.querySelector("trybatec-panel")._tariffCoverage
         .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status==="complete");
-    const callsBefore=await page.evaluate(()=>globalThis.__crossCalls.length);
+    const callsBefore=await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length);
     await locator('nav button[data-tab="meters"]').click();
     await locator('nav button[data-tab="history"]').click();
     await locator('nav button[data-tab="tariffs"]').click();
     const calls=await page.evaluate(()=>globalThis.__crossCalls);
-    assert.equal(calls.length,callsBefore,
-      "Navigation must reuse completed account scan rather than start it again");
+    assert.equal(calls.filter(c=>c.type!=="trybatec/panel_history_discovery_status").length,
+      callsBefore,"Navigation may refresh read-only status, never start a supplier scan");
     assert.equal(calls.filter(c=>c.type==="trybatec/panel_history_job_start").length,2);
     assert.ok(calls.every(c=>[
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status",
-      "trybatec/panel_history_job_cancel"
+      "trybatec/panel_history_job_cancel",
+      "trybatec/panel_history_discovery_status"
     ].includes(c.type)),"No Recorder/Energy/tariff/HA mutation permitted");
     assert.ok(calls.every(c=>!c.entry_id||c.entry_id==="SYNTHETIC-ENTRY-NO-SECRETS"),
       "Supplier history must remain account-isolated");
