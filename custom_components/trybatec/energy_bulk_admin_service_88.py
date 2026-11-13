@@ -237,7 +237,15 @@ class EnergyBulkAdminService88:
     ) -> dict[str, Any]:
         """Native admin-authenticated, read-only L6/L7 combined action contract."""
         await self._port.assert_admin(actor)
-        state = await self._port.collect(actor, account=self._account, lot=self._lot)
+        if selections is None:
+            state = await self._port.collect(
+                actor, account=self._account, lot=self._lot,
+            )
+        else:
+            state = await self._port.collect(
+                actor, account=self._account, lot=self._lot,
+                selections=selections,
+            )
         preview, _ = _prepare_state(state, self._account, self._lot)
         # Read the real HA Recorder/ledger/energy observations only from
         # this authenticated server-side preview; not from websocket flags.
@@ -343,6 +351,7 @@ class EnergyBulkAdminService88:
     async def confirm(
         self, actor: Any, *, before_fingerprint: str,
         plan_digest: str, confirm: bool,
+        selections: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """No client proof input. Recheck before allowing L7 to start backup."""
         await self._port.assert_admin(actor)
@@ -351,14 +360,28 @@ class EnergyBulkAdminService88:
                 or len(before_fingerprint) != 64 or len(plan_digest) != 64):
             raise EnergyTransactionRefused("Explicit matching confirmation required")
         # Never use a cached, browser-supplied or previously computed admission.
-        state = await self._port.collect(actor, account=self._account, lot=self._lot)
-        if (not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(
-                state.evidence, account=self._account, lot=self._lot)):
+        # The write gate is checked BEFORE any native proof attempt can even
+        # schedule backups or journal operations.
+        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88:
+            raise EnergyTransactionRefused(
+                "Native Energy mutation requires separate qualification"
+            )
+        if selections is None:
+            state = await self._port.collect(
+                actor, account=self._account, lot=self._lot,
+            )
+        else:
+            state = await self._port.collect(
+                actor, account=self._account, lot=self._lot,
+                selections=selections,
+            )
+        if _blockers(
+                state.evidence, account=self._account, lot=self._lot):
             raise EnergyTransactionRefused("Independent L6/#36/#37 admission not qualified")
         return await apply_bulk_energy_transaction(
             self._port, actor, account=self._account, lot=self._lot,
             approved_before=before_fingerprint, approved_digest=plan_digest,
-            confirm=confirm,
+            confirm=confirm, selections=selections,
         )
 
 
@@ -372,9 +395,10 @@ async def async_preview_energy_bulk_88(
 async def async_confirm_energy_bulk_88(
     hass: Any, coordinator: Any, *, actor: Any, lot: str,
     before_fingerprint: str, plan_digest: str, confirm: bool,
+    selections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Dormant admin-only entrypoint; no automatic write or registration."""
     return await EnergyBulkAdminService88(hass, coordinator, lot=lot).confirm(
         actor, before_fingerprint=before_fingerprint, plan_digest=plan_digest,
-        confirm=confirm,
+        confirm=confirm, selections=selections,
     )
