@@ -37,6 +37,100 @@ def _quantity(value: Any) -> str:
     return str(d)
 
 
+async def async_verify_native_version_catalog_88(
+    hass: Any, entry_id: str, witness: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    """Independently compare all #36 attempts + B15 with actual Recorder SQL.
+
+    Unknown SQL versions, ambiguous IDs, pending legacy imports and missing
+    ledger files with orphaned Recorder metadata refuse the selected source.
+    This is scoped to one *logical statistic*, not whole supplier history.
+    """
+    from functools import partial
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.statistics import get_metadata
+    from .history_recorder_native_attempt_36 import _validate_journal
+    from .const import DOMAIN
+
+    logical, chosen = witness.get("logical_id"), witness.get("statistic_id")
+    if (not isinstance(logical, str) or not logical.startswith("trybatec:logical_")
+            or not isinstance(chosen, str) or not chosen.startswith(logical + "_v")):
+        raise EnergyTransactionRefused("Unbound immutable logical statistic")
+    suffix = sha256(entry_id.encode("utf-8")).hexdigest()[:20]
+    doc = await _read_store_data(
+        hass, f"trybatec.history_attempts_36_{suffix}"
+    )
+    states = _validate_journal(doc, entry_id)
+    native = {
+        row["statistic_id"]: states[row["statistic_id"]]
+        for row in doc["attempts"] if row["logical_id"] == logical
+    }
+    if native.get(chosen) != "verified":
+        raise EnergyTransactionRefused("Selected immutable attempt not verified")
+    try:
+        b15 = await _read_store_data(
+            hass, f"trybatec.history_versions_b15_{suffix}"
+        )
+    except FileNotFoundError:
+        b15 = None
+    legacy: dict[str, str] = {}
+    if b15 is not None:
+        if (not isinstance(b15, dict) or b15.get("schema") != 1
+                or not isinstance(b15.get("series"), dict)
+                or len(b15["series"]) > 300):
+            raise EnergyTransactionRefused("Legacy version inventory corrupt")
+        for key, record in b15["series"].items():
+            versions = record.get("versions") if isinstance(record, dict) else None
+            if not isinstance(versions, list) or len(versions) > 500:
+                raise EnergyTransactionRefused("Malformed legacy statistical versions")
+            for v in versions:
+                if not isinstance(v, dict) or not isinstance(v.get("statistic_id"), str):
+                    raise EnergyTransactionRefused("Unbound legacy statistic ID")
+                sid = v["statistic_id"]
+                if sid in native:
+                    raise EnergyTransactionRefused("Native/legacy statistic ID reused")
+                if key == logical:
+                    if sid in legacy or not sid.startswith(logical + "_v"):
+                        raise EnergyTransactionRefused("Conflicting legacy version family")
+                    if v.get("state") not in ("verified", "archived", "active"):
+                        raise EnergyTransactionRefused("Pending conflicting legacy version")
+                    legacy[sid] = v["state"]
+    all_known = set(native) | set(legacy)
+    if len(all_known) > 500:
+        raise EnergyTransactionRefused("Version family inventory unbounded")
+    try:
+        # Pure SQL metadata read, not async_list_statistic_ids cache or a
+        # nonexistent recorder/get_statistics HA service.
+        sql = await get_instance(hass).async_add_executor_job(partial(
+            get_metadata, hass, statistic_source=DOMAIN,
+        ))
+    except Exception as exc:
+        raise EnergyTransactionRefused("Native Recorder version SQL unavailable") from exc
+    if not isinstance(sql, dict) or len(sql) > 10_000:
+        raise EnergyTransactionRefused("Native Recorder SQL inventory unbounded")
+    observed = {
+        sid for sid in sql if isinstance(sid, str) and sid.startswith(logical + "_v")
+    }
+    if chosen not in observed or observed - all_known:
+        raise EnergyTransactionRefused("Unjournaled competing Recorder version exists")
+    result = []
+    for sid in sorted(all_known):
+        state = native.get(sid)
+        if state is None:
+            state = "archived" if sid in legacy else None
+        if state in ("reserved", "enqueue_intent"):
+            raise EnergyTransactionRefused("Unresolved competing native import")
+        result.append({
+            "statistic_id": sid,
+            "state": (
+                "verified" if sid == chosen
+                else "quarantined" if state == "quarantined"
+                else "archived"
+            ),
+        })
+    return result
+
+
 def _recorder_envelope_88(
     selection: dict[str, Any], witness: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -94,7 +188,8 @@ def _recorder_envelope_88(
                     "revision_hash": ref["decision_fingerprint"],
                 })
     raw_versions = witness.get("versions")
-    if not isinstance(raw_versions, list) or not raw_versions:
+    if (witness.get("version_catalog_sql_verified") is not True
+            or not isinstance(raw_versions, list) or not raw_versions):
         raise EnergyTransactionRefused("Competing immutable versions unavailable")
     versions = []
     seen: set[str] = set()
@@ -309,6 +404,15 @@ async def async_collect_native_selected_state_88(
                 account, preview, lot=lot, fluid=intention["fluid"],
                 start=intention["start"], end=intention["end"], serials=serials,
             ),
+        }
+        # Only a real SQL inventory covering the logical statistic family
+        # can authorize a positive version-exclusivity classification.
+        checked_versions = await async_verify_native_version_catalog_88(
+            hass, coordinator.entry.entry_id, witness,
+        )
+        witness = {
+            **witness, "versions": checked_versions,
+            "version_catalog_sql_verified": True,
         }
         native36 = _recorder_envelope_88(scope, witness)
 
