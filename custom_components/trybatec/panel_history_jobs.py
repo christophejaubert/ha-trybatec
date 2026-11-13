@@ -21,6 +21,7 @@ from .const import DOMAIN
 from .history_guardrails import diagnostics_for
 from .panel_history import preview_history_for_panel
 from .panel_tariff_years import async_tariff_year_coverage
+from .panel_history_coverage import get_source, coverage_view
 
 _JOB_RETENTION_SECONDS = 3600
 _KINDS = ("historical_preview", "tariff_year_coverage")
@@ -65,14 +66,37 @@ def _job_view(coordinator: Any, job: dict, *, include_result: bool) -> dict:
          if task is not None and operation.task is task),
         None,
     )
+    progress = newest.snapshot() if newest is not None and job["state"] == "running" else None
+    finished = job.get("result") if job["state"] == "complete" else None
+    coverage = finished.get("coverage") if isinstance(finished, dict) else None
+    discovery_status = {
+        "running": "running", "cancelled": "interrupted",
+        "failed": "error", "complete": "incomplete",
+    }.get(job["state"], "not_started")
+    if job["state"] == "complete" and isinstance(coverage, dict):
+        discovery_status = coverage.get("status", "incomplete")
     result = {
         "id": job["id"],
         "kind": job["kind"],
         "status": job["state"],
         "started_at": job["started_at"],
         "elapsed_seconds": round(max(0, monotonic() - job["started_mono"]), 2),
-        "progress": newest.snapshot() if newest is not None and job["state"] == "running" else None,
+        "progress": progress,
+        "discovery_status": discovery_status,
+        "coverage": coverage,
+        "periods_verified": (
+            progress.get("periods_verified") if progress else
+            coverage.get("periods_verified") if isinstance(coverage, dict) else None
+        ),
+        "api_requests": (
+            progress.get("http_requests") if progress else
+            finished.get("api_requests") if isinstance(finished, dict) else 0
+        ),
+        "cache_reused": bool(finished.get("cache_hit")) if isinstance(finished, dict) else False,
         "failure_type": job.get("failure_type"),
+        "failure_category": job.get("failure_category"),
+        "retry_mode": "restart_from_zero",
+        "retry_reason": "no_atomic_window_checkpoints",
         "complete": job["state"] == "complete",
         "recorder_writes": False,
         "energy_writes": False,
@@ -102,11 +126,23 @@ async def _run_job(
     except asyncio.CancelledError:
         job["state"] = "cancelled"
         job["failure_type"] = "cancelled_by_user"
+        job["failure_category"] = "cancelled"
         raise
     except Exception as exc:
         job["state"] = "failed"
         # Never include vendor response text or a private object in diagnostics.
         job["failure_type"] = type(exc).__name__
+        job["failure_category"] = {
+            "HistoryBudgetExceeded": "safety_budget",
+            "TimeoutError": "timeout_or_budget",
+            "TrybatecDataError": "supplier_response",
+            "ServiceValidationError": "supplier_validation",
+            "ConnectionError": "network",
+            "ClientConnectionError": "network",
+            "OSError": "network",
+            "ValueError": "invalid_scope_or_period",
+            "KeyError": "invalid_scope_or_period",
+        }.get(type(exc).__name__, "unexpected_error")
 
 
 def cancel_panel_history_job(coordinator: Any) -> bool:
@@ -161,7 +197,7 @@ async def ws_panel_history_job_start(
         "kind": kind, "start_date": start, "end_date": end,
         "state": "running", "started_at": datetime.now(timezone.utc).isoformat(),
         "started_mono": monotonic(), "result": None, "failure_type": None,
-        "task": None,
+        "task": None, "failure_category": None,
     }
     coordinator._panel_history_job = job
     job["task"] = hass.async_create_background_task(
@@ -209,4 +245,41 @@ async def ws_panel_history_job_cancel(
         "cancellation_requested": success,
         "recorder_writes": False,
         "energy_writes": False,
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "trybatec/panel_history_discovery_status",
+    vol.Required("entry_id"): str,
+})
+@websocket_api.async_response
+async def ws_panel_history_discovery_status(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict,
+) -> None:
+    """Read-only, never starts an expensive scan or returns private payloads."""
+    coordinator = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
+    if coordinator is None:
+        connection.send_error(msg["id"], "trybatec_not_found", "Account not loaded")
+        return
+    existing = _job(coordinator)
+    if existing is not None:
+        connection.send_result(msg["id"], _job_view(
+            coordinator, existing, include_result=False,
+        ))
+        return
+    valid = get_source(coordinator)
+    coverage = coverage_view(
+        valid, cache_reused=valid is not None,
+        invalidation_reason=getattr(coordinator, "_panel_history_cache_invalidation", None),
+    )
+    connection.send_result(msg["id"], {
+        "id": None, "kind": None, "status": coverage["status"],
+        "discovery_status": coverage["status"], "coverage": coverage,
+        "progress": None, "failure_type": None, "failure_category": None,
+        "api_requests": 0, "periods_verified": coverage["periods_verified"],
+        "cache_reused": valid is not None,
+        "retry_mode": "restart_from_zero",
+        "retry_reason": "no_atomic_window_checkpoints",
+        "recorder_writes": False, "energy_writes": False,
     })
