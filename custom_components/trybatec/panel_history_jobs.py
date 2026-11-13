@@ -107,7 +107,7 @@ def _job_view(coordinator: Any, job: dict, *, include_result: bool) -> dict:
         ),
         "api_requests": (
             progress.get("http_requests") if progress else
-            finished.get("api_requests") if isinstance(finished, dict) else 0
+            finished.get("api_requests") if isinstance(finished, dict) else None
         ),
         "cache_reused": bool(finished.get("cache_hit")) if isinstance(finished, dict) else False,
         "failure_type": job.get("failure_type"),

@@ -51,7 +51,7 @@ Existing job `status`: `running | complete | failed | cancelled` **means the job
 | `provenance` | `verified_supplier_history` for verified coverage, `verified_supplier_observation` per meter |
 | `cache_reused` | Boolean: no vendor request for the served response |
 | `periods_verified` | Number or `null`, from tracked reader if available; never fabricate a count |
-| `api_requests` | Number; 0 when cache used; attempts can exceed verified periods |
+| `api_requests` | Number or `null`; `0` when source cache serves without a new request; `null` for failed/cancelled jobs when their completed request count is not known; attempts can exceed accepted periods |
 | `verified_at`, `cache_expires_at` | UTC ISO timestamp; `null` with no valid evidence |
 | `cache_invalidation_reason` | `null | identity_changed | date_changed | cache_expired | unverified_coverage` |
 | `retry_mode`, `retry_reason` | `restart_from_zero`, `no_atomic_window_checkpoints` |
