@@ -199,3 +199,42 @@ def test_pending_journal_requires_manual_recovery_before_confirmation(monkeypatc
         assert port.backups == port.writes == 0
 
     asyncio.run(scenario())
+
+
+def test_even_complete_looking_flag_contract_cannot_bypass_backend_write_gate(monkeypatch):
+    async def scenario():
+        evidence = _evidence()
+        evidence["historical_contract"].update({"complete": True, "admissible": True})
+        evidence["all_energy_sources_independently_checked"] = True
+        evidence["native_backup_restore_qualified"] = True
+        evidence["thermal_category_semantically_approved"] = True
+        evidence["independent_contracts"] = {
+            "history_36": {
+                "schema": "history_36_recorder_handoff_v1",
+                "mode": "native_server_read_only",
+                "recorder_persistence_verified": True,
+                "global_historical_lineage_attested": True,
+                "energy_exclusivity_attested": True,
+                "journal_pending": False, "recorder_barrier_verified": True,
+            },
+            "lineage_37": {
+                "schema": "lineage_37_energy_handoff_v1",
+                "physical_inventory_complete": True,
+                "recorder_persistence_verified": True,
+                "competing_versions_exhausted": True,
+            },
+        }
+        service, port = _service(monkeypatch, evidence)
+        assert admin._blockers(evidence) == ()
+        result = await service.preview("synthetic-admin")
+        assert result["status"] == "blocked"
+        assert result["actions"]["confirm"]["enabled"] is False
+        assert "native_transaction_activation_disabled" in result["blockers"]
+        with pytest.raises(EnergyTransactionRefused):
+            await service.confirm(
+                "synthetic-admin", before_fingerprint="a" * 64,
+                plan_digest="b" * 64, confirm=True,
+            )
+        assert port.backups == port.writes == 0
+
+    asyncio.run(scenario())
