@@ -345,13 +345,41 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       host._tariffCoverage.clear();host._tab="meters";
       const original=host._hass.callWS;
       globalThis.__crossMode="failed";
+      globalThis.__crossJobOutcome="not_started";
       host._hass.callWS=async cmd=>{
         globalThis.__crossCalls.push({type:cmd.type,entry_id:cmd.entry_id||""});
+        if(cmd.type==="trybatec/panel_history_discovery_status") {
+          const done=globalThis.__crossJobOutcome==="complete";
+          const failed=globalThis.__crossJobOutcome==="error";
+          const verified=done?{
+            status:"complete",completeness:"account_full",
+            coverage_start:"2000-01-01",
+            coverage_end:new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"}),
+            meters:host._current.meters.map(m=>({
+              physical_key:m.physical_key,fluid:m.fluid,
+              first_observed_at:m.first_observed_at,
+              last_observed_at:m.last_source_observed_at,
+              last_source_observed_at:m.last_source_observed_at,
+            })),cache_reused:true
+          }:null;
+          return {
+            status:done?"complete":failed?"failed":"not_started",
+            discovery_status:done?"complete":failed?"error":"not_started",
+            coverage:verified||(!failed?{status:"not_started",completeness:"unknown"}:null),
+            verified_coverage:verified,
+            failure_category:failed?"network":null,
+            recorder_writes:false,energy_writes:false,
+            retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints",
+          };
+        }
         if(cmd.type==="trybatec/panel_history_job_start")
           return {id:"SYNTH-CROSS-READ",status:"running",kind:cmd.kind};
         if(cmd.type==="trybatec/panel_history_job_status") {
-          if(globalThis.__crossMode==="failed")
+          if(globalThis.__crossMode==="failed") {
+            globalThis.__crossJobOutcome="error";
             return {id:"SYNTH-CROSS-READ",status:"failed",complete:false};
+          }
+          globalThis.__crossJobOutcome="complete";
           return {id:"SYNTH-CROSS-READ",status:"complete",complete:true,
             recorder_writes:false,energy_writes:false,
             result:{status:"complete",recorder_writes:false,energy_writes:false,
@@ -376,8 +404,12 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     await locator('nav button[data-tab="meters"]').click();
     await locator("[data-historical-scan]").click();
     await page.waitForFunction(()=>
+      document.querySelector("trybatec-panel")._historyDiscovery
+        .get("SYNTHETIC-ENTRY-NO-SECRETS")?.discovery_status==="error");
+    assert.notEqual(await page.evaluate(()=>
       document.querySelector("trybatec-panel")._tariffCoverage
-        .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status==="error");
+        .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status),"complete",
+      "A failed discovery must not preserve a fabricated complete result");
     await locator('nav button[data-tab="tariffs"]').click();
     assert.equal(await locator("#tariff-rate").isEnabled(),true);
     assert.equal(await locator("#tariff-year").isEnabled(),true);
@@ -400,6 +432,10 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     await page.waitForFunction(()=>
       document.querySelector("trybatec-panel")._tariffCoverage
         .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status==="complete");
+    assert.equal(await page.evaluate(()=>
+      document.querySelector("trybatec-panel")._historyDiscovery
+        .get("SYNTHETIC-ENTRY-NO-SECRETS")?.discovery_status),"complete",
+      "Successful global job must reconcile to actual C11 complete discovery");
     const callsBefore=await page.evaluate(()=>globalThis.__crossCalls.filter(
       c=>c.type!=="trybatec/panel_history_discovery_status").length);
     await locator('nav button[data-tab="meters"]').click();
