@@ -42,6 +42,25 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
         for item in result.values():
             item["reasons"].append("native_recorder_ledger_missing_or_invalid")
         return result
+    # A ledger is scoped to one authenticated account, but contains multiple
+    # lots. A reused statistic ID in another lot is still a collision.
+    global_ids = []
+    for record in ledger["series"].values():
+        if not isinstance(record, dict) or not isinstance(record.get("versions"), list):
+            for item in result.values():
+                item["reasons"].append("cross_lot_version_ledger_invalid")
+            return result
+        for version in record["versions"]:
+            if not isinstance(version, dict):
+                for item in result.values():
+                    item["reasons"].append("cross_lot_version_ledger_invalid")
+                return result
+            if isinstance(version.get("statistic_id"), str):
+                global_ids.append(version["statistic_id"])
+    if len(global_ids) != len(set(global_ids)):
+        for item in result.values():
+            item["reasons"].append("statistic_id_reused_across_account_lots")
+
     physical = Counter()
     consolidated: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {
         fluid: [] for fluid in _FLUIDS
@@ -73,15 +92,28 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
             state = version.get("state") if isinstance(version, dict) else None
             if (not isinstance(stat, str) or not stat.startswith("trybatec:")
                     or len(stat) > 256 or stat in every_id
-                    or state not in ("prepared", "imported", "verified", "active", "archived")
-                    or not isinstance(version.get("snapshot_hash"), str)
-                    or len(version["snapshot_hash"]) != 64):
+                    or state not in (
+                        "prepared", "imported", "verified", "active", "archived",
+                        "quarantined", "abandoned",
+                    )
+                    or type(version.get("number")) is not int
+                    or version["number"] < 1
+                    or type(version.get("rows")) is not int
+                    or version["rows"] < 1
+                    or any(
+                        not isinstance(version.get(field), str)
+                        or len(version[field]) != 64
+                        or any(c not in "0123456789abcdef" for c in version[field])
+                        for field in ("snapshot_hash", "source_fingerprint")
+                    )):
                 result[fluid]["reasons"].append("native_recorder_version_id_or_state_invalid")
                 continue
             every_id.add(stat)
             result[fluid]["known_versions"] += 1
             if state in ("verified", "active"):
                 result[fluid]["verified_versions"] += 1
+            if state in ("quarantined", "abandoned"):
+                result[fluid]["quarantined_attempts"] += 1
         if kind == "physical":
             serial = scope.get("serial")
             if not isinstance(serial, str) or not serial:
