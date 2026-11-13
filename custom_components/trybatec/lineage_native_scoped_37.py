@@ -207,6 +207,9 @@ def audit_native_attempt_link_37(
     """
     if not isinstance(selection, Mapping) or not isinstance(proof_36, Mapping):
         raise ValueError("Untrusted native attempt link inputs")
+    first, last = _date(selection.get("start")), _date(selection.get("end"))
+    if first > last or (last - first).days >= _MAX_DAYS:
+        raise ValueError("Invalid bounded native attempt selection")
     reasons = {"native_36_scoped_selection_v2_not_issued"}
     if proof_36.get("schema") != "history_36_native_attempt_proof_v1":
         reasons.add("native_36_attempt_schema_mismatch")
@@ -272,6 +275,10 @@ def audit_native_attempt_link_37(
                 day = _date(item.get("date")).isoformat()
             except (ValueError, TypeError):
                 reasons.add(name + "_day_invalid")
+                continue
+            if not first <= _date(day) <= last:
+                if name == "recorder":
+                    reasons.add("native_attempt_recorder_day_outside_selection")
                 continue
             if day in destination:
                 reasons.add(name + "_day_duplicate")
