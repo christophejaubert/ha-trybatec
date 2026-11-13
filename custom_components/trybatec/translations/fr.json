@@ -183,7 +183,7 @@
       },
       "history_smoothing_choice": {
         "title": "Décider du lissage",
-        "description": "**Intervalle :** {interval}\\n\\n**Disponibilité :** {status}\\n**Consommation bornée :** {total} (unité de l'index vérifiée)\\n\\nLe lissage linéaire est une estimation des consommations des jours non couverts, jamais une création d'index mesurés. Sans lissage, conserver uniquement les mesures observées. La prochaine étape demande une confirmation.",
+        "description": "**Intervalle :** {interval}\\n\\n**Disponibilité :** {status}\\n**Consommation bornée :** {total} (unité de l'index vérifiée)\\n\\nLe lissage linéaire estime uniquement la consommation des jours non couverts. Les relevés sources restent inchangés. Sans lissage, conserver uniquement les mesures observées. La prochaine étape demande une confirmation.",
         "data": {
           "mode": "Méthode",
           "reason": "Motif déclaré"
