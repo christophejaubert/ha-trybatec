@@ -522,7 +522,19 @@ async def test_synthetic_third_party_overwrite_detected_on_reverification(
         hass, "synthetic-36", stat,
     )
     assert result["status"] == "blocked_native_readback_incomplete"
-    assert not result["scoped_recorder_persistence_verified"]
+    assert result["detected_integrity_drift"] is True
+    assert result["verified_attempt_tombstoned"] is True
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(journal, "synthetic-36")[stat] == "compromised"
+    assert journal["events"][-1]["reason"] == "readback_mismatch"
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_compromised"
+    with pytest.raises(ValueError, match="no requeue"):
+        await _enqueue(hass, plan, stat)
+    replacement = await _reserve(hass, plan)
+    assert replacement["statistic_id"] != stat
+    assert "_v1_a2_" in replacement["statistic_id"]
     assert native_fixture["queued"] == [stat]
 
 
@@ -588,4 +600,72 @@ async def test_estimate_cannot_be_relabelled_as_measured(hass, native_fixture):
     }])
     with pytest.raises(ValueError, match="cannot be called supplier measurement"):
         await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_delayed_writer_between_double_readbacks_is_detected(
+    hass, native_fixture, monkeypatch,
+):
+    """An optimistic barrier cannot protect the second live read."""
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    calls = 0
+
+    async def race(_hass, _stat, _snapshot):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            native_fixture["rows"][stat][-1]["sum"] += 5
+        return deepcopy(native_fixture["rows"][stat])
+
+    monkeypatch.setattr(native, "_read_recorder_rows", race)
+    proof = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert calls == 2
+    assert proof["status"] == "blocked_native_readback_incomplete"
+    assert proof["detected_integrity_drift"]
+    assert not proof["verified_attempt_tombstoned"]  # not previously verified
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "enqueue_intent"
+    assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_corrupt_tombstone_chain_cannot_be_rehabilitated(hass, native_fixture):
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", stat, reason="administrator_review",
+    )
+    path = Path(hass.config.path(".storage", native._journal_key("synthetic-36")))
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    envelope["data"]["events"][-1]["reason"] = "erased"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="Tombstone cause missing"):
+        await _reserve(hass, plan)
+    with pytest.raises(ValueError, match="Tombstone cause missing"):
+        await _enqueue(hass, plan, stat)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_pending_and_quarantined_attempts_remain_non_admissible(
+    hass, native_fixture,
+):
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_reserved"
+    await native.async_quarantine_native_attempt_36(
+        hass, "synthetic-36", stat, reason="interrupted",
+    )
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["status"] == "not_admissible_quarantined"
     assert native_fixture["queued"] == []
