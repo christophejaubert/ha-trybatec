@@ -38,6 +38,14 @@ Les preuves `native_recorder_36`, `verify_user_selection`, `verify_36_day`, `ver
 
 Les empreintes entre chevrons sont des **emplacements descriptifs**, pas des valeurs et ne doivent pas être utilisées comme attestations.
 
+### Identifiants natifs #88 et sélection enrichie côté serveur
+
+`energy_bulk_native_scopes_88._selected_intents` accepte uniquement un **intent** limité à `fluid/start/end/statistic_id/generation_ids` ; son journal B15 utilise actuellement les **séries physiques fournisseur** comme `generation_ids`. Le producteur #37 accepte donc soit la liste exacte de ces séries, soit la liste de digests physiques dérivés, **mais jamais un suffixe technique HA fabriqué ni une liste mixte**. Il conserve séparément `physical_identity_digest` calculé à partir du compte/lot/fluide/numéro fournisseur. Les deux produits doivent provenir du même inventaire backend validé.
+
+Le backend #88 doit **enrichir son intent depuis ses sources de confiance** avec `account`, `lot`, `serials`, `rows_hash`, `physical_snapshot_digest` et `accepted_missing_days` avant de l'envoyer au validateur L6 scoped. Il ne doit ni demander ces preuves comme indicateurs de sécurité au navigateur, ni réemployer une sélection de compteurs provenant de l'interface après changement d'empreinte. Les tests #37 comportent les deux représentations cohérentes, ainsi que le refus d'un faux `NEW_2`.
+
+**EN — Exact native selection identity mapping:** #88's observed native B15 ledger currently uses physical supplier serials as generation IDs. #37 v2 accepts an exact full list of those scoped serials or its own exact opaque physical digests, never an HA technical suffix or mixed/foreign IDs. The #88 *intent* is deliberately minimal; trusted backend evidence must enrich it with account, selected source fingerprint, actual Recorder row hash and accepted missing dates before L6 validation. A browser cannot authorize these attestations.
+
 ### Sortie native v2 à remettre à #88
 
 ```
