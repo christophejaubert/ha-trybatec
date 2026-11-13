@@ -226,6 +226,27 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertFalse(evidence["writes"])
         self.assertEqual(bundle, original)
 
+    def test_native_88_B15_serial_generation_ids_match_exact_scope(self):
+        bundle = fixtures()
+        bundle[0]["generation_ids"] = ["OLD", "NEW"]
+        bundle[3]["selection_digest"] = native._hash(dict(bundle[0]))
+        result = evaluate(bundle, verify_user_selection=lambda evidence: (
+            evidence["physical_source_fingerprints"] == SRC
+            and evidence["generation_ids"] == ["OLD", "NEW"]
+        ))
+        self.assertTrue(result["selected_scope_reconciled"], result["blockers"])
+        self.assertEqual(result["selected_generation_ids"], ["OLD", "NEW"])
+        self.assertEqual(result["generations"][0]["physical_identity_digest"],
+                         native.generation_id_37(ACCOUNT, LOT, FLUID, "OLD"))
+        self.assertEqual(result["daily"][1]["contributors"][0]["generation_id"], "NEW")
+        self.assertFalse(result["energy_activation_authorized"])
+
+    def test_native_88_serial_selection_rejects_foreign_technical_suffix(self):
+        bundle = fixtures()
+        bundle[0]["generation_ids"] = ["OLD", "NEW_2"]
+        with self.assertRaisesRegex(ValueError, "differ from native selected serials"):
+            evaluate(bundle)
+
     def test_exact_36_day_and_revision_allows_unattested_estimate_as_candidate(self):
         p = evaluate(fixtures(estimate=True))
         self.assertTrue(p["selected_scope_reconciled"], p["blockers"])
