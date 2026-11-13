@@ -1028,7 +1028,7 @@ class TrybatecPanel extends HTMLElement {
       this._render();
       if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
       if (this._current && !this._error && this._discoveryStates instanceof Map)
-        this._refreshDiscoveryStatus();
+        this._refreshDiscoveryStatus?.();
     }
   }
   async _refreshDiscoveryStatus(entryId=this._current?.entry_id) {
@@ -1178,7 +1178,7 @@ class TrybatecPanel extends HTMLElement {
       this._tariffCoverage.set(id,{status:"error"});
     } finally {
       this._tariffJobId=null;this._tariffJobStatus=null;
-      this._refreshDiscoveryStatus(id);
+      this._refreshDiscoveryStatus?.(id);
       if (!this._isEditingForm()) this._render();
     }
   }
@@ -1246,10 +1246,10 @@ class TrybatecPanel extends HTMLElement {
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
-    if (btn.dataset.discoveryRefresh!==undefined) {this._refreshDiscoveryStatus();return;}
+    if (btn.dataset.discoveryRefresh!==undefined) {this._refreshDiscoveryStatus?.();return;}
     if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();
       if (["meters","history","tariffs","diagnostics"].includes(this._tab))
-        this._refreshDiscoveryStatus();
+        this._refreshDiscoveryStatus?.();
       return;}
     if (btn.dataset.meter !== undefined) {
       this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
@@ -1264,7 +1264,7 @@ class TrybatecPanel extends HTMLElement {
       this._tariffHydrated=false;
       this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
-      this._render();this._refreshDiscoveryStatus();return;
+      this._render();this._refreshDiscoveryStatus?.();return;
     }
     if (btn.dataset.reloadPanel !== undefined) {
       if (this._unsavedInput && !this._confirm(
@@ -2340,7 +2340,7 @@ class TrybatecPanel extends HTMLElement {
         "History interrupted: no partial history accepted. Selecting Analyze readings again restarts the entire read from the beginning. See Diagnostics.");
     } finally {
       this._historyBusy=false;this._historyJobId=null;this._historyJobStatus=null;
-      this._refreshDiscoveryStatus(entryId);
+      this._refreshDiscoveryStatus?.(entryId);
       if (!this._isEditingForm()) this._render();
     }
   }
