@@ -1,5 +1,19 @@
 # 🤖 #36 — Preuve Recorder et refus conservés / Recorder proof and retained denials
 
+<!-- BO-DELIVERY-DOC-20261113 -->
+## 🤖 Décision BO applicable / Governing business decision — 13/11/2026
+
+**FR —** Les contre-exemples sur la barrière native Recorder continuent de montrer qu'un rejeu ambigu sur le **même** `statistic_id` n'est pas sûr. **Ils ne constituent pas une exigence métier de verrouillage global de tous les écrivains avant la publication d'une bêta.** La nouvelle voie approuvée est la conception et la qualification de séries statistiques **versionnées et immuables**, avec `statistic_id` distinct par génération/révision/tentative, versions incertaines **en quarantaine**, conservation des anciennes séries et basculement Énergie **uniquement** après relecture de persistance, contrôle de provenance et transaction sûre. L'absence de fence globale ne doit ni être masquée, ni conduire automatiquement à exiger une preuve impossible si un mécanisme alternatif démontre les garanties pertinentes pour la sélection. Aucune activation du mécanisme alternatif n'est acquise aujourd'hui.
+
+**#36 inchangé :** une date sans observation API n'est pas un index zéro ; lissage linéaire explicite et résiduel autorisé sur périodes/bornes retenues, estimations tracées, jamais de soustraction entre compteurs physiques. Les tests synthétiques avant publication couvrent répétition, écriture tardive, crash, reprise, identifiants distincts, sélection unique, absence de double comptage, refus et retour arrière. Réelle recette Recorder/Énergie seulement après publication puis installation autorisées.
+
+**EN —** Native barrier counterexamples still invalidate **ambiguous replay into the same statistic ID**, but do **not** impose an impossible global all-writer fence as a beta-release business prerequisite. Design and test immutable, versioned series with distinct IDs, quarantine uncertain attempts, persistent readback, selected version exclusivity and controlled Energy switching/rollback. Do not declare them active or safe before positive synthetic/isolated qualification. Missing API days are not zero readings; approved residual linear smoothing with estimated provenance is preserved. Index subtraction never crosses physical meter generations. Production acceptance follows separately authorized release and installation.
+
+**Coordination :** #36 ↔ #37 ↔ #88 ↔ #164; décision complète dans `docs/CONVERGENCE_CURRENT_FR_EN.md` sur #164. Les analyses techniques anciennes ci-dessous restent exploitables en tant que constats historiques, **pas comme des critères BO absolus**.
+
+<!-- END-BO-DELIVERY-DOC-20261113 -->
+
+
 **Base observée / Observed base:** `main` `8d621da9703b40662800b4a7c286707e8a7f895f` (0.3.4b1), 2026-11-13.  
 **Périmètre / Scope:** #36 uniquement ; #37 et #88 consommateurs en lecture seule.  
 **Preuves / Evidence:** chemins et tests du dépôt ; le statut des contrôles CI du SHA de cette branche doit être consulté séparément. Aucune recette ni opération Recorder réelle.
