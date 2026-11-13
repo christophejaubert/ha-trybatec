@@ -915,6 +915,7 @@ class TrybatecPanel extends HTMLElement {
     this._historyStart="";
     this._historyEnd="";
     this._historyDateScope=null;
+    this._historyDateEntryId=null;
     this._historyDatesEdited={start:false,end:false};
     this._historyEndExtended=false;
     this._historyPreview=null;
@@ -1346,7 +1347,7 @@ class TrybatecPanel extends HTMLElement {
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
     if (btn.dataset.historyResetDates!==undefined) {
-      this._historyDateDrafts?.delete(this._historyDateScope);
+      this._historyDateDrafts?.delete(this._current?.entry_id);
       this._historyDatesEdited={start:false,end:false};
       this._historyEndExtended=false;
       this._historyStart="";this._historyEnd="";
@@ -2822,12 +2823,30 @@ class TrybatecPanel extends HTMLElement {
           safe(this._number(m.conflicts))+'</td></tr>').join("")+
         '</tbody></table></div></details>':"")+'</section>';
   }
-  _syncHistoryDates() {
+  _syncHistoryDates(mode="history") {
     const account=this._current;
     if (!account) return;
-    const scope=String(account.entry_id)+":"+String(this._historyContextKey||"all");
-    const bounds=trybatecHistoricalBounds(account,this._historyContextKey,
-      this._tariffCoverage?.get?.(account.entry_id));
+    const entryId=account.entry_id;
+    const key=mode==="account"?null:this._historyContextKey;
+    const scope=String(entryId)+":"+String(key||"all");
+    if (this._historyDateEntryId!==entryId) {
+      if (this._historyDateEntryId)
+        this._historyDateDrafts?.set(this._historyDateEntryId,{
+          start:this._historyStart,end:this._historyEnd,
+          edited:{...this._historyDatesEdited},extended:this._historyEndExtended
+        });
+      const saved=this._historyDateDrafts?.get(entryId);
+      this._historyDatesEdited=saved?{...saved.edited}:{start:false,end:false};
+      this._historyEndExtended=saved?.extended===true;
+      this._historyStart=saved?.start||"";
+      this._historyEnd=saved?.end||"";
+      this._historyDateEntryId=entryId;
+    }
+    const discovery=this._historyDiscovery?.get(entryId);
+    const verified=discovery?.coverage?.completeness==="account_full" ||
+      discovery?.coverage?.completeness==="bounded_period_only";
+    const bounds=trybatecHistoricalBounds(account,key,
+      verified?discovery.coverage:this._tariffCoverage?.get?.(entryId));
     this._historyDateScope=scope;
     const previousStart=this._historyStart, previousEnd=this._historyEnd;
     if (!this._historyDatesEdited?.start) this._historyStart=bounds.start;
@@ -2841,8 +2860,15 @@ class TrybatecPanel extends HTMLElement {
     const t=(fr,en)=>this._t(fr,en), bounds=this._historyDateBounds||{};
     const scope=t(bounds.selected?"du compteur physique sélectionné":"du compte Trybatec",
       bounds.selected?"of the selected physical meter":"of the Trybatec account");
-    const evidence=bounds.complete?t("couverture historique vérifiée","verified historical coverage"):
-      t("couverture partielle ou non vérifiée","partial or unverified coverage");
+    const evidence=bounds.complete?t("couverture historique complète vérifiée",
+        "verified full historical coverage"):
+      bounds.basis==="bounded_period_only"?
+        t("observations sur une période source vérifiée, non exhaustive",
+          "observations in a verified but incomplete source interval"):
+        t("observations connues de l’inventaire, couverture globale non vérifiée",
+          "known inventory observations, full coverage unverified");
+    const covered=bounds.basis==="bounded_period_only" && bounds.range?
+      t(" · Période vérifiée : "," · Verified interval: ")+bounds.range:"";
     const reason=(field)=>{
       const date=field==="start"?this._historyStart:this._historyEnd;
       const edited=this._historyDatesEdited?.[field]===true;
@@ -2856,7 +2882,7 @@ class TrybatecPanel extends HTMLElement {
       return safe(date)+" — "+safe(t(
         field==="start"?"première observation connue ":"dernière observation connue ",
         field==="start"?"earliest known observation ":"latest known observation "))+
-        safe(scope)+" ("+safe(evidence)+")";
+        safe(scope)+" ("+safe(evidence)+safe(covered)+")";
     };
     return '<div class="history-date-help muted" role="status">'+
       safe(t("Les dates de début et de fin de période ont été préremplies comme suit :",
@@ -3272,7 +3298,7 @@ class TrybatecPanel extends HTMLElement {
     } finally {this._versionBusy=false;this._render();}
   }
   _recorderVersionWorkflow() {
-    this._syncHistoryDates?.();
+    this._syncHistoryDates?.("account");
     const ledger=this._current.ledger||{series:[],status:"missing",pending:0};
     const opts=(ledger.series||[]).flatMap(row=>(row.versions||[]).filter(v=>
       ["verified","archived"].includes(v.state)).map(v=>
