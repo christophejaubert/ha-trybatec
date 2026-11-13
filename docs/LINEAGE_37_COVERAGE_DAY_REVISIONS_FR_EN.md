@@ -51,6 +51,14 @@ Le qualificatif `candidate_unverified` signifie que **l'assertion est syntaxique
 
 Les noms de refus dans cette matrice sont des éléments d'interface pour le service de qualification #88 ; une liste de refus vide *sur les données reçues* ne suffit jamais pour conclure « admissible ». Les versions Recorder V4/V5/B15 et les sources énergétiques tierces doivent être retrouvées **dans l'environnement autorisé** puis confrontées aux lectures persistées, à la configuration Energy active et aux versions alternatives.
 
+### Fenêtres Recorder observées / Observed Recorder windows
+
+Le transfert #37→#88 accepte désormais **facultativement** `known_statistic_windows={(lot,fluid): [{statistic_id, start, end, unit, owner}]}`, où `start/end` sont des journées ISO inclusives et `owner` vaut `trybatec`, `external` ou `unknown`. Cette preuve est uniquement un **inventaire fourni**, distinct des fenêtres effectivement relues dans Recorder. Les métadonnées de version historiques V4/V5/B15 doivent être collectées et comparées indépendamment par #36/#88.
+
+Les nouveaux motifs de refus incluent `recorder_window_catalog_not_collected`, `statistic_window_metadata_incomplete`, `selected_energy_window_not_observed`, `recorder_window_unit_incompatible` et `overlapping_recorder_versions_require_exclusivity_review`. Un chevauchement entre deux versions historiques *possibles* n'est pas la preuve qu'elles sont simultanément actives, mais interdit de conclure à l'exclusivité sans examen des préférences et de la version active.
+
+**EN:** Optional `known_statistic_windows` records observed statistic IDs, exact inclusive calendar windows, units and observed ownership. This is *not* native Recorder readback. Missing windows, incompatible units, cross-scope reused IDs, competing selections and overlapping candidate versions produce explicit fail-closed evidence reasons. Independent Recorder storage and live Energy preferences remain the authority boundary.
+
 ### Tests indépendants réalisés et limites
 
 Scénarios synthétiques prévus : deux générations successives sans date de remplacement déduite, compteur déposé découvert uniquement dans le catalogue, observation manquante, contrôle des anomalies d'index, désaccord entre nombre/empreinte du catalogue, catalogue ne contenant pas toutes les générations observées, origine hors période, statut de recherche interrompue, approbation globale non attribuable, décision précise avec révision concordante ou contradictoire, journée attribuée deux fois, doublon statistique inter-fluides, références de consommateurs hérités. Tous les noms de compte, logement et compteur dans les tests sont fictifs.
