@@ -10,9 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.trybatec import (
-    energy_bulk_native_selected_l6_88 as bridge,
-    history_recorder_native_attempt_36 as native36,
+from custom_components.trybatec import energy_bulk_native_selected_l6_88 as bridge
+
+native36 = pytest.importorskip(
+    "custom_components.trybatec.history_recorder_native_attempt_36",
+    reason="Native #36 owner module is integrated only in convergence #164",
 )
 
 LOGICAL = "trybatec:logical_synthetic_ef"
