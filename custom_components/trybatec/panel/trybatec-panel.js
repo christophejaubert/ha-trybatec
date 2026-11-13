@@ -904,6 +904,10 @@ class TrybatecPanel extends HTMLElement {
     this._tariffError = "";
     this._tariffMessage = "";
     this._tariffCoverage = new Map();
+    this._historyDiscovery = new Map();
+    this._historyDiscoveryInflight = new Set();
+    this._historyDiscoveryWatch = new Set();
+    this._historyDateDrafts = new Map();
     this._costPreview=null;
     this._costBusy=false;
     this._costError="";
@@ -1098,7 +1102,9 @@ class TrybatecPanel extends HTMLElement {
     } finally {
       this._loading = false;
       this._render();
-      if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
+      if (["meters","history","tariffs"].includes(this._tab) && this._current)
+        this._readHistoryDiscovery();
+
     }
   }
   async _loadTariffYearCoverage(force=false) {
@@ -1134,6 +1140,145 @@ class TrybatecPanel extends HTMLElement {
       this._tariffJobId=null;this._tariffJobStatus=null;
       if (!this._isEditingForm()) this._render();
     }
+  }
+  /** Passive C11 read: never starts supplier traffic. */
+  async _readHistoryDiscovery(entryId=this._current?.entry_id) {
+    if (!entryId || !this._hass || this._historyDiscoveryInflight?.has(entryId)) return;
+    this._historyDiscoveryInflight.add(entryId);
+    try {
+      const response=await this._hass.callWS({
+        type:"trybatec/panel_history_discovery_status",entry_id:entryId
+      });
+      if (!(this._data?.accounts||[]).some(a=>a.entry_id===entryId)) return;
+      const view=trybatecC11Presentation(response);
+      this._historyDiscovery.set(entryId,view);
+      if (view.discovery_status==="running" && view.id &&
+          view.kind==="tariff_year_coverage") {
+        this._watchHistoryDiscovery(entryId,view);
+      }
+    } catch (_) {
+      // Older backends may not expose C11. This is unknown, never a false success.
+      this._historyDiscovery.set(entryId,{discovery_status:"unverified",coverage:null});
+    } finally {
+      this._historyDiscoveryInflight.delete(entryId);
+      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
+    }
+  }
+  _watchHistoryDiscovery(entryId,view) {
+    const id=view.id, key=entryId+":"+id;
+    if (!id || this._historyDiscoveryWatch.has(key)) return;
+    this._historyDiscoveryWatch.add(key);
+    if (this._current?.entry_id===entryId) this._tariffJobId=id;
+    // Existing panel job only; status polling is read-only and creates no scan.
+    this._waitForHistoryJob(entryId,{id,status:"running"},"tariff_year_coverage")
+      .then(result=>{
+        if (result?.recorder_writes!==false || result?.energy_writes!==false) return;
+        if (result.status==="complete" && result.coverage?.completeness==="account_full")
+          this._tariffCoverage.set(entryId,{...result,status:"complete"});
+      })
+      .catch(()=>{})
+      .finally(()=>{
+        this._historyDiscoveryWatch.delete(key);
+        if (this._current?.entry_id===entryId) this._tariffJobId=null;
+        this._readHistoryDiscovery(entryId);
+      });
+  }
+  _historyDiscoveryView(place) {
+    const t=(fr,en)=>this._t(fr,en), id=this._current?.entry_id;
+    const view=this._historyDiscovery?.get(id);
+    const status=view?.discovery_status||"not_started";
+    const labels={
+      not_started:t("Non lancée","Not started"),
+      running:t("En cours","Running"),
+      incomplete:t("Incomplète","Incomplete"),
+      complete:t("Complète","Complete"),
+      error:t("Échec","Failed"),
+      interrupted:t("Interrompue","Interrupted"),
+      unverified:t("État non vérifié","Unverified status")
+    };
+    const cover=view?.coverage;
+    const rows=[];
+    if (cover && cover.status!=="not_started") {
+      if (cover.coverage_start && cover.coverage_end)
+        rows.push(t("Période source vérifiée : ","Verified source interval: ")+
+          safe(cover.coverage_start)+" → "+safe(cover.coverage_end));
+      if (cover.first_observed_at || cover.last_observed_at)
+        rows.push(t("Observations connues dans les données consultées : ",
+          "Known observations in reviewed data: ")+
+          safe(cover.first_observed_at?this._date(cover.first_observed_at):"—")+
+          " → "+safe(cover.last_observed_at?this._date(cover.last_observed_at):"—"));
+      rows.push(cover.completeness==="account_full"?
+        t("Couverture intégrale du compte sur la période prise en charge.",
+          "Full account coverage for the supported period."):
+        t("Couverture partielle : ces bornes ne prouvent pas les premières et dernières observations de toute l’histoire.",
+          "Partial coverage: these bounds do not establish the first or last observations of the entire history."));
+      if (cover.cache_expires_at)
+        rows.push(t("Cache vérifié jusqu’au ","Cache valid until ")+
+          safe(this._date(cover.cache_expires_at,true)));
+    }
+    const progress=view?.progress;
+    if (status==="running" && progress)
+      rows.push(t("Périodes vérifiées : ","Verified periods: ")+
+        safe(progress.periods_verified??t("non communiqué","not reported"))+
+        t(" · Requêtes HTTP : "," · HTTP requests: ")+
+        safe(progress.http_requests??t("non communiqué","not reported")));
+    else if (Number.isInteger(view?.periods_verified))
+      rows.push(t("Périodes vérifiées : ","Verified periods: ")+safe(view.periods_verified));
+    if (view?.cache_reused)
+      rows.push(t("Résultats déjà vérifiés réutilisés, sans nouvelle lecture fournisseur.",
+        "Previously verified results reused without a new supplier request."));
+    const invalidations={
+      identity_changed:t("identité du compte modifiée","account identity changed"),
+      date_changed:t("changement de journée","local date changed"),
+      cache_expired:t("durée de validité dépassée","cache expired"),
+      unverified_coverage:t("couverture non qualifiée","unverified coverage")
+    };
+    const invalid=cover?.cache_invalidation_reason;
+    if (invalid && invalidations[invalid])
+      rows.push(t("Cache invalidé : ","Cache invalidated: ")+invalidations[invalid]);
+    const failures={
+      cancelled:t("interruption demandée","cancellation requested"),
+      safety_budget:t("budget de sécurité atteint","safety budget exceeded"),
+      timeout_or_budget:t("délai ou budget dépassé","timeout or budget exceeded"),
+      supplier_response:t("réponse fournisseur non exploitable","unusable supplier response"),
+      supplier_validation:t("données fournisseur non validées","supplier data validation"),
+      authentication:t("authentification","authentication"),
+      authorization:t("autorisation","authorization"),
+      network:t("connexion réseau","network"),
+      invalid_scope_or_period:t("périmètre ou période non valide","invalid scope or interval"),
+      unexpected_error:t("erreur technique non classée","unclassified technical error")
+    };
+    if (["error","interrupted"].includes(status)) {
+      rows.push(t("Échec catégorisé : ","Failure category: ")+
+        safe(failures[view?.failure_category]||t("non communiquée","not reported")));
+      if (view?.retry_mode==="restart_from_zero" &&
+          view?.retry_reason==="no_atomic_window_checkpoints")
+        rows.push(t(
+          "Nouvelle tentative : redémarrage intégral (restart_from_zero). Aucun point de reprise atomique vérifié n’est disponible.",
+          "Retry: full restart (restart_from_zero). No verified atomic window checkpoint is available."));
+    }
+    if (status==="not_started" && !view)
+      rows.push(t("Statut à charger depuis Home Assistant ; aucune recherche automatique.",
+        "Status has not yet been loaded from Home Assistant; no automatic scan."));
+    if (status==="unverified")
+      rows.push(t("État C11 indisponible : la couverture historique n’est pas validée.",
+        "C11 status unavailable: historical coverage is unverified."));
+    const canCancel=status==="running" && view?.kind==="tariff_year_coverage" &&
+      view?.id && this._tariffJobId===view.id;
+    const action=status==="running"?
+      (canCancel?'<button type="button" class="secondary" data-tariff-years-cancel>'+
+        safe(t("Interrompre la recherche globale","Cancel account-wide scan"))+'</button>':""):
+      '<button type="button" class="secondary" data-historical-scan>'+
+        safe(t("Rechercher les relevés de tous les compteurs",
+          "Search historical readings for all meters"))+'</button>';
+    return '<div class="notice" role="region" aria-label="'+
+      safe(t("Découverte historique du compte","Account history discovery"))+'">'+
+      '<p role="status"><strong>'+safe(t("Découverte historique : ","History discovery: ")+
+        labels[status])+'</strong></p>'+
+      (rows.length?'<ul class="muted">'+rows.map(line=>'<li>'+line+'</li>').join("")+'</ul>':"")+
+      '<div class="actions">'+action+
+      '<button type="button" class="secondary" data-discovery-refresh>'+
+        safe(t("Actualiser l’état","Refresh status"))+'</button></div></div>';
   }
   _confirm(message) {
     return window.confirm(localizeTrybatecText(message,this._hass?.language));
@@ -1184,22 +1329,32 @@ class TrybatecPanel extends HTMLElement {
       } else {
         this._historyContextKey=null;this._tab="meters";
       }
-      this._render();if(this._tab==="meters")this._revealSelectedMeterDetail?.();return;
+      this._render();
+      if(this._tab==="meters")this._revealSelectedMeterDetail?.();
+      if(["meters","history"].includes(this._tab))this._readHistoryDiscovery();
+      return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
-    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
+    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();this._readHistoryDiscovery();return;}
     if (btn.dataset.historyToday!==undefined) {
       this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
       this._historyDatesEdited.end=true;this._historyEndExtended=true;
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
     if (btn.dataset.historyResetDates!==undefined) {
+      this._historyDateDrafts?.delete(this._historyDateScope);
       this._historyDatesEdited={start:false,end:false};
-      this._historyEndExtended=false;this._historyDateScope=null;
+      this._historyEndExtended=false;
+      this._historyStart="";this._historyEnd="";
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
+    if (btn.dataset.discoveryRefresh!==undefined) {this._readHistoryDiscovery();return;}
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
-    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;}
+    if (btn.dataset.tab) {
+      this._tab=btn.dataset.tab;this._query="";this._render();
+      if (["meters","history","tariffs"].includes(this._tab)) this._readHistoryDiscovery();
+      return;
+    }
     if (btn.dataset.meter !== undefined) {
       this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
@@ -1213,7 +1368,9 @@ class TrybatecPanel extends HTMLElement {
       this._tariffHydrated=false;
       this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
-      this._render();if(this._tab==="tariffs")this._loadTariffYearCoverage();return;
+      this._render();
+      if(["meters","history","tariffs"].includes(this._tab))this._readHistoryDiscovery();
+      return;
     }
     if (btn.dataset.reloadPanel !== undefined) {
       if (this._unsavedInput && !this._confirm(
@@ -1226,7 +1383,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();this._readHistoryDiscovery();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffReset !== undefined) {
       const saved=this._existingTariff();
@@ -1998,7 +2155,7 @@ class TrybatecPanel extends HTMLElement {
       this._originMeter=meter.physical_key;
       this._historySelected="";this._readingSelected="";
       this._tab="history";this._query="";
-      this._render();
+      this._render();this._readHistoryDiscovery();
       this.shadowRoot.querySelector("[data-history-preview]")?.focus();
       return;
     }
