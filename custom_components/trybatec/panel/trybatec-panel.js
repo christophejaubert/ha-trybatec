@@ -2886,8 +2886,8 @@ class TrybatecPanel extends HTMLElement {
       bounds.basis==="bounded_period_only"?
         t("observations sur une période source vérifiée, non exhaustive",
           "observations in a verified but incomplete source interval"):
-        t("observations connues de l’inventaire, couverture globale non vérifiée",
-          "known inventory observations, full coverage unverified");
+        t("couverture partielle ou non vérifiée : observations connues de l’inventaire",
+          "partial or unverified coverage: known inventory observations");
     const covered=bounds.basis==="bounded_period_only" && bounds.range?
       t(" · Période vérifiée : "," · Verified interval: ")+bounds.range:"";
     const reason=(field)=>{
