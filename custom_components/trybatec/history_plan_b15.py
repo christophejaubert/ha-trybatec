@@ -145,18 +145,23 @@ def make_b15_plan(
         selected = "smoothed" if meter["selected_gap_fingerprints"] else "raw"
         groups.setdefault(key, [])
         source_digests.setdefault(key, [])
-        source_digests[key].append([
+        source_proof = [
             serial, meter["source_fingerprint"], meter["selected_gap_fingerprints"],
-            meter.get("day_decision_refs", {}), selected
-        ])
+            selected,
+        ]
+        if meter.get("day_decision_refs"):
+            source_proof.append(meter["day_decision_refs"])
+        source_digests[key].append(source_proof)
         for variant in ("raw", "smoothed"):
             daily = meter[variant]
             physical_id = _physical_id(account_key, lot, fluid, serial, variant)
-            fingerprint = _digest([
+            physical_proof = [
                 meter["source_fingerprint"], variant, meter["selected_gap_fingerprints"],
-                meter.get("day_decision_refs", {}) if variant == "smoothed" else {},
                 [[day.isoformat(), amount] for day, amount in sorted(daily.items())],
-            ])
+            ]
+            if variant == "smoothed" and meter.get("day_decision_refs"):
+                physical_proof.append(meter["day_decision_refs"])
+            fingerprint = _digest(physical_proof)
             rows = statistic_rows(daily)
             if rows:
                 series.append({
