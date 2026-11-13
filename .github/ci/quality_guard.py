@@ -72,7 +72,7 @@ def scan_workflow(name: str, source: str) -> list[str]:
         # base-sourced privacy scanner; never allow PR-controlled code execution.
         requirements = (
             "pull_request_target:",
-            "branches: [main]",
+            "types: [opened, synchronize, reopened, ready_for_review, edited]",
             "permissions:\n  contents: read",
             "ref: main",
             "persist-credentials: false",
@@ -84,6 +84,12 @@ def scan_workflow(name: str, source: str) -> list[str]:
             problems.append("privacy gate no longer runs trusted main-only scanner")
         if re.search(r"(?m)^\s{2}pull_request\s*:", source):
             problems.append("privacy gate cannot run from PR-provided workflow")
+        # FR/EN: branch/path filters silently skip stacked public PRs.
+        trigger = source.split("\n  pull_request_target:\n", 1)[-1].split("\npermissions:", 1)[0]
+        if re.search(r"(?m)^\s*(?:branches|branches-ignore|paths|paths-ignore):", trigger):
+            problems.append("privacy gate must cover PRs targeting all branches")
+        if "github.event.pull_request.base.ref" in source:
+            problems.append("privacy gate cannot silently skip stacked-base PRs")
 
     if name == "publish-experimental.yml":
         requirements = (
