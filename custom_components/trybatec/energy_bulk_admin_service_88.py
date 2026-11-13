@@ -259,8 +259,8 @@ def _native_source_proposals_88(preview: Any, plan: Any) -> dict[str, Any]:
             })
         return {**result, "status": "native_schema_validated_read_only",
                 "sources": rows}
-    except (ImportError, AttributeError, ValueError, TypeError, KeyError,
-            OverflowError, RuntimeError):
+    except Exception:
+        # Includes Core probatio.Invalid; failed preflight is never a permit.
         return {**result, "status": "native_schema_not_verified"}
 
 
