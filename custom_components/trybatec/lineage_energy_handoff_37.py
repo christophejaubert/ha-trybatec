@@ -325,6 +325,7 @@ def audit_ha_identity_references_37(
         account_key, entry_id, meters, registry_entities
     )
     known_ids = {row["entity_id"] for row in registry_entities}
+    known_unique_ids = {row["unique_id"] for row in registry_entities}
     examined = set()
     foreign = []
     observed = []
@@ -343,14 +344,16 @@ def audit_ha_identity_references_37(
         if key in examined:
             raise ValueError("Duplicate observed consumer reference")
         examined.add(key)
-        matched = kind == "entity_id" and reference in known_ids
-        if kind == "entity_id" and not matched:
+        matched = (
+            reference in known_ids if kind == "entity_id"
+            else reference in known_unique_ids if kind == "unique_id"
+            else None
+        )
+        if matched is False:
             foreign.append({"consumer": consumer, "kind": kind, "reference": reference})
         observed.append({
             "consumer": consumer, "kind": kind,
-            "reference": reference, "entity_registry_match": (
-                matched if kind == "entity_id" else None
-            ),
+            "reference": reference, "entity_registry_match": matched,
         })
     contradictions = bool(foreign) or any(
         item["status"] == "migration_blocked" for item in plan["meters"]
