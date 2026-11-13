@@ -131,6 +131,52 @@ async def async_verify_native_version_catalog_88(
     return result
 
 
+
+async def _assert_native_scoped_v2_contract_88(
+    hass: Any, entry_id: str, selection: Mapping[str, Any],
+    witness: Mapping[str, Any],
+) -> None:
+    """Demand #36's *actual* independent scoped proof before L6 promotion.
+
+    A successful #88 SQL observation is necessary, never sufficient to
+    assert immutable Recorder ownership or exclude a late third-party writer.
+    Never replace the authoritative #36 reader by the v1 witness projection.
+    """
+    from .history_recorder_native_attempt_36 import (
+        async_read_native_scoped_selection_v2_36,
+    )
+
+    native = await async_read_native_scoped_selection_v2_36(
+        hass, entry_id, dict(selection),
+    )
+    if not isinstance(native, dict):
+        raise EnergyTransactionRefused("Native #36 scoped v2 evidence unavailable")
+    bound = ("account", "lot", "fluid", "start", "end", "statistic_id")
+    if (native.get("schema") != "history_36_scoped_selection_v2"
+            or any(native.get(key) != selection.get(key) for key in bound)
+            or native.get("unit") != witness.get("unit")
+            or not isinstance(native.get("metadata"), dict)
+            or native["metadata"].get("persisted_readback_hash")
+            != witness.get("rows_hash")
+            or native.get("selected_series_persisted") is not True
+            or native.get("journal_disk_verified") is not True
+            or native.get("scoped_double_readback_observed") is not True
+            or native.get("native_decision_store_crosscheck_verified") is not True):
+        raise EnergyTransactionRefused(
+            "Native #36 selected Recorder rows, decisions or scope disagree"
+        )
+    # HA 2026.11 has no universal Recorder writer reservation API; #36
+    # currently returns all these authority fields as FALSE. Respect them.
+    if (native.get("mode") != "native_immutable_readback"
+            or native.get("selected_version_state") != "verified_immutable"
+            or native.get("selected_statistic_id_owned_by_one_scope") is not True
+            or native.get("version_catalog_complete_for_selected_scope") is not True
+            or native.get("independent_future_writer_exclusion_verified") is not True):
+        raise EnergyTransactionRefused(
+            "Native #36 cannot exclude later Recorder writers for selected ID"
+        )
+
+
 def _recorder_envelope_88(
     selection: dict[str, Any], witness: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -414,6 +460,9 @@ async def async_collect_native_selected_state_88(
             **witness, "versions": checked_versions,
             "version_catalog_sql_verified": True,
         }
+        await _assert_native_scoped_v2_contract_88(
+            hass, coordinator.entry.entry_id, scope, witness,
+        )
         native36 = _recorder_envelope_88(scope, witness)
 
         # The user selected a scope in an authenticated admin websocket.
