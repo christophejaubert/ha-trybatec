@@ -49,6 +49,15 @@ def _proof():
         "groups": [{
             "lot": "L0", "fluid": "EF", "rows_observed": 2,
             "total": "3", "physical_meters_observed": 3,
+            "daily_consumption": [
+                {"date": "2026-01-01", "consumption": "2",
+                 "contributors": [{"serial": "M1", "provenance": "measured",
+                                   "consumption": "2"}]},
+                {"date": "2026-01-02", "consumption": "1",
+                 "contributors": [{"serial": "M3",
+                                   "provenance": "estimated_linear_confirmed",
+                                   "consumption": "1"}]},
+            ],
             "retired_meter_count": 2, "unknown_meter_count": 0,
             "observed_unread_intervals": 0,
             "blockers": [],
@@ -79,6 +88,7 @@ def test_three_physical_generations_and_daily_measured_estimated():
     result = _check(_proof())
     ef = result["fluids"]["EF"]
     assert ef["daily_totals_consistent"]
+    assert ef["dated_physical_contributions_consistent"]
     assert ef["selected_statistic_consistent"]
     assert ef["recorder_daily_rows_observed"] == 2
     assert result["activation_authorized"] is False
@@ -157,3 +167,28 @@ def test_no_browser_or_source_fingerprint_can_authorize_a_write():
     assert result["energy_writes"] is False
     assert result["recorder_writes"] is False
     assert result["admissible"] is False
+
+
+def test_same_total_on_shifted_date_is_not_a_valid_day_match():
+    p = _proof()
+    p[1]["groups"][0]["daily_consumption"][1]["date"] = "2026-01-03"
+    result = _check(p)["fluids"]["EF"]
+    assert result["daily_totals_consistent"] is False
+    assert "physical_recorder_daily_dates_or_amounts_mismatch" in result["blockers"]
+
+
+def test_physical_contributor_does_not_conserve_daily_total():
+    p = _proof()
+    p[1]["groups"][0]["daily_consumption"][0]["contributors"][0][
+        "consumption"
+    ] = "3"
+    ef = _check(p)["fluids"]["EF"]
+    assert "physical_daily_contributions_do_not_conserve_total" in ef["blockers"]
+
+
+def test_estimation_approval_does_not_inherit_global_fingerprint():
+    p = _proof()
+    p[0]["groups"][0]["coverage_fingerprint"] = "f" * 64
+    ef = _check(p)["fluids"]["EF"]
+    assert "day_specific_estimation_approval_binding_unverified" in ef["blockers"]
+    assert not ef["admissible"]
