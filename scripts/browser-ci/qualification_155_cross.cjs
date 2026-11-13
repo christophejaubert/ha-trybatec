@@ -201,6 +201,91 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.equal(calls.length,0,"Changing history dates must never launch an API scan");
   });
 
+  await check("C9 custom dates survive account refresh and context switch", async () => {
+    const value=await page.evaluate(async()=>{
+      const host=document.querySelector("trybatec-panel");
+      const key=host._current.meters[1].physical_key;
+      host._historyContextKey=key;
+      host._historyDatesEdited={start:true,end:true};
+      host._historyStart="2019-07-10";host._historyEnd="2020-08-20";
+      host._syncHistoryDates();
+      host._tab="tariffs";host._render();
+      host._historyContextKey=null;host._tab="history";host._syncHistoryDates();host._render();
+      const switched={start:host._historyStart,end:host._historyEnd,
+        help:host._historyDatesHelp()};
+      const observed=globalThis.__crossCalls.length;
+      await host._fetch();
+      host._tab="history";host._syncHistoryDates();host._render();
+      const refreshed={start:host._historyStart,end:host._historyEnd,
+        help:host._historyDatesHelp()};
+      const calls=globalThis.__crossCalls.length-observed;
+      return {switched,refreshed,calls};
+    });
+    assert.equal(value.switched.start,"2019-07-10");
+    assert.equal(value.switched.end,"2020-08-20");
+    assert.equal(value.refreshed.start,"2019-07-10");
+    assert.equal(value.refreshed.end,"2020-08-20");
+    assert.match(value.refreshed.help,/personnalisée|custom/i);
+    assert.equal(value.calls,0,"Refresh/selection must not trigger supplier scans");
+  });
+
+  await check("C5-C8 disabled reasons, keyboard and fluid-theme contrast", async () => {
+    const state=await page.evaluate(()=>{
+      const host=document.querySelector("trybatec-panel"),root=host.shadowRoot;
+      host._tab="energy";host._versionPlan=null;host._versionImportBackup=false;
+      host._render();
+      const importButton=root.querySelector("[data-version-import]");
+      const importCard=importButton?.closest("section.card");
+      const locked=root.querySelector("fieldset.prerequisite-locked");
+      const blocked={importDisabled:importButton?.disabled,
+        importReason:importCard?.textContent||"",
+        locked:locked?.disabled,lockedReason:locked?.textContent||""};
+      const shades=[];
+      for(const fluid of ["EF","ECS","CET"]){
+        const m=host._current.meters.find(x=>x.fluid===fluid);
+        host._historyContextKey=m.physical_key;host._tab="history";host._render();
+        const surface=root.querySelector(".meter-history-context.fluid-surface");
+        const token=surface?.querySelector(".fluid-token");
+        const icon=token?.querySelector("ha-icon");
+        const foreground=token?getComputedStyle(token).color:"";
+        const background=surface?getComputedStyle(surface).backgroundColor:"";
+        shades.push({fluid,label:token?.textContent.trim(),
+          icon:icon?.getAttribute("icon"),foreground,background});
+      }
+      return {blocked,shades};
+    });
+    assert.equal(state.blocked.importDisabled,true,
+      "Recorder import must stay disabled with no independently validated plan");
+    assert.match(state.blocked.importReason,/sauvegarde|backup|aperçu|preview/i,
+      "Disabled Recorder button must have a nearby explanation");
+    assert.equal(state.blocked.locked,true,
+      "Energy handoff must remain disabled before verified lineage/Recorder");
+    assert.match(state.blocked.lockedReason,/indisponible|unavailable|prérequis|prerequisite/i);
+    const luminance=rgb=>{
+      const c=(rgb.match(/\\d+(?:\\.\\d+)?/g)||[]).slice(0,3).map(Number);
+      assert.equal(c.length,3,"Fluid foreground/background must resolve to RGB");
+      const v=c.map(n=>{const x=n/255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4;});
+      return v[0]*.2126+v[1]*.7152+v[2]*.0722;
+    };
+    for(const shade of state.shades){
+      assert.ok(shade.icon?.startsWith("mdi:"),"Fluid icon missing for "+shade.fluid);
+      assert.ok(shade.label&&shade.label.length>2,"Fluid accessible text missing");
+      const a=luminance(shade.foreground),b=luminance(shade.background);
+      const ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+      assert.ok(ratio>=4.5,"Fluid text contrast below 4.5:1: "+
+        shade.fluid+" ratio="+ratio.toFixed(2)+" theme="+(dark?"dark":"light"));
+    }
+    await locator('nav button[data-tab="history"]').focus();
+    await page.keyboard.press("Enter");
+    const focused=await locator('nav button[data-tab="history"]').evaluate(el=>{
+      const s=getComputedStyle(el);
+      return {name:el.innerText.trim(),outline:s.outlineStyle,width:parseFloat(s.outlineWidth)};
+    });
+    assert.ok(focused.name.length>0);
+    assert.notEqual(focused.outline,"none");
+    assert.ok(focused.width>=2);
+  });
+
   await check("C10 unknown origin blocks unapproved smoothing", async () => {
     const result=await page.evaluate(() => {
       const host=document.querySelector("trybatec-panel");
