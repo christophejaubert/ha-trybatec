@@ -24,6 +24,13 @@
 
 **EN.** The experimental beta is published, but selective Recorder retry and bulk Energy writes are not fully usable. Approved sequence for the next testable beta: safely complete implementation → independent synthetic tests and exact-SHA CI → separately authorized merge → release → HA installation → production acceptance with separate write/restore permissions. Live acceptance is not a prerequisite for first publishing the beta that enables it.
 
+### Décision business owner confirmée / Reconfirmed business owner decision (13/11/2026)
+
+**FR — Règle non validée retirée.** Toute formulation, y compris dans les anciens instantanés conservés plus bas, imposant une « recette réelle puis publication » est **caduque et ne doit plus servir de critère de livraison**. **Séquence obligatoire :** développement complet et garanties de sûreté préparées → CI/tests synthétiques sur SHA exact → fusion expressément autorisée → **publication bêta expressément autorisée** → inventaire/sauvegarde/installations autorisés sur HA de production → **recette réelle après installation** → décisions et correctifs éventuels. La publication ne constitue ni recette ni autorisation d'écriture. Aucun périmètre métier D3 n'est réduit et les verrous #36/#37/#88 demeurent en place tant que leurs conditions de sûreté ne sont pas démontrées. Le protocole applicable est [PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md](PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md), corrigé sur la présente branche MOE #161. Les décisions existantes dans [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) sont cohérentes avec cet ordre ; aucune décision de fusion, release, installation ou écriture n'est conférée par cette correction documentaire.
+
+**EN — Unapproved rule removed.** Any preserved older wording requiring **live acceptance before beta publication** is superseded and NOT a delivery gate. Mandatory order: complete safe development → exact-SHA CI/synthetic tests → separately authorized merge → **separately authorized beta publication** → production inventory/backup/installation under distinct approvals → **live acceptance after installation** → business decision and possible fixes. Publication is neither acceptance nor permission to write. The approved D3 scope is unchanged; #36/#37/#88 fail-closed guards remain until safety prerequisites are met. See the corrected [production acceptance protocol](PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md) on MOE draft #161. No merge, release, HA installation or mutation is approved by this documentation update.
+
+
 ### Décisions fonctionnelles, écarts et qualification / Decisions, functional gaps and qualification
 
 | Issue | Acquis / Approved scope | Preuve et blocages actuels / Evidence and blockers |
