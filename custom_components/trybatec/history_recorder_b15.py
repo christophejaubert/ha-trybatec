@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from hashlib import sha256
-import json
 from typing import Any
 
 from homeassistant.components.recorder.models import StatisticMeanType
