@@ -293,6 +293,14 @@ class CatalogReconciliation37Tests(unittest.TestCase):
             self.assertIn(blocker, item["blockers"])
         self.assertFalse(report["energy_activation_authorized"])
 
+    def test_c11_not_started_status_remains_unknown(self):
+        m = source()
+        result = run([m], supplier_discovery={"status": "not_started"})
+        self.assertEqual(result["inventory_reconciliation"]["status"], "inconnu")
+        group = handoff.prepare_energy_lineage_handoff_37(result)["groups"][0]
+        self.assertIn("account_historical_discovery_not_complete", group["blockers"])
+        self.assertFalse(result["inventory_reconciliation"]["historical_account_exhaustiveness_verified"])
+
     def test_discovery_interrupted_does_not_attest_full_account(self):
         m = source()
         report = handoff.prepare_energy_lineage_handoff_37(
