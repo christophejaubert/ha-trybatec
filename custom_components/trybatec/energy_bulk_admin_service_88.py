@@ -215,6 +215,56 @@ def _native_l6_diagnostics(evidence: Any, *, account: str, lot: str) -> dict[str
     return result
 
 
+
+def _native_source_proposals_88(preview: Any, plan: Any) -> dict[str, Any]:
+    """Validate HA 2026.11 Energy source schema without side effects.
+
+    Return only proposed Trybatec additions, never third-party preferences,
+    browser-supplied evidence, or a transaction authorization.
+    """
+    result: dict[str, Any] = {
+        "status": "not_prepared", "sources": [],
+        "writes": False, "activation_authorized": False,
+    }
+    if preview.status != "prepared_for_explicit_admin_review" or not isinstance(plan, dict):
+        return result
+    try:
+        from copy import deepcopy
+        from homeassistant.components.energy.data import ENERGY_SOURCE_SCHEMA
+
+        previous = plan["previous"]["energy_sources"]
+        proposed = plan["proposed"]["energy_sources"]
+        actions = plan["actions"]
+        if (not isinstance(previous, list) or not isinstance(proposed, list)
+                or not isinstance(actions, list)
+                or proposed[:len(previous)] != previous
+                or len(proposed) - len(previous) != len(actions)
+                or any(action.get("status") != "proposed_addition"
+                       for action in actions)):
+            raise ValueError("Native source append does not match L7 actions")
+        # Parser transformations must never silently replace the approved plan.
+        if ENERGY_SOURCE_SCHEMA(deepcopy(proposed)) != proposed:
+            raise ValueError("HA Energy schema transforms proposed sources")
+        rows = []
+        for action, source in zip(actions, proposed[len(previous):]):
+            fluid = action["fluid"]
+            if (fluid not in ("EF", "ECS")
+                    or source != {"type": "water", "stat_energy_from":
+                                 action["statistic_id"]}):
+                # CET stays kWh; do not misclassify heating as gas.
+                raise ValueError("Unsupported native Energy source semantics")
+            rows.append({
+                "fluid": fluid, "statistic_id": action["statistic_id"],
+                "unit": "m³", "energy_source_type": "water",
+            })
+        return {**result, "status": "native_schema_validated_read_only",
+                "sources": rows}
+    except Exception:
+        # Includes Core probatio.Invalid; failed preflight is never a permit.
+        return {**result, "status": "native_schema_not_verified"}
+
+
+
 class EnergyBulkAdminService88:
     """Server-side facade, intentionally NOT registered with HA.
 
@@ -246,7 +296,8 @@ class EnergyBulkAdminService88:
                 actor, account=self._account, lot=self._lot,
                 selections=selections,
             )
-        preview, _ = _prepare_state(state, self._account, self._lot)
+        preview, plan = _prepare_state(state, self._account, self._lot)
+        proposed_sources = _native_source_proposals_88(preview, plan)
         # Read the real HA Recorder/ledger/energy observations only from
         # this authenticated server-side preview; not from websocket flags.
         native_observations: dict[str, Any] = {
@@ -308,6 +359,7 @@ class EnergyBulkAdminService88:
             "schema": "energy_bulk_admin_actions_88_v1",
             "status": "blocked" if blocked else "confirmation_required",
             "preview": asdict(preview),
+            "native_source_proposal": proposed_sources,
             "fluids": _fluid_status(state.evidence),
             "l6_diagnostics": _native_l6_diagnostics(
                 state.evidence, account=self._account, lot=self._lot
