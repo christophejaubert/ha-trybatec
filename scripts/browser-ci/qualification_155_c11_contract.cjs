@@ -163,8 +163,10 @@ async function one(browser,snapshot,config,kind) {
       assert.match(text,/5/,"Read-only HTTP request count must be visible");
     }
     if(kind==="incomplete"){
-      assert.match(text,/92|91|bornée|bounded|incomplète|incomplete/i,
-        "A bounded 92-day period must visibly remain partial");
+      assert.match(text,/couverture partielle|partial coverage/i,
+        "A bounded 92-day period must be labeled as partial");
+      assert.ok(text.includes(backDays(isoParis(),91)) && text.includes(isoParis()),
+        "Both exact 92-calendar-day period boundaries must be visible");
       assert.doesNotMatch(text,/couverture historique complète du compte|full account coverage/i);
     }
     if(kind==="complete"){
