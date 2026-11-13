@@ -39,6 +39,18 @@ Tests synthétiques : \`tests/test_energy_bulk_native_convergence_034b1.py\`, en
 
 Protocole réel : \`docs/PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md\`. Toute sauvegarde, installation, écriture Recorder/Énergie, restauration, fusion ou publication exige l'autorisation spécifique correspondante. Les preuves de production restent privées. Ne jamais simuler une restauration destructive sur l'installation de production.
 
+## FR — Vérification de l'API HA Core 2026.11.1 (source versionnée)
+
+Contrats consultés **sur le tag exact 2026.11.1**, et non uniquement sur la branche de développement :
+
+- [BackupManager.async_create_backup](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/backup/manager.py) attend la fin de \`_backup_finish_task\` ; cela établit l'attente de génération mais **pas** une preuve de restauration réelle.
+- [BackupManager.async_can_decrypt_on_download](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/backup/manager.py) vérifie le déchiffrement du flux, **pas** le succès d'une restauration des préférences et de Recorder.
+- [EnergyManager.async_update](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py) diffère la sauvegarde de **60 secondes**. Le port L7 propose donc \`Store.async_save\` suivi d'une relecture du fichier réel.
+- [Store.async_save et _async_handle_write_data](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/helpers/storage.py) attendent l'écriture et nettoient le délai de sauvegarde en cours. Cela ne garantit pas l'exclusivité face à tous les autres composants.
+- Les [API d'import Recorder](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/statistics.py) mettent des tâches en file ; une barrière de commit n'établit pas seule l'absence d'un écrivain retardé.
+
+Ces constats **ne lèvent aucun verrou** L6/L7 ni l'obligation de tests réels autorisés. Les portées des exceptions, versions et conflits d'écriture devront être revérifiées lors d'un changement de version Core.
+
 ## EN — Scope, contract and release gates
 
 **Status: developed on a proof branch, not merged, not production-accepted.** Complete #36/#37/#88 functionality remains mandatory in **0.3.4b1**, without a silent deferral.
