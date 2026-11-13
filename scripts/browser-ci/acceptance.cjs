@@ -509,8 +509,12 @@ async function runCase(browser, locale, device, dark=false) {
     "Explicit tariff-year request must start a monitored read-only job");
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
     "The panel must verify a completed job before accepting historical bounds");
+  // FR/EN: independent cross-module acceptance (the original 56 views remain unchanged).
+  const qualification=await require("./qualification_155_cross.cjs")
+    .runCrossQualification(page,{locale,device,dark,snapshot});
   await context.close();
-  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,errors:errors.length};
+  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,
+    errors:errors.length,qualification};
 }
 
 (async()=>{
