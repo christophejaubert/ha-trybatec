@@ -231,7 +231,7 @@ def test_backup_failure_or_unreadable_archive_blocks_write(monkeypatch):
 def test_partial_backup_never_verified(monkeypatch):
     hass, port = make(monkeypatch)
     hass.backups.partial = True
-    with pytest.raises(EnergyTransactionRefused, match="lacks"):
+    with pytest.raises(EnergyTransactionRefused, match="include HA"):
         run(port.create_backup())
 
 
