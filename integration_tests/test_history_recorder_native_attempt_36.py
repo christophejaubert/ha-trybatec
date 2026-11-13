@@ -451,7 +451,9 @@ async def test_changed_day_approval_revision_denies_enqueue(hass, native_fixture
         "contributions"
     ][0]["decision_refs"][0]["updated_at"] = "2026-11-02T12:00:00+00:00"
     _rehash_approved_group(tampered)
-    with pytest.raises(ValueError, match="approval or source-day revision drift"):
+    # Even after rebuilding all SHA-256 fingerprints, the original approval
+    # store timestamp is authoritative and rejects the synthetic tampering.
+    with pytest.raises(ValueError, match="Sparse day approval is missing, stale or unconfirmed"):
         await _enqueue(hass, tampered, stat)
     assert native_fixture["queued"] == []
 
