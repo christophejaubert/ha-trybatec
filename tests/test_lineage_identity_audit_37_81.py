@@ -204,6 +204,22 @@ class StableEntityIdentityAuditTests(unittest.TestCase):
         self.assertEqual(len(p["unresolved_consumer_entity_references"]), 1)
         self.assertFalse(p["consumer_inventory_exhaustive"])
 
+    def test_unique_id_reference_requires_exact_registry_match(self):
+        p = handoff.audit_ha_identity_references_37(
+            "TEST-ACCOUNT", "TEST-ENTRY", self._meters(),
+            [registration(self._stable())],
+            [
+                {"consumer": "external", "kind": "unique_id",
+                 "reference": self._stable()},
+                {"consumer": "external", "kind": "unique_id",
+                 "reference": "legacy_unknown_unique_id"},
+            ],
+        )
+        self.assertTrue(p["observed_consumers"][0]["entity_registry_match"])
+        self.assertFalse(p["observed_consumers"][1]["entity_registry_match"])
+        self.assertEqual(p["status"], "contradictoire")
+        self.assertFalse(p["safe_to_migrate"])
+
     def test_recorder_statistic_reference_never_claims_exhaustiveness(self):
         p = handoff.audit_ha_identity_references_37(
             "TEST-ACCOUNT", "TEST-ENTRY", self._meters(),
