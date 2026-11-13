@@ -262,7 +262,7 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       "Energy handoff must remain disabled before verified lineage/Recorder");
     assert.match(state.blocked.lockedReason,/indisponible|unavailable|prérequis|prerequisite/i);
     const luminance=rgb=>{
-      const c=(rgb.match(/\\d+(?:\\.\\d+)?/g)||[]).slice(0,3).map(Number);
+      const c=(rgb.match(/[0-9]+(?:[.][0-9]+)?/g)||[]).slice(0,3).map(Number);
       assert.equal(c.length,3,"Fluid foreground/background must resolve to RGB");
       const v=c.map(n=>{const x=n/255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4;});
       return v[0]*.2126+v[1]*.7152+v[2]*.0722;
