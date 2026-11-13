@@ -30,6 +30,10 @@ def synthetic_complete():
         "groups": [{
             "lot": LOT, "fluid": FLUID, "statistic_id": STAT, "unit": "m³",
             "persistence_verified": True, "blockers": [],
+            "verified_recorder_metadata": {
+                "unit": "m³", "device_class": "water", "has_sum": True,
+                "has_data": True, "persisted_after_barrier": True,
+            },
             "coverage": "qualified_bounds_no_gaps",
             "measured_total": "1.0", "estimated_total": "2.0",
             "daily_provenance": [
@@ -141,6 +145,8 @@ def test_fictional_positive_source_checks_all_days_and_versions():
     ("archive_service_dates_unknown", "unknown_physical_service_boundary"),
     ("contribution_outside_service_period", "contribution_outside_physical_service_period"),
     ("missing_recorder_provenance", "recorder_daily_provenance_missing"),
+    ("recorder_sum_unverified", "recorder_native_metadata_or_persistence_unverified"),
+    ("historical_day_gap", "historical_daily_coverage_has_unknown_gaps"),
 ])
 def test_independent_negative_evidence_never_grants_permission(mutation, blocker):
     r, l, a = synthetic_complete()
@@ -187,6 +193,12 @@ def test_independent_negative_evidence_never_grants_permission(mutation, blocker
         lg["verified_physical_inventory"][0]["service_end"] = "2025-12-31"
     elif mutation == "missing_recorder_provenance":
         rg["daily_provenance"][0].pop("provenance")
+    elif mutation == "recorder_sum_unverified":
+        rg["verified_recorder_metadata"]["has_sum"] = False
+    elif mutation == "historical_day_gap":
+        rg["daily_provenance"][1]["date"] = "2026-01-03"
+        lg["daily_consumption"][1]["date"] = "2026-01-03"
+        lg["daily_consumption"][1]["contributors"][0]["approved_day"] = "2026-01-03"
     result = assess(r, l, a)
     assert result["status"] == "blocked"
     assert blocker in result["blockers"]
