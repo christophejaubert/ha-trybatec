@@ -12,6 +12,7 @@ from typing import Any
 from .energy_bulk_activation_gate_88 import NATIVE_ENERGY_BULK_WRITES_ENABLED_88
 from .energy_bulk_l6_admission_88 import assess_independent_admission_l6_88
 from .energy_bulk_scoped_l6_88 import assess_scoped_selection_l6_88
+from .energy_bulk_l7_recovery_inspection_88 import async_inspect_l7_recovery_88
 from .energy_bulk_native_port_l7 import HAGuardedEnergyPort
 from .energy_bulk_transaction import (
     EnergyRecoveryRequired,
@@ -231,11 +232,30 @@ class EnergyBulkAdminService88:
         self._lot = lot
         self._port = HAGuardedEnergyPort(hass, coordinator, lot=lot)
 
-    async def preview(self, actor: Any) -> dict[str, Any]:
+    async def preview(
+        self, actor: Any, *, selections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Native admin-authenticated, read-only L6/L7 combined action contract."""
         await self._port.assert_admin(actor)
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
         preview, _ = _prepare_state(state, self._account, self._lot)
+        # Read the real HA Recorder/ledger/energy observations only from
+        # this authenticated server-side preview; not from websocket flags.
+        native_observations: dict[str, Any] = {
+            "schema": "energy_bulk_native_scopes_88_v1",
+            "status": "native_scope_reader_not_available",
+            "activation_authorized": False,
+            "writes": False,
+        }
+        read_native = getattr(self._port, "collect_native_scope_observations", None)
+        if callable(read_native):
+            try:
+                native_observations = await read_native(
+                    actor, selections=selections,
+                )
+            except (EnergyRecoveryRequired, EnergyTransactionRefused,
+                    ValueError, KeyError, TypeError, OSError, RuntimeError):
+                native_observations["status"] = "native_scoped_observation_failed"
         independent = _blockers(
             state.evidence, account=self._account, lot=self._lot
         )
@@ -251,6 +271,27 @@ class EnergyBulkAdminService88:
         terminal = ("none", "verified", "rolled_back_verified",
                     "no_write_observed")
         recovery_required = journal_status not in terminal
+        inspection: dict[str, Any] = {
+            "schema": "energy_bulk_l7_recovery_inspection_v1",
+            "status": "native_recovery_inspection_unavailable",
+            "requires_administrator_review": recovery_required,
+            "automatic_retry_allowed": False,
+            "automatic_rollback_allowed": False,
+            "writes": False,
+        }
+        if (callable(getattr(self._port, "read_live", None))
+                and callable(getattr(self._port, "read_persisted", None))):
+            try:
+                inspection = await async_inspect_l7_recovery_88(
+                    self._port, actor,
+                )
+            except (EnergyRecoveryRequired, EnergyTransactionRefused,
+                    ValueError, TypeError, OSError, RuntimeError):
+                inspection["status"] = "native_recovery_inspection_failed"
+                inspection["requires_administrator_review"] = True
+        recovery_required = (
+            recovery_required or inspection["requires_administrator_review"]
+        )
         independent = (*independent, "l7_journal_recovery_required") if recovery_required else independent
         if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88:
             independent = (*independent, "native_transaction_activation_disabled")
@@ -263,9 +304,11 @@ class EnergyBulkAdminService88:
             "l6_diagnostics": _native_l6_diagnostics(
                 state.evidence, account=self._account, lot=self._lot
             ),
+            "native_scoped_observations": native_observations,
             "transaction": {
                 "journal_status": journal_status,
                 "recovery_required": recovery_required,
+                "recovery_inspection": inspection,
                 "last_terminal_result": journal_status if (
                     journal_status in terminal and journal_status != "none"
                 ) else None,

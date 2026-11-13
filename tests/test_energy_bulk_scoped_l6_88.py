@@ -329,7 +329,7 @@ def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
     from contextlib import asynccontextmanager
 
     from custom_components.trybatec.energy_bulk_transaction import (
-        EnergyTransactionRefused, ServerEnergyState,
+        EnergyTransactionRefused,
         apply_bulk_energy_transaction, preview_bulk_energy_transaction,
     )
     from custom_components.trybatec.energy_switch import preferences_fingerprint
@@ -357,44 +357,20 @@ def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
         async def collect(self, actor, *, account, lot):
             await self.assert_admin(actor)
             assert account == "SYNTH-ACCOUNT" and lot == "SYNTH-LOT"
-            # This toy actor is intentionally *not* connected to real #36/#37.
-            proof = validate(proofs)
-            allowed = proof["status"] == "eligible_for_scoped_review"
-            choice = proofs[0]
-            candidates = []
-            if allowed:
-                flags = dict.fromkeys((
-                    "account_lot_verified", "unit_verified",
-                    "recorder_verified", "recorder_has_sum",
-                    "recorder_has_data", "historical_coverage_verified",
-                    "physical_meter_coverage_verified",
-                    "version_exclusivity_verified", "alternatives_complete",
-                    "energy_schema_verified",
-                ), True)
-                candidates.append({
-                    "account": choice["account"], "lot": choice["lot"],
-                    "fluid": choice["fluid"], "statistic_id": choice["statistic_id"],
-                    "unit": "m³", "kind": "consolidated",
-                    "recorder_device_class": "water",
-                    "competing_statistic_ids": [OLD],
-                    **flags,
-                })
-            states = {
-                "EF": {"status": "admissible" if allowed else "insufficient_evidence"},
-                "ECS": {"status": "already_configured"},
-                "CET": {"status": "already_configured"},
-            }
-            report = {
-                "activation_authorized": False, "writes": False,
-                "fluids": states,
-                "preferences_fingerprint": preferences_fingerprint(self.prefs),
-                "scoped_selections_v2": [{
+            from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+                build_native_scoped_energy_state_88,
+            )
+
+            # This fixture supplies fictional independent v2 envelopes,
+            # but exercises the exact L6 candidate builder and native L7
+            # state machine rather than bypassing with arbitrary booleans.
+            return build_native_scoped_energy_state_88(
+                deepcopy(self.prefs),
+                [{
                     "selection": proofs[0], "history_36": proofs[1],
                     "lineage_37": proofs[2], "energy_audit": proofs[3],
                 }],
-            }
-            return ServerEnergyState(
-                deepcopy(self.prefs), report, tuple(candidates), "2026.11.1"
+                account=account, lot=lot, schema_version="2026.11.1",
             )
 
         async def read_live(self):
@@ -525,3 +501,114 @@ def test_missing_day_cannot_be_implicitly_zero_when_unapproved():
     result = validate(bundle)
     assert result["status"] == "blocked"
     assert "missing_days_not_exactly_user_approved" in result["blockers"]
+
+
+def test_native_v2_scoped_proofs_build_actual_l7_plan_not_only_a_diagnostic():
+    from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+        build_native_scoped_energy_state_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import _prepare_state
+
+    selection, recorder, lineage, audit = synthetic()
+    old_prefs = deepcopy(audit["live"])
+    state = build_native_scoped_energy_state_88(
+        old_prefs, [{
+            "selection": selection, "history_36": recorder,
+            "lineage_37": lineage, "energy_audit": audit,
+        }], account=selection["account"], lot=selection["lot"],
+        schema_version="2026.11.1",
+    )
+    assert state.evidence["scoped_mode"] == "native_server_selected_scope_v2"
+    assert [c["statistic_id"] for c in state.candidates] == [SID]
+    assert state.evidence["fluids"]["EF"]["status"] == "admissible"
+    assert state.evidence["fluids"]["ECS"]["status"] == "not_selected"
+    assert state.evidence["fluids"]["CET"]["status"] == "not_selected"
+    prepared, plan = _prepare_state(
+        state, account=selection["account"], lot=selection["lot"],
+    )
+    assert prepared.status == "prepared_for_explicit_admin_review"
+    assert prepared.proposed_count == 1
+    assert prepared.writes is False and prepared.activation_authorized is False
+    assert plan["proposed"]["energy_sources"] == [
+        *old_prefs["energy_sources"],
+        {"type": "water", "stat_energy_from": SID},
+    ]
+    assert plan["proposed"]["device_consumption"] == old_prefs["device_consumption"]
+    assert plan["proposed"]["device_consumption_water"] == old_prefs["device_consumption_water"]
+
+
+def test_native_scoped_builder_detects_approval_revocation_and_never_selects():
+    from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+        build_native_scoped_energy_state_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import _prepare_state
+
+    selection, recorder, lineage, audit = synthetic()
+    recorder["approved_days"][0]["approved"] = False
+    state = build_native_scoped_energy_state_88(
+        deepcopy(audit["live"]), [{
+            "selection": selection, "history_36": recorder,
+            "lineage_37": lineage, "energy_audit": audit,
+        }], account=selection["account"], lot=selection["lot"],
+        schema_version="2026.11.1",
+    )
+    assert state.candidates == ()
+    assert state.evidence["fluids"]["EF"]["status"] == "blocked"
+    preview, plan = _prepare_state(
+        state, account=selection["account"], lot=selection["lot"],
+    )
+    assert preview.status == "blocked" and plan is None
+
+
+def test_native_scoped_builder_can_preserve_absent_user_approved_days():
+    from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+        build_native_scoped_energy_state_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import _prepare_state
+
+    choice, rec, lineage, audit = _approved_missing_day_bundle()
+    state = build_native_scoped_energy_state_88(
+        deepcopy(audit["live"]), [{
+            "selection": choice, "history_36": rec,
+            "lineage_37": lineage, "energy_audit": audit,
+        }], account=choice["account"], lot=choice["lot"],
+        schema_version="2026.11.1",
+    )
+    preview, plan = _prepare_state(
+        state, account=choice["account"], lot=choice["lot"],
+    )
+    assert preview.status == "prepared_for_explicit_admin_review"
+    assert plan is not None
+    assert len(rec["daily"]) == 1
+    assert choice["accepted_missing_days"] == ["2026-03-02"]
+    assert preview.activation_authorized is False
+
+
+def test_native_scoped_builder_rejects_wrong_account_and_stale_energy():
+    from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+        build_native_scoped_energy_state_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused,
+    )
+
+    choice, rec, lineage, audit = synthetic()
+    proof = {
+        "selection": choice, "history_36": rec,
+        "lineage_37": lineage, "energy_audit": audit,
+    }
+    with pytest.raises(EnergyTransactionRefused, match="Wrong or duplicated"):
+        build_native_scoped_energy_state_88(
+            deepcopy(audit["live"]), [proof],
+            account="FOREIGN-ACCOUNT", lot=choice["lot"],
+            schema_version="2026.11.1",
+        )
+    prefs = deepcopy(audit["live"])
+    prefs["device_consumption"].append({
+        "stat_consumption": "sensor.new_third_party",
+    })
+    with pytest.raises(EnergyTransactionRefused, match="Concurrent or foreign"):
+        build_native_scoped_energy_state_88(
+            prefs, [proof], account=choice["account"],
+            lot=choice["lot"], schema_version="2026.11.1",
+        )

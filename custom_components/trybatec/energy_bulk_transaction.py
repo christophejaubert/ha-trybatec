@@ -87,7 +87,9 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
     for fluid in ("EF", "ECS", "CET"):
         row = statuses[fluid]
         status = row.get("status") if isinstance(row, dict) else None
-        if status not in ("admissible", "already_configured"):
+        if status not in ("admissible", "already_configured") and not (
+                evidence.get("scoped_mode") == "native_server_selected_scope_v2"
+                and status == "not_selected"):
             reasons.append(fluid + ":" + str(status or "unverified"))
     if reasons:
         return EnergyPreview("blocked", None, None, None, 0, tuple(reasons)), None
@@ -208,6 +210,18 @@ async def _apply_exclusive(
     receipt = await port.create_backup()
     if await port.verify_backup(receipt) is not True:
         raise EnergyTransactionRefused("Recoverable backup not verified")
+    # L6 facts and user approvals can change while a native backup is running.
+    # Recollect from the same authenticated server-side port under the lock;
+    # a matching Energy preference hash alone is NOT sufficient. Never allow
+    # the browser to supply this revalidation result.
+    fresh_state = await port.collect(actor, account=account, lot=lot)
+    fresh_preview, _ = _prepare_state(fresh_state, account, lot)
+    if (fresh_preview.status != "prepared_for_explicit_admin_review"
+            or fresh_preview.before != preview.before
+            or fresh_preview.plan_digest != preview.plan_digest):
+        raise EnergyTransactionRefused(
+            "Independent scoped L6 selection changed during native backup"
+        )
     # Backup time is a race window: always reread immediately before staging.
     if (preferences_fingerprint(await port.read_live()) != preview.before or
             preferences_fingerprint(await port.read_persisted()) != preview.before):

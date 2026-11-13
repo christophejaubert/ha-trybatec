@@ -59,6 +59,7 @@ def _native_actor(connection: websocket_api.ActiveConnection) -> Any:
     vol.Required("type"): "trybatec/energy_bulk_88/preview",
     vol.Required("entry_id"): str,
     vol.Required("lot"): str,
+    vol.Optional("selections"): list,
 })
 @websocket_api.async_response
 async def ws_energy_bulk_preview_88(
@@ -70,7 +71,7 @@ async def ws_energy_bulk_preview_88(
         coordinator = _scope(hass, msg["entry_id"], msg["lot"])
         result = await EnergyBulkAdminService88(
             hass, coordinator, lot=msg["lot"]
-        ).preview(actor)
+        ).preview(actor, selections=msg.get("selections"))
     except (EnergyTransactionRefused, EnergyRecoveryRequired, PermissionError,
             ValueError, TypeError, KeyError, OSError):
         connection.send_error(
