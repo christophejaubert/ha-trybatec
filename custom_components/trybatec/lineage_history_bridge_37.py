@@ -380,7 +380,8 @@ def prepare_physical_continuity_37(
         discovery_status = supplier_discovery.get("status", "unknown")
         if discovery_status not in (
             "complete", "incomplete", "interrupted", "error", "in_progress",
-            "never_started", "cache_invalidated", "unknown",
+            "never_started", "not_started", "running", "failed", "cancelled",
+            "queued", "cache_invalidated", "unknown",
         ):
             raise ValueError("Invalid supplier discovery status")
     contradictions = any(item["reason"] in (
