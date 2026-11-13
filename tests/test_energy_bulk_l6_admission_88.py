@@ -230,3 +230,20 @@ def test_cet_kwh_cannot_be_mislabeled_native_gas():
     assert result["status"] == "blocked"
     assert result["native_destination"] is None
     assert "thermal_kwh_has_no_verified_native_heating_category" in result["blockers"]
+
+
+def test_service_exposes_fictional_positive_diagnostic_without_authorization():
+    from custom_components.trybatec.energy_bulk_admin_service_88 import _native_l6_diagnostics
+
+    recorder, lineage, audit = synthetic_complete()
+    data = _native_l6_diagnostics({
+        "independent_contracts": {
+            "history_36": recorder, "lineage_37": lineage,
+            "energy_audit": audit,
+        },
+    }, account=ACCOUNT, lot=LOT)
+    assert data["EF"]["status"] == "eligible_in_synthetic_contract"
+    assert data["EF"]["blockers"] == []
+    assert data["EF"]["activation_authorized"] is False
+    assert data["ECS"]["status"] == "blocked"
+    assert data["CET"]["status"] == "blocked"
