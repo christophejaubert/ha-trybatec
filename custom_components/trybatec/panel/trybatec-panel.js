@@ -13,6 +13,36 @@ const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
 const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
 const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
 
+/** Dates already observed by a given physical meter, not assumed history. */
+function trybatecHistoricalBounds(account, selectedKey, coverage) {
+  const all=Array.isArray(account?.meters)?account.meters:[];
+  const meters=selectedKey?all.filter(m=>m.physical_key===selectedKey):all;
+  if (selectedKey && meters.length!==1) return {start:"",end:"",complete:false,selected:true};
+  const scanned=coverage?.status==="complete" && Array.isArray(coverage.meters);
+  const readings=meters.map(m=>{
+    const matches=scanned?coverage.meters.filter(row=>row.physical_key===m.physical_key):[];
+    const row=matches.length===1?matches[0]:null;
+    return {first:row?.first_observed_at||m.first_observed_at,
+      last:row?.last_source_observed_at||m.last_source_observed_at,
+      verified:Boolean(row)};
+  });
+  const iso=value=>typeof value==="string" && /^\d{4}-\d\d-\d\d/.test(value) &&
+    Number.isFinite(Date.parse(value))?value.slice(0,10):"";
+  const starts=readings.map(r=>iso(r.first)).filter(Boolean).sort();
+  const ends=readings.map(r=>iso(r.last)).filter(Boolean).sort();
+  return {start:starts[0]||"",end:ends[ends.length-1]||"",
+    complete:Boolean(scanned && readings.length && readings.every(r=>r.verified)),
+    selected:Boolean(selectedKey)};
+}
+
+/** Visual meter identity does not indicate a warning or a required action. */
+function trybatecFluidTag(fluid) {
+  const icon=FLUID_ICON[fluid], name=FLUID[fluid]||FLUID.unknown;
+  return '<span class="fluid-token '+safe(FLUID_CLASS[fluid]||"")+'">'+
+    (icon?'<ha-icon icon="'+safe(icon)+'" aria-hidden="true"></ha-icon>':"")+
+    '<span>'+safe(name)+'</span></span>';
+}
+
 // Safe, read-only presentation of prerequisites visible in the panel snapshot.
 // This is NOT an Energy API readiness check and must not enable bulk writes.
 function trybatecEnergySetupGuidance(account, energy) {
@@ -763,6 +793,12 @@ const style = [
   ".meter-detail-field .context-button{display:inline-flex;align-items:center;gap:6px;margin-top:9px;padding:7px 10px;font-size:12px;max-width:100%}",
   ".meter-detail-field .context-button ha-icon{--mdc-icon-size:17px}",
   ".meter-history-context{margin:0 0 15px;padding:12px;border:1px solid var(--trybatec-section-border);border-radius:10px}",
+  ".fluid-token{display:inline-flex;align-items:center;gap:5px;color:var(--fluid-fg,var(--primary-text-color));font-weight:650;white-space:normal}",
+  ".fluid-token ha-icon{--mdc-icon-size:19px;flex-shrink:0}",
+  ".meter-history-context.fluid-surface{border-top:4px solid var(--fluid-fg,var(--trybatec-section-border));background:var(--fluid-bg,var(--card-background-color))}",
+  ".meter-row .status-indicator{font-size:12px;margin-top:5px;display:inline-flex}",
+  ".history-date-help{margin-top:10px}.history-date-help ul{margin:6px 0;padding-inline-start:20px}",
+  ".history-date-help li{margin:5px 0;line-height:1.5}",
   "button[data-tariff-delete]{color:var(--error-color,#AF263A);background:transparent;border-color:currentColor}",
   "@media(max-width:740px){.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:0;border-radius:10px;background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border:1px solid var(--trybatec-neutral-border)}",
   ".nav-wrap{padding-inline-end:34px}.nav{scrollbar-width:none;scroll-behavior:smooth}.nav::-webkit-scrollbar{display:none}",
@@ -2091,6 +2127,14 @@ class TrybatecPanel extends HTMLElement {
   }
   async _fetchHistory() {
     if (this._historyBusy || !this._current) return;
+    if (!/^\d{4}-\d\d-\d\d$/.test(this._historyStart) ||
+        !/^\d{4}-\d\d-\d\d$/.test(this._historyEnd) ||
+        this._historyStart>this._historyEnd) {
+      this._historyError=this._t(
+        "Indiquez une période valide : aucune borne historique inconnue n’est présélectionnée.",
+        "Enter a valid period: unknown historical bounds are never preselected.");
+      this._render();return;
+    }
     const entryId=this._current.entry_id;
     this._historyBusy=true;
     this._historyError="";this._historyMessage="";this._historyPreview=null;
@@ -2476,7 +2520,48 @@ class TrybatecPanel extends HTMLElement {
           safe(this._number(m.conflicts))+'</td></tr>').join("")+
         '</tbody></table></div></details>':"")+'</section>';
   }
+  _syncHistoryDates() {
+    const account=this._current;
+    if (!account) return;
+    const scope=String(account.entry_id)+":"+String(this._historyContextKey||"all");
+    const bounds=trybatecHistoricalBounds(account,this._historyContextKey,
+      this._tariffCoverage?.get?.(account.entry_id));
+    this._historyDateScope=scope;
+    if (!this._historyDatesEdited?.start) this._historyStart=bounds.start;
+    if (!this._historyDatesEdited?.end) this._historyEnd=bounds.end;
+    this._historyDateBounds=bounds;
+  }
+  _historyDatesHelp() {
+    const t=(fr,en)=>this._t(fr,en), bounds=this._historyDateBounds||{};
+    const scope=t(bounds.selected?"du compteur physique sélectionné":"du compte Trybatec",
+      bounds.selected?"of the selected physical meter":"of the Trybatec account");
+    const evidence=bounds.complete?t("couverture historique vérifiée","verified historical coverage"):
+      t("couverture partielle ou non vérifiée","partial or unverified coverage");
+    const reason=(field)=>{
+      const date=field==="start"?this._historyStart:this._historyEnd;
+      const edited=this._historyDatesEdited?.[field]===true;
+      if (!date) return safe(t("Borne inconnue : sélectionnez une date manuellement.",
+        "Unknown bound: select a date manually."));
+      if (field==="end" && this._historyEndExtended)
+        return safe(date)+" — "+safe(t("extension explicite jusqu’à aujourd’hui (hors bornes historiques)",
+          "explicit extension through today (outside historical bounds)"));
+      if (edited) return safe(date)+" — "+safe(t("Période personnalisée (choix conservé)",
+        "Custom period (selection preserved)"));
+      return safe(date)+" — "+safe(t(
+        field==="start"?"première observation connue ":"dernière observation connue ",
+        field==="start"?"earliest known observation ":"latest known observation "))+
+        safe(scope)+" ("+safe(evidence)+")";
+    };
+    return '<div class="history-date-help muted" role="status">'+
+      safe(t("Les dates de début et de fin de période ont été préremplies comme suit :",
+        "The start and end dates were prefilled as follows:"))+
+      '<ul><li>'+safe(t("Début de période :","Start date:"))+" "+reason("start")+'</li>'+
+      '<li>'+safe(t("Fin de période :","End date:"))+" "+reason("end")+'</li></ul>'+
+      safe(t("Vous pouvez modifier ces dates pour analyser une autre période.",
+        "You can change these dates to analyze a different period."))+'</div>';
+  }
   _history() {
+    this._syncHistoryDates?.();
     const meter=this._meters().find(m=>m.physical_key===this._historyContextKey);
     if (this._historyContextKey && !meter) {
       return this._heading(this._t("Historique & lissage","History & smoothing"),
@@ -2518,6 +2603,11 @@ class TrybatecPanel extends HTMLElement {
       '<div class="form-grid">'+
       '<div><label for="hist-start">Depuis le</label><input id="hist-start" type="date" data-history-field="start_date" value="'+safe(this._historyStart)+'"></div>'+
       '<div><label for="hist-end">Jusqu’au</label><input id="hist-end" type="date" data-history-field="end_date" value="'+safe(this._historyEnd)+'"></div></div>'+
+      (this._historyDatesHelp?.()||"")+
+      '<div class="actions"><button class="secondary" type="button" data-history-today>'+safe(this._t(
+        "Étendre jusqu’à aujourd’hui","Extend through today"))+'</button>'+
+      '<button class="secondary" type="button" data-history-reset-dates>'+safe(this._t(
+        "Revenir aux bornes connues","Restore known bounds"))+'</button></div>'+
       '<div class="actions"><button type="button" class="primary" data-history-preview '+(this._historyBusy?"disabled":"")+
       '>Analyser les relevés</button>'+
       (this._historyBusy&&this._historyJobId?
@@ -2855,6 +2945,7 @@ class TrybatecPanel extends HTMLElement {
     } finally {this._versionBusy=false;this._render();}
   }
   _recorderVersionWorkflow() {
+    this._syncHistoryDates?.();
     const ledger=this._current.ledger||{series:[],status:"missing",pending:0};
     const opts=(ledger.series||[]).flatMap(row=>(row.versions||[]).filter(v=>
       ["verified","archived"].includes(v.state)).map(v=>
@@ -2881,6 +2972,8 @@ class TrybatecPanel extends HTMLElement {
       '<div><label for="version-end">Fin</label><input id="version-end" data-version-field="end" type="date" value="'+safe(this._historyEnd)+'"></div>'+
 
       '</div><p class="muted">'+safe(this._t(
+        "Le plan Recorder couvre le compte entier pour la période saisie ; vérifiez séparément les dates et le périmètre avant tout import.",
+        "The Recorder plan covers the full account for these dates; separately verify dates and scope before import."))+'</p><p class="muted">'+safe(this._t(
         "Eau froide, eau chaude et chauffage sont inclus dans l’aperçu sous réserve de contrôles d’unités et d’historique. Aucun import n’est automatique.",
         "Cold water, hot water and heating are included in previews subject to unit and history checks. No automatic import."
       ))+'</p><div class="actions"><button type="button" class="secondary" data-version-preview '+(this._versionBusy?"disabled":"")+'>1. Prévisualiser Recorder</button></div>'+
