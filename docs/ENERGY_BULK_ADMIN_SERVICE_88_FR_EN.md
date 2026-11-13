@@ -191,3 +191,18 @@ Two HA WebSocket routes are registered after the admin panel: `trybatec/energy_b
 Frontend #156 owns only presentation of `energy_bulk_admin_actions_88_v1`: per-fluid states and blockers, independent `l6_diagnostics` (all `activation_authorized=false`), native prerequisites, immutable preview token fields, journal/recovery status, disabled confirmation and setup fallback. Do not expose backup IDs, internal journal preference snapshots or any browser-controlled proof flag. No automatic recovery endpoint is supplied.
 
 Isolated HA route tests, synthetic positive/negative cross-contract cases and existing L7 transaction regressions must pass on the exact SHA. Live fencing, actual restore, category semantics, external-writer concurrency, native acceptance, and CI security remain separate **blocking** requirements. Historical Gitleaks failure should be reconciled by CI/CD (#124), not bypassed. No merge, release, deployment or real HA mutation is authorized.
+
+
+## FR — Extension du parcours admin #88 : sélecteurs et reprise (13 novembre 2026)
+
+La prévisualisation enregistrée `trybatec/energy_bulk_88/preview` accepte désormais `selections` facultatif (tableau de maximum trois éléments, un par EF/ECS/CET) avec exactement `fluid`, `start`, `end`, `statistic_id`, `generation_ids`. Le serveur compare ces choix aux identifiants présents dans le journal B15 du lot : **il ne les considère pas comme des attestations de source, de période ni de décision utilisateur**. Une version ou une génération étrangère est refusée. L'absence de sélection conserve l'ancien aperçu global en lecture seule.
+
+La réponse `energy_bulk_admin_actions_88_v1` possède deux objets additionnels :
+- `native_scoped_observations` : synthèse de lecture effective de la configuration, du journal B15, des générations actives et archivées observées et des métadonnées Recorder, avec raisons d'inadmissibilité si les preuves indépendantes manquent. Pas d'identifiant de série physique divulgué dans la liste des générations.
+- `transaction.recovery_inspection` : classification du journal et des empreintes Energy mémoire/disque, `requires_administrator_review`, `automatic_retry_allowed=false`, `automatic_rollback_allowed=false`. Aucune référence de sauvegarde privée ou copie de préférences n'est renvoyée.
+
+L'interface #156 peut afficher les résultats, guider une sélection bornée et proposer l'assistant de configuration ; **elle ne peut ni activer la route de confirmation ni déclencher une réparation automatique**. Référence technique : [`ENERGY_BULK_SCOPED_L6_L7_20261113_FR_EN.md`](ENERGY_BULK_SCOPED_L6_L7_20261113_FR_EN.md).
+
+## EN — Native selected-scope preview and read-only L7 recovery
+
+Admin preview accepts optional bounded selection intent `[{fluid,start,end,statistic_id,generation_ids}]` and validates each ID against the authenticated native ledger; a browser choice never issues source/approval proof. Its response now includes `native_scoped_observations` and `transaction.recovery_inspection`. These describe native Recorder/physical/energy facts, pending/terminal journal state, recoverability and mandatory administrator review, without showing private backup receipts or snapshots. Automatic retry/rollback and the L7 confirmation write route remain disabled until independently proven #36/#37 native attestation, atomic exclusion of other Energy writers and restore acceptance.
