@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from hashlib import sha256
 import json
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from .lineage_selected_scope_37 import selected_snapshot_37
@@ -85,9 +85,58 @@ def generation_id_37(account: str, lot: str, fluid: str, serial: str) -> str:
     ).hexdigest()[:32]
 
 
+def _original_supplier_points(
+    payloads: Sequence[Mapping[str, Any]] | None,
+    keys: set[tuple[str, str, str]],
+) -> tuple[dict[tuple[str, str, str], set[tuple[str, Decimal]]], set[tuple[str, str, str]]]:
+    """Read supplier's ORIGINAL index pairs, separately from reviewed indexes.
+
+    This takes already acquired server-side /indexes responses. It never
+    fetches supplier data or mutates any source. A corrected review value
+    cannot masquerade as an original provider index.
+    """
+    if not isinstance(payloads, (list, tuple)) or len(payloads) > 500:
+        return {}, set(keys)
+    result: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    conflicts = set()
+    observations = 0
+    for payload in payloads:
+        if not isinstance(payload, Mapping):
+            raise ValueError("Malformed original supplier payload")
+        lines = payload.get("lines")
+        if not isinstance(lines, list) or len(lines) > 20000:
+            raise ValueError("Unbounded original supplier index response")
+        for line in lines:
+            if not isinstance(line, Mapping):
+                raise ValueError("Invalid original supplier line")
+            key = (line.get("lot"), line.get("fluide"), line.get("compteur"))
+            if key not in keys:
+                continue
+            indexes = line.get("indexes")
+            if not isinstance(indexes, list):
+                conflicts.add(key)
+                continue
+            store = result.setdefault(key, {})
+            for value in indexes:
+                observations += 1
+                if observations > 120000 or not isinstance(value, Mapping):
+                    raise ValueError("Unbounded or invalid original supplier indexes")
+                at = _timestamp(value.get("date")).astimezone(
+                    ZoneInfo("UTC")
+                ).isoformat()
+                index = _decimal(value.get("value"))
+                if at in store and store[at] != index:
+                    conflicts.add(key)
+                store[at] = index
+    return {
+        key: {(at, idx) for at, idx in rows.items()}
+        for key, rows in result.items()
+    }, conflicts
+
+
 def _measured_from_raw(
     physical: Mapping[str, Any], source_hash: str,
-    first: date, last: date,
+    first: date, last: date, original: set[tuple[str, Decimal]],
 ) -> tuple[dict[str, Decimal], dict[str, str], list[str], set[str]]:
     """Recalculate eligible deltas exclusively within one physical serial.
 
@@ -124,6 +173,11 @@ def _measured_from_raw(
                         # may still qualify individual days in this gap.
                         uncertain_days.add(day.isoformat())
                     else:
+                        before = (old_at.astimezone(ZoneInfo("UTC")).isoformat(), old)
+                        after = (at.astimezone(ZoneInfo("UTC")).isoformat(), amount)
+                        if before not in original or after not in original:
+                            problems.append("measured_day_without_supplier_raw_pair")
+                            continue
                         delta = amount - old
                         key = day.isoformat()
                         amounts[key] = amounts.get(key, Decimal(0)) + delta
@@ -142,6 +196,7 @@ def prepare_native_scoped_lineage_37(
     selection: Mapping[str, Any],
     *,
     source_history: Mapping[str, Any],
+    original_supplier_payloads: Sequence[Mapping[str, Any]] | None,
     preview_37: Mapping[str, Any],
     native_recorder_36: Mapping[str, Any] | None,
     verify_user_selection: Callable[[Mapping[str, Any]], bool] | None = None,
@@ -215,6 +270,11 @@ def prepare_native_scoped_lineage_37(
     hashes = {}
     uncertain = {}
     source_hashes = {}
+    original, original_conflicts = _original_supplier_points(
+        original_supplier_payloads, {(lot, fluid, s) for s in serials}
+    )
+    if original_conflicts:
+        reasons.add("supplier_raw_index_response_conflicted_or_unavailable")
     for serial, gen_id in zip(serials, ids):
         key = (lot, fluid, serial)
         physical, observed = raw.get(key), inventory.get(key)
@@ -235,7 +295,7 @@ def prepare_native_scoped_lineage_37(
             reasons.add("selected_physical_source_has_conflicts")
         source_hashes[gen_id] = fingerprint
         computed, pair_hashes, warnings, uncertain_days = _measured_from_raw(
-            physical, fingerprint, first, last,
+            physical, fingerprint, first, last, original.get(key, set()),
         )
         reasons.update(warnings)
         expected[gen_id] = computed
@@ -303,6 +363,8 @@ def prepare_native_scoped_lineage_37(
         if not isinstance(contributors, list) or not contributors:
             reasons.add("selected_daily_contributors_missing")
             continue
+        if len(contributors) > 1:
+            reasons.add("concurrent_physical_generations_not_apportioned")
         used = set()
         members = []
         total = Decimal(0)
