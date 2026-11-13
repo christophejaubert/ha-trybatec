@@ -98,6 +98,10 @@ def _meter_date_bounds(
             continue
         result.append({
             "physical_key": meter_key(lot, fluid, serial),
+            "fluid": fluid,
+            "observed_years": sorted({
+                stamp.astimezone(ZoneInfo(TIMEZONE)).year for stamp in dates
+            }),
             "first_observed_at": min(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
             "last_source_observed_at": max(dates).astimezone(ZoneInfo(TIMEZONE)).isoformat(),
             "last_source_index_raw": meter["indexes"][max(dates)],
