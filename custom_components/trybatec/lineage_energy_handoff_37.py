@@ -48,6 +48,51 @@ def _reference_catalog(
     return result
 
 
+def _window_catalog(
+    catalog: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]] | None,
+    scopes: set[tuple[str, str]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Check bounded observed Recorder windows, never infer readback authority."""
+    if catalog is None:
+        return {}
+    if not isinstance(catalog, Mapping) or len(catalog) > MAX_GROUPS:
+        raise ValueError("Invalid observed Recorder window catalog")
+    output = {}
+    count = 0
+    for scope, rows in catalog.items():
+        if (not isinstance(scope, tuple) or scope not in scopes
+                or not isinstance(rows, (tuple, list))):
+            raise ValueError("Foreign Recorder window scope")
+        identities = set()
+        checked = []
+        for item in rows:
+            count += 1
+            if count > MAX_REFERENCES or not isinstance(item, Mapping):
+                raise ValueError("Invalid bounded Recorder window")
+            stat = item.get("statistic_id")
+            start, end = item.get("start"), item.get("end")
+            unit, owner = item.get("unit"), item.get("owner")
+            if (not isinstance(stat, str) or not 0 < len(stat) <= 512
+                    or stat in identities or owner not in ("trybatec", "external", "unknown")
+                    or unit not in ("m³", "kWh")
+                    or not isinstance(start, str) or not isinstance(end, str)):
+                raise ValueError("Invalid Recorder window metadata")
+            try:
+                first = date.fromisoformat(start)
+                last = date.fromisoformat(end)
+            except ValueError as exc:
+                raise ValueError("Invalid Recorder window date") from exc
+            if first.isoformat() != start or last.isoformat() != end or first > last:
+                raise ValueError("Invalid or reversed Recorder window")
+            identities.add(stat)
+            checked.append({
+                "statistic_id": stat, "start": start, "end": end,
+                "unit": unit, "owner": owner,
+            })
+        output[scope] = sorted(checked, key=lambda item: item["statistic_id"])
+    return output
+
+
 def _number(value: Any) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, str):
         raise ValueError("Consumption evidence requires exact decimal strings")
@@ -66,6 +111,9 @@ def prepare_energy_lineage_handoff_37(
     account_scope_verified: bool = False,
     known_statistic_versions: Mapping[tuple[str, str], Sequence[str]] | None = None,
     selected_energy_sources: Mapping[tuple[str, str], Sequence[str]] | None = None,
+    known_statistic_windows: Mapping[
+        tuple[str, str], Sequence[Mapping[str, Any]]
+    ] | None = None,
 ) -> dict[str, Any]:
     """Describe retained physical contributions; never assert #88 admission.
 
@@ -103,6 +151,7 @@ def prepare_energy_lineage_handoff_37(
     scopes = {key[:2] for key in identities}
     versions = _reference_catalog(known_statistic_versions, scopes)
     selected = _reference_catalog(selected_energy_sources, scopes)
+    windows = _window_catalog(known_statistic_windows, scopes)
     catalog = preview.get("inventory_reconciliation")
     if catalog is not None and (
         not isinstance(catalog, Mapping)
@@ -247,6 +296,25 @@ def prepare_energy_lineage_handoff_37(
             reference_blockers.append("energy_selected_references_not_collected")
         if len(selected_ids) > 1:
             reference_blockers.append("competing_energy_sources_selected")
+        window_rows = windows.get((lot, fluid), [])
+        by_window_id = {item["statistic_id"]: item for item in window_rows}
+        if (lot, fluid) not in windows:
+            reference_blockers.append("recorder_window_catalog_not_collected")
+        elif any(item not in by_window_id for item in known_versions):
+            reference_blockers.append("statistic_window_metadata_incomplete")
+        if any(item["unit"] != ("kWh" if fluid == "CET" else "m³")
+               for item in window_rows):
+            reference_blockers.append("recorder_window_unit_incompatible")
+        if any(stat not in by_window_id for stat in selected_ids):
+            reference_blockers.append("selected_energy_window_not_observed")
+        pairs = []
+        for i, first in enumerate(window_rows):
+            for second in window_rows[i + 1:]:
+                if (first["start"] <= second["end"]
+                        and second["start"] <= first["end"]):
+                    pairs.append((first["statistic_id"], second["statistic_id"]))
+        if pairs:
+            reference_blockers.append("overlapping_recorder_versions_require_exclusivity_review")
         if known_versions and any(item not in known_versions for item in selected_ids):
             reference_blockers.append("selected_energy_source_outside_observed_versions")
         if any(item in reused_versions for item in known_versions):
@@ -328,6 +396,11 @@ def prepare_energy_lineage_handoff_37(
             "selected_energy_catalog_observed": (lot, fluid) in selected,
             "observed_competing_statistic_ids": known_versions,
             "observed_selected_energy_statistic_ids": selected_ids,
+            "observed_recorder_statistic_windows": window_rows,
+            "observed_overlapping_statistic_pairs": [
+                [a, b] for a, b in sorted(pairs)
+            ],
+            "recorder_window_catalog_observed": (lot, fluid) in windows,
             "blockers": sorted(set(all_blockers + (
                 ["historical_series_incomplete"] if blocked else []
             ))),
