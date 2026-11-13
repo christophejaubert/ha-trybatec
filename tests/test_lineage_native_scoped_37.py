@@ -33,6 +33,7 @@ SID = "trybatec:fictional_v03"
 T1 = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 T2 = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
 T3 = datetime(2026, 1, 3, 12, tzinfo=timezone.utc)
+T4 = datetime(2026, 1, 4, 12, tzinfo=timezone.utc)
 SRC = {"OLD": "a" * 64, "NEW": "b" * 64}
 REV = "c" * 64
 
@@ -71,7 +72,7 @@ def fixtures(*, estimate=False, gap=False):
     raw = {"__physical_meters__": {
         (LOT, FLUID, "OLD"): source("OLD", [(T1, 10), (T2, 11)], retired=True),
         (LOT, FLUID, "NEW"): source("NEW", [
-            (T2, 50), (T3, 52)] if not estimate else [(T2, 50), (T3, 50)],
+            (T2, 50), (T3, 52)] if not estimate else [(T2, 50), (T4, 51)],
         ),
     }}
     rows = [measured("OLD", "2026-01-02", "1")]
@@ -230,6 +231,19 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertEqual(p["daily"][1]["contributors"][0]["provenance"],
                          "linear_user_approved")
         self.assertFalse(p["generations"][1]["supplier_observation_attested"])
+
+    def test_estimate_over_a_fully_observed_index_pair_is_contradiction(self):
+        bundle = fixtures(estimate=True)
+        bundle[1]["__physical_meters__"][
+            (LOT, FLUID, "NEW")
+        ]["reviewed_readings"][1] = (T3, 50)
+        bundle[4][0]["lines"][1]["indexes"][1] = {
+            "date": T3.isoformat(), "value": 50,
+        }
+        evidence = evaluate(bundle)
+        self.assertFalse(evidence["selected_scope_reconciled"])
+        self.assertIn("estimated_day_overlaps_unaltered_raw_measurement",
+                      evidence["blockers"])
 
     def test_missing_36_revision_must_refuse(self):
         bundle = fixtures(estimate=True)
