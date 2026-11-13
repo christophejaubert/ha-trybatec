@@ -15,6 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PANEL = ROOT / "custom_components/trybatec/panel/trybatec-panel.js"
 EN = ROOT / "custom_components/trybatec/translations/en.json"
+FR = ROOT / "custom_components/trybatec/translations/fr.json"
 STRINGS = ROOT / "custom_components/trybatec/strings.json"
 GLOBAL_COVERAGE = ROOT / "custom_components/trybatec/panel_tariff_years.py"
 
@@ -33,6 +34,7 @@ def test_global_scan_and_copy_remain_read_only():
     for text in (
         source,
         EN.read_text(encoding="utf-8"),
+        FR.read_text(encoding="utf-8"),
         STRINGS.read_text(encoding="utf-8"),
     ):
         for unwanted in (
@@ -43,6 +45,7 @@ def test_global_scan_and_copy_remain_read_only():
             "valeur supposée",
             "No fictitious",
             "never fabricates measured indexes",
+            "jamais une création d'index mesurés",
         ):
             assert unwanted.casefold() not in text.casefold(), unwanted
     # Provenance and estimation safeguards remain meaningful.
@@ -107,8 +110,11 @@ html=panel._metersPage.call(fixture);
 assert.match(html,/1 compteur\(s\) avec relevés datés sur 2/);
 fixture._tariffCoverage.set(account.entry_id,{status:"loading"});
 fixture._tariffJobId="SYNTHETIC-JOB";
+fixture._tariffJobStatus={progress:{periods_verified:8,http_requests:12}};
 html=panel._metersPage.call(fixture);
 assert.match(html,/Recherche globale en cours/);
+assert.match(html,/Périodes vérifiées : 8/);
+assert.match(html,/Requêtes : 12/);
 assert.match(html,/data-tariff-years-cancel/);
 let focuses=0,scrolls=0,selectedFocuses=0;
 const detail={focus:()=>{focuses++},scrollIntoView:()=>{scrolls++}};
