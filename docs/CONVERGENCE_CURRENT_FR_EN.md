@@ -186,3 +186,17 @@ Never subtract readings across replaced meters; aggregate only per-generation no
 
 UI C1–C11 functionality and synthetic browser/accessibility checks must be verified on the final integrated SHA. No historical CI green state transfers automatically. This document records integration and outstanding gates; MOE #45 alone coordinates separate approvals for merge, release and HA installation. #164 remains **draft**.
 <!-- END-INTEGRATED-NATIVE-SCOPED-164-20261113 -->
+
+
+<!-- INDEPENDENT-BETA-167-20261113 -->
+### 🤖 Recette adversariale indépendante #167 / Independent adversarial acceptance
+
+**FR.** La PR de recette [#167](https://github.com/christophejaubert/ha-trybatec/pull/167) a avancé au SHA source \`d79ecaad70d7b1cae9109090eae0eba96aa23c0b\`. Après comparaison des arbres, seuls trois **nouveaux fichiers de test**, absents de #164 et sans collision de fichiers partagés, sont repris à l'identique par le commit de convergence \`f1cc5ccbde42ecd6bd5292a15405632efe3ea02a\` :
+- \`tests/test_independent_beta_business_36_37.py\` : générations physiques distinctes, index intra-compteur, décisions d'absence, collision/quarantaine et reprise sûre ;
+- \`tests/test_independent_beta_scoped_l6.py\` : périmètre sélectionné, admission synthétique positive et contre-exemples indépendants, refus de classement CET/chauffage en gaz ;
+- \`tests/test_independent_beta_transaction_l7.py\` : moteur réel L7 avec port d'essai fictif, séquencement administrateur/sauvegarde/journal, conflits, écriture partielle, reprise, rollback conditionnel et absence de double insertion.
+
+Ces bancs utilisent du code applicatif intégré, avec entrées et adaptateurs **synthétiques**. Aucun test ne vaut preuve d'activation des écritures HA. Les 10 statuts obligatoires, l'intégration Recorder, la persistance, la sécurité, le navigateur FR/EN et l'accessibilité doivent être vérifiés **sur le SHA final après ce complément documentaire**, sans héritage de CI de \`f1cc5ccb…\` ni de la branche source. Le passage hors brouillon reste conditionné aux garanties natif #36 v2, admissibilité native L6 et transaction L7 effectivement qualifiées ; aucun déverrouillage automatique.
+
+**EN.** Owner #167 advanced to \`d79ecaad70d7b1cae9109090eae0eba96aa23c0b\`. Three previously absent independent test files were selectively imported into the existing #164 candidate at \`f1cc5ccbde42ecd6bd5292a15405632efe3ea02a\`, with no shared code or historical commit replay: business decisions and physical generations (#36/#37), positive and adversarial scoped L6, and L7 transaction/rollback failure injection. Tests use actual integrated application functions, but all data and transactional ports are synthetic. They do not unlock real HA writes. **Only CI executed at the eventual final SHA is authoritative.** Keep #164 draft until authenticated #36 v2 native proof, independently qualifying #37/L6 and safe native L7 can be demonstrated.
+<!-- END-INDEPENDENT-BETA-167-20261113 -->
