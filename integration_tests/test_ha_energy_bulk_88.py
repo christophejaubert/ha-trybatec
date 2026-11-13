@@ -2,6 +2,7 @@
 
 These tests never access Energy, Recorder, a backup or a real installation.
 """
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -53,8 +54,18 @@ async def test_native_confirmation_route_is_unconditionally_blocked(monkeypatch)
         user=SimpleNamespace(id="synthetic-admin", is_admin=True),
         send_error=Mock(), send_result=Mock(),
     )
-    await api.ws_energy_bulk_confirm_88(
-        SimpleNamespace(data={}), client, {
+    tasks = []
+
+    def schedule(coro, _name, **_kwargs):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    fake_hass = SimpleNamespace(
+        data={}, async_create_background_task=schedule,
+    )
+    api.ws_energy_bulk_confirm_88(
+        fake_hass, client, {
             "id": 88,
             "type": "trybatec/energy_bulk_88/confirm",
             "entry_id": "synthetic-entry",
@@ -64,6 +75,7 @@ async def test_native_confirmation_route_is_unconditionally_blocked(monkeypatch)
             "confirm": True,
         },
     )
+    await asyncio.gather(*tasks)
     assert client.send_error.call_count == 1
     assert client.send_error.call_args.args[1] == "energy_bulk_not_qualified"
     client.send_result.assert_not_called()
