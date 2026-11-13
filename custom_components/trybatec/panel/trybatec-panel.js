@@ -1066,7 +1066,7 @@ class TrybatecPanel extends HTMLElement {
       } else {
         this._historyContextKey=null;this._tab="meters";
       }
-      this._render();if(this._tab==="meters")this._revealSelectedMeterDetail();return;
+      this._render();if(this._tab==="meters")this._revealSelectedMeterDetail?.();return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
     if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
@@ -1075,7 +1075,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.meter !== undefined) {
       this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
-      this._energyHandoffPreview=null;this._render();this._revealSelectedMeterDetail();return;
+      this._energyHandoffPreview=null;this._render();this._revealSelectedMeterDetail?.();return;
     }
     if (btn.dataset.account !== undefined) {
       this._account=Number(btn.dataset.account);this._meter=0;this._historyContextKey=null;this._settingsInput=null;this._durationInput=null;
@@ -1098,7 +1098,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffReset !== undefined) {
       const saved=this._existingTariff();
