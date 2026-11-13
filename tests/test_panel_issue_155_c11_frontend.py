@@ -167,7 +167,7 @@ const fake={
 };
 let calls=[],attached=0;
 fake._watchHistoryDiscovery=()=>{attached++};
-fake._hass={callWS:async req=>{
+fake._hass={user:{is_admin:true},callWS:async req=>{
   calls.push(req);
   assert.equal(req.type,"trybatec/panel_history_discovery_status");
   assert.equal(req.entry_id,account.entry_id);
