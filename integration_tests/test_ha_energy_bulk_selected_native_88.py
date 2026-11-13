@@ -409,3 +409,47 @@ async def test_scoped_v2_reader_scope_mismatch_refuses_even_if_fenced(monkeypatc
         await selected._assert_native_scoped_v2_contract_88(
             object(), "synthetic-config", selection, witness(),
         )
+
+
+def test_real_core_energy_schema_produces_read_only_water_source():
+    """Use the actual HA Energy parser, not a mocked acceptance flag."""
+    candidate = {"type": "water", "stat_energy_from": SID}
+    plan = {
+        "previous": {"energy_sources": []},
+        "proposed": {"energy_sources": [deepcopy(candidate)]},
+        "actions": [{
+            "fluid": "EF", "statistic_id": SID,
+            "status": "proposed_addition",
+        }],
+    }
+    parsed = admin._native_source_proposals_88(
+        SimpleNamespace(status="prepared_for_explicit_admin_review"), plan,
+    )
+    assert parsed == {
+        "status": "native_schema_validated_read_only",
+        "sources": [{
+            "fluid": "EF", "statistic_id": SID, "unit": "m³",
+            "energy_source_type": "water",
+        }],
+        "writes": False, "activation_authorized": False,
+    }
+
+
+def test_heating_kwh_is_not_mislabeled_as_gas_by_native_proposal():
+    """CET must retain its kWh meaning until a genuine HA category is proven."""
+    plan = {
+        "previous": {"energy_sources": []},
+        "proposed": {"energy_sources": [
+            {"type": "gas", "stat_energy_from": SID},
+        ]},
+        "actions": [{
+            "fluid": "CET", "statistic_id": SID,
+            "status": "proposed_addition",
+        }],
+    }
+    parsed = admin._native_source_proposals_88(
+        SimpleNamespace(status="prepared_for_explicit_admin_review"), plan,
+    )
+    assert parsed["status"] == "native_schema_not_verified"
+    assert parsed["sources"] == []
+    assert parsed["writes"] is False
