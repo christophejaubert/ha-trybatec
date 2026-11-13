@@ -236,3 +236,37 @@ def test_browser_choices_cannot_forge_native_evidence(monkeypatch, selection):
         asyncio.run(native.async_collect_native_scopes_88(
             hass, coordinator, actor=actor, lot=LOT, selections=[selection],
         ))
+
+
+def test_other_lot_reusing_selected_recorder_id_blocks_native_claim(monkeypatch):
+    another = ledger()
+    another["series"]["trybatec:other_lot"] = {
+        "scope": {
+            "lot": "DIFFERENT-LOT", "fluid": "EF",
+            "kind": "consolidated", "serial": None,
+        },
+        "unit": "m³",
+        "versions": [{
+            "number": 1, "statistic_id": SID,
+            "state": "verified", "snapshot_hash": "a" * 64,
+            "source_fingerprint": "b" * 64, "rows": 12,
+        }],
+    }
+    hass, coordinator, actor = setup(monkeypatch, ledger_data=another)
+    report = collect(hass, coordinator, actor)
+    assert "statistic_id_reused_across_account_lots" in report["fluids"]["EF"]["reasons"]
+    assert report["activation_authorized"] is False
+
+
+def test_quarantined_attempt_is_visible_but_never_selected(monkeypatch):
+    source = ledger()
+    source["series"]["trybatec:logical_synthetic_ef"]["versions"].append({
+        "number": 2, "statistic_id": "trybatec:synthetic_quarantined_attempt",
+        "state": "quarantined", "snapshot_hash": "e" * 64,
+        "source_fingerprint": "f" * 64, "rows": 12,
+    })
+    hass, coordinator, actor = setup(monkeypatch, ledger_data=source)
+    observed = collect(hass, coordinator, actor)
+    assert observed["fluids"]["EF"]["quarantined_attempts"] == 1
+    assert observed["fluids"]["EF"]["selected_statistic_id"] == SID
+    assert observed["activation_authorized"] is False
