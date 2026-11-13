@@ -732,6 +732,35 @@ async def async_native_attempt_proof_36(
         if status == "enqueue_intent":
             _append_event(journal, statistic_id, "verified")
             await _persist(hass, entry_id, journal)
+            states[statistic_id] = "verified"
+        scoped_attempts = [
+            entry for entry in journal["attempts"]
+            if entry["logical_id"] == record["logical_id"]
+        ]
+        legacy_scoped = set()
+        legacy = await b15_store(hass, entry_id).async_load()
+        if legacy is not None:
+            if (not isinstance(legacy, dict)
+                    or legacy.get("schema") != 1
+                    or not isinstance(legacy.get("series"), dict)):
+                raise ValueError("Legacy B15 registry is unavailable for competing-version audit")
+            old = legacy["series"].get(record["logical_id"])
+            if old is not None:
+                if not isinstance(old, dict) or not isinstance(old.get("versions"), list):
+                    raise ValueError("Legacy version inventory is corrupted")
+                legacy_scoped = {
+                    v["statistic_id"] for v in old["versions"]
+                    if isinstance(v, dict) and isinstance(v.get("statistic_id"), str)
+                }
+        all_scoped = sorted(
+            (legacy_scoped | {entry["statistic_id"] for entry in scoped_attempts})
+            - {statistic_id}
+        )
+        uncertain_scoped = sorted(
+            entry["statistic_id"] for entry in scoped_attempts
+            if entry["statistic_id"] != statistic_id
+            and states[entry["statistic_id"]] in ("reserved", "enqueue_intent", "quarantined")
+        )
         return {
             "schema": _PROOF_SCHEMA,
             "mode": "native_scoped_readback_not_global_fencing",
@@ -753,6 +782,10 @@ async def async_native_attempt_proof_36(
             "daily_approval_refs": deepcopy(record["daily"]),
             "day_approval_fingerprint": record["daily_hash"],
             "native_decision_store_crosscheck_verified": True,
+            "other_known_same_logical_statistic_ids": all_scoped,
+            "quarantined_or_uncertain_attempt_ids": uncertain_scoped,
+            "legacy_version_inventory_checked": True,
+            "no_double_counting_across_energy_sources_attested": False,
             "journal_disk_verified": True,
             "scoped_recorder_persistence_verified": True,
             "global_history_exhaustiveness_claimed": False,
