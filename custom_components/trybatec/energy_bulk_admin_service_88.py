@@ -29,7 +29,8 @@ _HISTORY_SCHEMA = "history_36_recorder_handoff_v1"
 _LINEAGE_SCHEMA = "lineage_37_energy_handoff_v1"
 
 
-def _blockers(evidence: Any) -> tuple[str, ...]:
+def _blockers(evidence: Any, *, account: str | None = None,
+              lot: str | None = None) -> tuple[str, ...]:
     """Keep v1 fail-closed; v2 uses only explicitly selected boundaries.
 
     The v2 branch never accepts the obsolete impossible all-account proof.
@@ -52,6 +53,10 @@ def _blockers(evidence: Any) -> tuple[str, ...]:
             if not isinstance(choice, dict):
                 problems.add("l6_native_selection_missing")
                 continue
+            if (account is None or lot is None
+                    or choice.get("account") != account
+                    or choice.get("lot") != lot):
+                problems.add("l6_selected_scope_not_bound_to_native_account")
             fluid = choice.get("fluid")
             if fluid not in _FLUIDS or fluid in seen:
                 problems.add("l6_selection_fluid_duplicate_or_unknown")
@@ -229,7 +234,9 @@ class EnergyBulkAdminService88:
         await self._port.assert_admin(actor)
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
         preview, _ = _prepare_state(state, self._account, self._lot)
-        independent = _blockers(state.evidence)
+        independent = _blockers(
+            state.evidence, account=self._account, lot=self._lot
+        )
         # Only report journal state: never expose stored preference snapshots or
         # backup identifiers to a browser. An unreadable/pending journal blocks.
         try:
@@ -300,7 +307,8 @@ class EnergyBulkAdminService88:
             raise EnergyTransactionRefused("Explicit matching confirmation required")
         # Never use a cached, browser-supplied or previously computed admission.
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
-        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(state.evidence):
+        if (not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(
+                state.evidence, account=self._account, lot=self._lot)):
             raise EnergyTransactionRefused("Independent L6/#36/#37 admission not qualified")
         return await apply_bulk_energy_transaction(
             self._port, actor, account=self._account, lot=self._lot,
