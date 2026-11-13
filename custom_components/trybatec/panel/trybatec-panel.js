@@ -211,7 +211,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Jours","Days"],
   ["Heures","Hours"],
   ["Minutes","Minutes"],
-  ["Rechercher les relevés historiques","Find historical readings"],
+  ["Rechercher les relevés de tous les compteurs","Search historical readings for all meters"],
   ["Aucune source Trybatec identifiée dans la configuration Énergie actuellement disponible.","No Trybatec source found in current Energy configuration."],
   ["Dernier index historique source (non qualifié)","Latest historical source index (unqualified)"],
   ["Entités indisponibles détectées","Unavailable entities detected"],
@@ -356,7 +356,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Tarifs spécifiques aux compteurs","Meter-specific rates"],
   ["Tarifs par compteur","Rates per meter"],
   ["Consommations et coûts estimés par exercice","Estimated annual consumption and costs"],
-  ["Aucune consommation justifiable pour cet exercice. Aucun coût fictif n’est produit.","No verifiable consumption for this year. No fictitious cost is calculated."],
+  ["Aucune consommation calculable pour cet exercice.","No calculable consumption for this year."],
   ["Aucun tarif commun enregistré.","No default rate saved."],
   ["Aucune dérogation propre à un compteur. Le tarif commun reste applicable lorsqu’il existe pour l’exercice.","No meter-specific override. The default rate still applies where available for the year."],
   ["Tarif approuvé","Approved rate"],
@@ -447,7 +447,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Non déterminée","Undetermined"],
   ["À déterminer","To be determined"],
   ["Choisissez un exercice commencé, entre 2000 et l’année courante.","Choose a year between 2000 and the current year."],
-  ["Coûts indisponibles : vérifiez la connexion, les unités et les relevés source. Aucun coût manquant n’est remplacé par une valeur supposée.","Costs unavailable: check connection, units and source readings. Missing costs are never inferred."],
+  ["Coûts indisponibles : vérifiez la connexion, les unités et les relevés source.","Costs unavailable: check connection, units and source readings."],
   ["coût indisponible","cost unavailable"],
   ["spécifique","meter-specific"],
   ["Aperçu Recorder obtenu. Aucun import n’a commencé.","Recorder preview obtained. No import has started."],
@@ -502,7 +502,7 @@ const TRYBATEC_EN_LABELS = new Map([
   ["Panne de télérelève","Remote-reading failure"],
   ["Comparaison journalière non disponible : les bornes ou le détail doivent être revérifiés.","Daily comparison unavailable; recheck boundaries and details."],
   ["Aperçu limité aux 90 premiers jours. Total et validation calculés sur l’ensemble de la période.","Preview limited to the first 90 days. Totals and validation cover the entire period."],
-  ["Le détail journalier est indisponible pour cette période. Aucun historique fictif n’est généré.","Daily details unavailable for this interval. No fictitious history is generated."],
+  ["Le détail journalier est indisponible pour cette période.","Daily details unavailable for this interval."],
   ["Estimé : bleu","Estimated: blue"],
   ["Une correction de date réelle exige une preuve ; une imputation comptable ne modifie pas la date de mesure.","Changing the actual reading date requires evidence; accounting allocation does not change the measurement timestamp."],
   ["Je confirme explicitement une imputation en dehors de la période source, si applicable.","I explicitly confirm allocation outside the source period, if applicable."],
@@ -733,7 +733,7 @@ const style = [
   ".primary{background:var(--trybatec-action-bg);color:var(--trybatec-action-text);border-color:var(--trybatec-action-border)}",
   ".secondary{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border-color:var(--trybatec-neutral-border)}",
   ".nav button.active{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);box-shadow:inset 3px 0 var(--trybatec-neutral-border)}.nav button.active ha-icon{color:var(--trybatec-neutral-fg)}",
-  ".stat ha-icon{color:var(--trybatec-neutral-fg)}.link{color:var(--trybatec-neutral-fg);text-decoration:underline}.badge{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border:1px solid var(--trybatec-neutral-border)}",
+  ".stat ha-icon{color:var(--trybatec-neutral-fg)}.stat.stat-success ha-icon{color:var(--trybatec-status-success)}.stat.stat-warning ha-icon{color:var(--trybatec-status-warning)}.stat.stat-unknown ha-icon{color:var(--trybatec-status-neutral)}.link{color:var(--trybatec-neutral-fg);text-decoration:underline}.badge{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border:1px solid var(--trybatec-neutral-border)}",
   ".meter-title{color:var(--fluid-fg,var(--primary-text-color));display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}",
   ".meter-title ha-icon{color:var(--fluid-fg);--mdc-icon-size:25px;flex-shrink:0}",
   ".poll-duration{grid-column:span 2;min-width:0}.duration-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.duration-inputs label{margin-bottom:5px}",
@@ -1066,7 +1066,7 @@ class TrybatecPanel extends HTMLElement {
       } else {
         this._historyContextKey=null;this._tab="meters";
       }
-      this._render();return;
+      this._render();if(this._tab==="meters")this._revealSelectedMeterDetail();return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
     if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
@@ -1075,7 +1075,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.meter !== undefined) {
       this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
-      this._energyHandoffPreview=null;this._render();return;
+      this._energyHandoffPreview=null;this._render();this._revealSelectedMeterDetail();return;
     }
     if (btn.dataset.account !== undefined) {
       this._account=Number(btn.dataset.account);this._meter=0;this._historyContextKey=null;this._settingsInput=null;this._durationInput=null;
@@ -1098,7 +1098,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffReset !== undefined) {
       const saved=this._existingTariff();
@@ -1439,8 +1439,10 @@ class TrybatecPanel extends HTMLElement {
     return '<div class="intro"><div><h2>'+safe(title)+'</h2><p class="muted">'+safe(sub)+'</p></div>'+(button||"")+'</div>';
   }
   _meterName(m) {return FLUID[m.fluid] || "Compteur"; }
-  _stat(number,label,icon) {
-    return '<article class="card stat"><ha-icon icon="'+icon+'"></ha-icon><div><strong>'+safe(number)+'</strong><span>'+safe(label)+'</span></div></article>';
+  _stat(number,label,icon,status="neutral") {
+    return '<article class="card stat stat-'+safe(status)+'" aria-label="'+safe(label+": "+number)+'">'+
+      '<ha-icon icon="'+safe(icon)+'" aria-hidden="true"></ha-icon><div><strong>'+
+      safe(number)+'</strong><span>'+safe(label)+'</span></div></article>';
   }
   _badge(m) {
     const labels={en_service:this._t("En service","Active"),
@@ -1591,7 +1593,12 @@ class TrybatecPanel extends HTMLElement {
   }
   _overview() {
     const a=this._current, meters=this._meters(), counts=this._counts();
-    const suspects=a.entities.filter(e=>e.state==="unavailable"||e.state==="not_loaded");
+    const availableInventory=a.data_loaded===true && Array.isArray(a.entities);
+    const suspects=availableInventory?a.entities.filter(e=>
+      e.state==="unavailable"||e.state==="not_loaded"):[];
+    const unavailableStatus=!availableInventory?"unknown":suspects.length?"warning":"success";
+    const unavailableIcon=unavailableStatus==="warning"?"mdi:alert-circle-outline":
+      unavailableStatus==="success"?"mdi:check-circle-outline":"mdi:help-circle-outline";
     const groups=[["Compteurs en service",meters.filter(m=>m.status==="en_service")],
                   ["Compteurs déposés",meters.filter(m=>m.status==="depose")],
                   ["Entités à auditer",suspects]];
@@ -1599,7 +1606,8 @@ class TrybatecPanel extends HTMLElement {
       '<section class="cards" aria-label="Synthèse">'+
       this._stat(counts.en_service,"Compteurs en service","mdi:check-circle-outline")+
       this._stat(counts.depose,"Compteurs déposés","mdi:archive-outline")+
-      this._stat(suspects.length,"Entités indisponibles détectées","mdi:alert-circle-outline")+
+      this._stat(availableInventory?suspects.length:"—","Entités indisponibles détectées",
+        unavailableIcon,unavailableStatus)+
       this._stat(Object.keys(a.tariffs).length,"Exercices tarifaires","mdi:calendar-check-outline")+
       '</section>'+this._readinessView(a)+'<div class="columns">'+groups.map((group,index)=>
       '<section class="card"><div class="panel-title"><h3>'+group[0]+'</h3><span class="badge">'+group[1].length+'</span></div>'+
@@ -1868,7 +1876,10 @@ class TrybatecPanel extends HTMLElement {
       this._t("Origine : proposition du graphique, à confirmer","Source: chart proposal, pending confirmation"):
       this._t("Origine de l’unité non vérifiée","Unit provenance not verified");
     const conflict=option?.source_unit==="conflict";
-    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+'"><div class="panel-title"><h2 class="meter-title">'+
+    return '<div class="card fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+
+      '" role="region" data-meter-detail tabindex="-1" aria-label="'+
+      safe(this._t("Détails du compteur sélectionné","Selected meter details"))+
+      '"><div class="panel-title"><h2 class="meter-title">'+
       (FLUID_ICON[m.fluid]?'<ha-icon icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':'')+
       safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
       this._badge(m)+'</div><p class="muted">Compteur physique · '+safe(m.source==="live_api"?"Relevé par l’API":"Archivé localement")+'</p>'+
@@ -1956,9 +1967,22 @@ class TrybatecPanel extends HTMLElement {
           '<div class="muted">Première observation : '+safe(this._date(m.first_observed_at)||'Non connue')+
           ' · Dernière observation source : '+safe(this._date(m.last_source_observed_at)||'Non connue')+'</div></div>'
         ).join('')+'</div></div>').join('')+
-      '<div class="notice">Un compteur déposé est un appareil historique. Une entité technique indisponible ne constitue pas un compteur supplémentaire. Aucune date de remplacement n’est inventée.</div></section>';
+      '<div class="notice">Un compteur déposé est un appareil historique. Une entité technique indisponible ne constitue pas un compteur supplémentaire. Les dates exactes de remplacement restent indéterminées.</div></section>';
   }
 
+  _revealSelectedMeterDetail() {
+    const detail=this.shadowRoot?.querySelector?.("[data-meter-detail]");
+    if (!detail) return;
+    const narrow=typeof window!=="undefined" &&
+      window.matchMedia?.("(max-width: 1050px)")?.matches;
+    if (narrow) {
+      detail.focus({preventScroll:true});
+      detail.scrollIntoView({block:"start",behavior:"auto"});
+    } else {
+      this.shadowRoot.querySelector('[data-meter="'+this._meter+'"]')?.
+        focus({preventScroll:true});
+    }
+  }
   _metersPage() {
     const meters=this._meters();
     const indexed=meters.map((m,i)=>({m,i})).filter(x=>!this._query||[
@@ -1967,14 +1991,19 @@ class TrybatecPanel extends HTMLElement {
       (!m.first_observed_at || !m.last_source_observed_at));
     const coverage=this._tariffCoverage.get(this._current.entry_id);
     // Missing dates are unverified, not a proven anomaly or warning.
+    const matched=coverage?.status==="complete" && Array.isArray(coverage.meters)?
+      meters.filter(m=>coverage.meters.some(row=>row.physical_key===m.physical_key)).length:0;
     const historyHelp='<div class="notice" role="status">'+
-      (coverage?.status==="loading"?"Lecture en cours des relevés historiques du fournisseur…":
-       coverage?.status==="error"?"Vérification historique incomplète : aucun relevé inventé.":
-       coverage?.status==="complete"?(missing.length?String(missing.length)+
-         " compteur(s) déposé(s) restent sans observations vérifiées.":"Bornes historiques issues des relevés du fournisseur."):
+      (coverage?.status==="loading"?"Recherche globale en cours pour tous les compteurs du compte…":
+       coverage?.status==="error"?"Recherche historique globale incomplète. Relancez l’analyse.":
+       coverage?.status==="complete"?"Recherche globale achevée : "+matched+
+         " compteur(s) avec relevés datés sur "+meters.length+" dans cet inventaire.":
        String(missing.length)+" compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.")+
+      (coverage?.status==="loading" && this._tariffJobId?
+        '<div class="actions"><button type="button" class="secondary" data-tariff-years-cancel>'+
+        'Interrompre la recherche globale</button></div>':"")+
       (coverage?.status!=="loading"?'<div class="actions"><button type="button" class="secondary" data-historical-scan>'+
-       'Rechercher les relevés historiques</button></div>':"")+'</div>';
+       'Rechercher les relevés de tous les compteurs</button></div>':"")+'</div>';
     return this._heading("Compteurs","Inventaire physique : en service, déposés, ou statut non confirmé.")+
       historyHelp+'<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
       '<div class="scroll">'+indexed.map(x=>this._meterRow(x.m,x.i,"detail")).join("")+'</div>'+
@@ -2230,7 +2259,7 @@ class TrybatecPanel extends HTMLElement {
   _historyDayBars(proposal) {
     const rows=proposal.daily_preview;
     if (!Array.isArray(rows)||!rows.length)
-      return '<div class="empty">Le détail journalier est indisponible pour cette période. Aucun historique fictif n’est généré.</div>';
+      return '<div class="empty">Le détail journalier est indisponible pour cette période.</div>';
     const max=Math.max(0.000001,...rows.map(x=>Number(x.quantity)||0));
     return '<div style="display:flex;align-items:end;gap:2px;height:130px;overflow-x:auto;padding:10px 4px 5px;border-bottom:1px solid #b0bcd0" role="img" aria-label="Aperçu de consommation quotidienne estimée">'+
       rows.slice(0,400).map(x=>{
@@ -2523,7 +2552,7 @@ class TrybatecPanel extends HTMLElement {
       this._costPreview=result;this._costYear=year;
     } catch (_) {
       this._costError="Coûts indisponibles : vérifiez la connexion, les unités et les relevés source. "+
-        "Aucun coût manquant n’est remplacé par une valeur supposée.";
+        "";
     } finally {this._costBusy=false;this._render();}
   }
   _annualCostsView() {
@@ -2572,7 +2601,7 @@ class TrybatecPanel extends HTMLElement {
       (rows.length?'<div class="scroll"><table><thead><tr><th>Année</th><th>Fluide</th>'+
       '<th>Origine</th><th>Consommation</th><th>Tarif</th><th>Coût estimé</th>'+
       '<th>Fiabilité</th></tr></thead><tbody>'+table+'</tbody></table></div>':
-      '<div class="empty">Aucune consommation justifiable pour cet exercice. Aucun coût fictif n’est produit.</div>')+
+      '<div class="empty">Aucune consommation calculable pour cet exercice.</div>')+
       (p.withheld_total?'<div class="notice warning">Certains compteurs sont exclus du calcul : unité non vérifiée, conflit ou historique invalide. Consultez les diagnostics avant toute interprétation.</div>':"")+
       '<p class="muted">Coûts uniquement estimés, en EUR ; un tarif « approuvé » ne vaut pas validation des charges. Aucun autre exercice n’est utilisé pour remplacer un tarif manquant.</p>':"")+
       '</section>';
