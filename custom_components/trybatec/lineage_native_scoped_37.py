@@ -116,8 +116,10 @@ def _measured_from_raw(
                     if amount < old:
                         problems.append("decreasing_index_within_selected_generation")
                     elif (at - old_at).total_seconds() > 27 * 3600:
-                        # Unknown source interval, not an observed daily delta.
-                        problems.append("sparse_interval_not_measured_daily")
+                        # Unknown source interval: never make a daily measured
+                        # contribution. Explicitly reviewed #36 allocations
+                        # may still qualify individual days in this gap.
+                        pass
                     else:
                         delta = amount - old
                         key = day.isoformat()
