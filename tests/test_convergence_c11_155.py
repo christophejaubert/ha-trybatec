@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -29,6 +30,7 @@ def _scope_and_clock():
     scope = {
         "date": date,
         "datetime": datetime,
+        "ZoneInfo": ZoneInfo,
         "timezone": timezone,
         "sha256": sha256,
         "timedelta": __import__("datetime").timedelta,
