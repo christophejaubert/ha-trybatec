@@ -76,6 +76,13 @@ async def test_only_absent_series_requeued_after_native_barrier(hass, monkeypatc
     async def barrier(_hass):
         barriers.append("committed_all_earlier_queue_work")
     monkeypatch.setattr(recorder, "_recorder_writer_barrier", barrier)
+    async def authoritative_fixture(_hass, _entry_id, ids):
+        assert ids == {ids_by_meter["B"]}
+    ids_by_meter = ids
+    monkeypatch.setattr(
+        recorder, "_independent_writer_quiescence_proof",
+        authoritative_fixture,
+    )
 
     retry = await recorder.queue_b15_plan(
         hass, "synthetic-36-recovery", plan,
@@ -193,3 +200,43 @@ async def test_native_unit_mismatch_never_marks_version_verified(hass, monkeypat
     with pytest.raises(ValueError, match="metadata conflicts"):
         await recorder.verify_b15_recorder(hass, "synthetic-36-wrong-unit")
     assert await store.async_load() == before
+
+
+@pytest.mark.asyncio
+async def test_native_barrier_alone_cannot_authorize_a_late_writer_retry(
+    hass, monkeypatch,
+):
+    """REC-07: an unobserved rescheduled writer forbids blind requeue."""
+    plan = _plan()
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _h, meta, _rows: queued.append(meta["statistic_id"]),
+    )
+    await recorder.queue_b15_plan(
+        hass, "synthetic-36-rescheduled", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def no_rows(_call):
+        return {"statistics": {}}
+    hass.services.async_register(
+        "recorder", "get_statistics", no_rows,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def native_barrier(_h):
+        return None
+    monkeypatch.setattr(recorder, "_recorder_writer_barrier", native_barrier)
+    with pytest.raises(ValueError, match="no verified exclusive no-late-writer"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-36-rescheduled", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert len(queued) == 2
+    assert all(
+        v["enqueue_attempts"] == 1
+        for v in (await recorder.ledger_store(
+            hass, "synthetic-36-rescheduled",
+        ).async_load())["pending"].values()
+    )
