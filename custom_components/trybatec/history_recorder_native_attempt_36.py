@@ -30,6 +30,7 @@ from homeassistant.components.recorder.models import StatisticMeanType
 
 from .const import DOMAIN
 from .history_plan_b15 import _digest as plan_digest
+from .history_reconstruction import logical_series_id
 from .history_recorder_b15 import (
     _check_persisted_metadata, _metadata, _read_recorder_rows,
     _recorder_writer_barrier, ledger_store as b15_store,
@@ -91,7 +92,7 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
             or not isinstance(document["attempts"], list)
             or not isinstance(document["events"], list)
             or len(document["attempts"]) > _MAX_ATTEMPTS
-            or len(document["events"]) > _MAX_ATTEMPTS * 3):
+            or len(document["events"]) > _MAX_ATTEMPTS * 4):
         raise ValueError("Missing, restored or corrupted native attempt journal")
     seen_ids: set[str] = set()
     seen_tokens: set[str] = set()
@@ -174,6 +175,8 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                     "concurrent_version", "readback_mismatch", "administrator_review",
                 )):
             raise ValueError("Tombstone cause missing from event")
+        if entry["state"] == "compromised" and entry["reason"] != "readback_mismatch":
+            raise ValueError("Compromised version needs recorded readback mismatch")
         if entry["state"] not in ("quarantined", "compromised") and entry["reason"] is not None:
             raise ValueError("Unexpected state transition reason")
         raw = {k: v for k, v in entry.items() if k != "hash"}
@@ -471,6 +474,23 @@ async def _legacy_ids(hass: Any, entry_id: str) -> set[str]:
     return values
 
 
+def _account_binding(hass: Any, entry_id: str, record: dict) -> str:
+    """Bind each attempt to the trusted HA account, lot and fluid.
+
+    A plan hash alone is not authority over another configuration entry.
+    Reject replay under a different HA account.
+    """
+    entry = hass.config_entries.async_get_entry(entry_id)
+    account = getattr(entry, "unique_id", None)
+    if not isinstance(account, str) or not account:
+        raise ValueError("Native HA account unique identity is unavailable")
+    scope = record.get("scope", record)
+    expected = logical_series_id(account, scope["lot"], scope["fluid"])
+    if record["logical_id"] != expected:
+        raise ValueError("Attempt logical identity does not belong to HA account and scope")
+    return account
+
+
 async def async_reserve_native_attempt_36(
     hass: Any, entry_id: str, plan: dict, logical_id: str, *,
     expected_plan_fingerprint: str, confirm: bool,
@@ -484,6 +504,7 @@ async def async_reserve_native_attempt_36(
     if confirm is not True or plan.get("fingerprint") != expected_plan_fingerprint:
         raise ValueError("Explicit exact current plan approval required")
     item, snapshot, days = _approved_plan(plan, logical_id)
+    _account_binding(hass, entry_id, {**item, "logical_id": logical_id})
     source = item["source_fingerprint"]
     async with _lock(hass):
         journal = await _read_disk(hass, entry_id)
@@ -624,6 +645,7 @@ async def async_enqueue_native_attempt_36(
             raise ValueError("Missing native attempt journal")
         states = _validate_journal(journal, entry_id)
         record = _find(journal, statistic_id)
+        _account_binding(hass, entry_id, record)
         if states[statistic_id] != "reserved":
             raise ValueError("Attempt already queued, quarantined or verified; no requeue")
         item, snapshot, days = _approved_plan(plan, record["logical_id"])
@@ -715,6 +737,7 @@ async def async_native_attempt_proof_36(
             raise ValueError("Missing journal after crash or incomplete restore")
         states = _validate_journal(journal, entry_id)
         record = deepcopy(_find(journal, statistic_id))
+        _account_binding(hass, entry_id, record)
         status = states[statistic_id]
         if status not in ("enqueue_intent", "verified"):
             return {
@@ -879,6 +902,7 @@ async def async_read_native_scoped_selection_v2_36(
             raise ValueError("Native attempt journal missing or restored")
         states = _validate_journal(journal, entry_id)
         record = deepcopy(_find(journal, stat))
+        _account_binding(hass, entry_id, record)
         if states[stat] != "verified":
             raise ValueError("Selected Recorder version is pending, quarantined or compromised")
         scope = record["scope"]
