@@ -240,3 +240,69 @@ async def test_native_barrier_alone_cannot_authorize_a_late_writer_retry(
             hass, "synthetic-36-rescheduled",
         ).async_load())["pending"].values()
     )
+
+
+@pytest.mark.asyncio
+async def test_late_commit_during_independent_fence_is_not_requeued(
+    hass, monkeypatch,
+):
+    """REC-05/07/08/16: synthetic late commit must be re-read before enqueue."""
+    plan = _plan()
+    queued = []
+    committed = set()
+    ids = {s["serial"]: s["logical_id"] + "_v1" for s in plan["series"]}
+
+    def enqueue(_hass, metadata, _rows):
+        queued.append(metadata["statistic_id"])
+    monkeypatch.setattr(recorder, "async_add_external_statistics", enqueue)
+
+    async def readback(call):
+        stat = call.data["statistic_ids"][0]
+        series = next(s for s in plan["series"]
+                      if s["logical_id"] + "_v1" == stat)
+        rows = [
+            {"start": x["start"].isoformat(), "sum": x["sum"]}
+            for x in series["rows"]
+        ] if stat in committed else []
+        return {"statistics": {stat: rows} if rows else {}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", readback,
+        supports_response=SupportsResponse.ONLY,
+    )
+    await recorder.queue_b15_plan(
+        hass, "synthetic-36-late-commit", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+    assert queued == [ids["A"], ids["B"]]
+    committed.add(ids["A"])
+
+    async def barrier(_hass):
+        return None
+    monkeypatch.setattr(recorder, "_recorder_writer_barrier", barrier)
+
+    async def independent_fixture(_hass, _entry_id, scoped_ids):
+        assert scoped_ids == {ids["B"]}
+        # A pending Recorder task commits while the synthetic fence is
+        # acquired: proof acquired != old snapshot still authoritative.
+        committed.add(ids["B"])
+    monkeypatch.setattr(
+        recorder, "_independent_writer_quiescence_proof",
+        independent_fixture,
+    )
+
+    result = await recorder.queue_b15_plan(
+        hass, "synthetic-36-late-commit", plan,
+        confirm_revision=False, retry_pending=True,
+    )
+    assert result["status"] == "unchanged_all_series_previously_verified"
+    assert result["queued"] == []
+    assert queued == [ids["A"], ids["B"]]
+    ledger = await recorder.ledger_store(
+        hass, "synthetic-36-late-commit",
+    ).async_load()
+    assert ledger["pending"] == {}
+    assert all(
+        record["versions"][0]["state"] == "verified"
+        for record in ledger["series"].values()
+    )

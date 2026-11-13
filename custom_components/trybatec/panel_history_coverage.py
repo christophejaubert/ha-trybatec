@@ -44,7 +44,11 @@ def _scope(coordinator: Any) -> tuple[str, set[str]]:
     if not lots:
         raise ValueError("unverified_account_lots")
     physical = sorted({
-        (str(m.get("lot", "")), str(m.get("fluid", "")), str(m.get("serial", "")))
+        (
+            str(m.get("lot", "")), str(m.get("fluid", "")),
+            str(m.get("serial", "")), repr(m.get("last")),
+            m.get("deposed") is True,
+        )
         for m in meters.values() if isinstance(m, dict)
     })
     # Never send this fingerprint to the browser; it includes private data.
@@ -159,7 +163,10 @@ def coverage_view(
     )
     # Years are suggested from first/last bounds, NOT proof of readings in every year.
     years = (
-        list(range(date.fromisoformat(first[:10]).year, date.fromisoformat(last[:10]).year + 1))
+        list(range(
+            datetime.fromisoformat(first).astimezone(ZoneInfo(TIMEZONE)).year,
+            datetime.fromisoformat(last).astimezone(ZoneInfo(TIMEZONE)).year + 1,
+        ))
         if first is not None and last is not None else []
     )
     return {

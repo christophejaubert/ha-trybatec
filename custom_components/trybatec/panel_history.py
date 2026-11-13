@@ -198,9 +198,14 @@ async def preview_history_for_panel(
             result["coverage"] = coverage_view(reused, cache_reused=True)
             return result
 
+    # Capture the account scope before fetching; the vendor client and physical
+    # inventory must still be the same after all network/validation awaits.
+    scope_before, _allowed = _scope_for_panel(coordinator)
     # Existing _load validates account scope, source and physical observations
     # before publishing its review cache. Never bypass these validations.
     _, _, _, _, count = await _load(hass, call)
+    if _scope_for_panel(coordinator)[0] != scope_before:
+        raise ValueError("Account identity changed during historical preview")
     cached = getattr(coordinator, "_history_review_cache", None)
     if not isinstance(cached, tuple) or len(cached) != 4:
         raise ValueError("Unverified historical review source")

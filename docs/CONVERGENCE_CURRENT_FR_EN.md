@@ -8,7 +8,7 @@
 
 Vérification des arbres Git (pas uniquement des diffs de PR) : les PR #149/#150/#151/#153 ont une base divergente antérieure à la fusion de #147. L'arbre exact de #153 (`daab196ce4f67b1ed73f1623dc385c5d405a101f`) ne diffère du `main` publié que par six chemins : `.github/workflows/ci.yml`, `.gitleaksignore`, `RELEASE_NOTES_BETA.md`, `docs/CI_GITLEAKS_2026-11-12.md`, `docs/CONVERGENCE_36_37_88_034B1_FR_EN.md` et `tests/test_ci_gitleaks_history.py`. **Ne pas recopier les anciens commits ni écraser la CI de main.**
 
-Cette branche de travail reprend exclusivement les **six chemins** de #156 à son SHA `4e6d863e989039a3a7a45a99a94678e139556def` et les **trois chemins** C11 de `feat/155-c11-shared-history-coverage-20261113` au SHA `d3336b00d4dd4bdf6dbee6f981c4bc565df0fcf2`, plus les tests de raccordement et le présent suivi. Ces sources restent indépendantes et peuvent évoluer.
+Cette branche de travail reprend exclusivement les **six chemins** de #156 à son SHA `48a5c5839095b5b0957af88bf135e7e05853ae52` et les **huit chemins** C11 de PR #162 au SHA `38a539aaea7e1312391d8e5769695836e58db211`, plus les tests de raccordement et le présent suivi. Ces sources restent indépendantes et peuvent évoluer.
 
 ### Propriétaires et interfaces
 
@@ -36,8 +36,8 @@ Fichiers sensibles aux collisions : `panel/trybatec-panel.js` (C1–C10), traduc
 
 ### Blocages et limites
 
-- Le dernier SHA #156 **échoue** au contrôle pur Python 3.13 et 3.14 : test `tests/test_panel_issue_155_c5_c10.py`, attente de texte « Origine indéterminée » hors rendu du scénario. Exécution CI #43417480976 ; 913 tests réussis, 1 échec par version. La CI verte d'un SHA antérieur ne vaut pas pour cette tête.
-- C11 est actuellement une branche source sans PR ni CI constatée à ce SHA; tests de raccordement ajoutés ici, sans qualification de couverture exhaustive.
+- La CI #156 est réussie sur la nouvelle tête `48a5c5839095b5b0957af88bf135e7e05853ae52`. L'échec antérieur `4e6d863e989039a3a7a45a99a94678e139556def` (assertion C5–C10) reste une preuve historique uniquement.
+- C11 est désormais porté par PR #162 avec tests et commande enregistrée; l'exécution CI du SHA `38a539aaea7e1312391d8e5769695836e58db211` a été constatée **annulée** (pas de preuve verte transférable). Tests de raccordement ajoutés ici; couverture exhaustive réelle non démontrée.
 - Ne pas intégrer les six différences résiduelles de #153 sans revue du propriétaire CI et du suivi documentaire. Les PR #154/#146/#143 et toute PR « DO NOT MERGE » restent des preuves non candidates.
 - Aucune validation en Home Assistant réel, aucune écriture Recorder/Énergie, aucun merge/release/tag, aucune installation ou restauration. La procédure future de recette réelle relève d'autorisations distinctes.
 
@@ -45,6 +45,14 @@ Fichiers sensibles aux collisions : `panel/trybatec-panel.js` (C1–C10), traduc
 
 Tree-level comparison confirms that #149/#150/#151/#153 mostly contain code already shipped by merged #147. The only #153 differences left against released `main` are six CI/release/documentation paths listed above; they **must not** be blindly replayed.
 
-This integration branch composes six UI files from #156 at its exact head and three C11 read-only history-coverage files at their exact head, without modifying the source branches. The matrix above defines file ownership and the required History → Recorder → Physical lineage → Energy, and UI → C11 → Tariffs interface and regression gates.
+This branch composes six UI files from #156, eight C11 backend/test/docs files from #162, plus focused #36/#37/#88 and CI-only contributions; source branches remain untouched. The matrix above defines file ownership and the required History → Recorder → Physical lineage → Energy, and UI → C11 → Tariffs interface and regression gates.
 
-**Known blockers:** #156 pure tests fail on both Python 3.13/3.14 at current head (one assertion in C5–C10). C11 has no independently qualified CI at the retrieved SHA. True independent Recorder quiescence, complete physical lineage and admissible/transactional Energy enrollment are not established by this composition. Do not bypass any fail-closed guard; no actual HA acceptance exists. Check all mandatory CI and privacy controls on the exact integrated SHA before any future separately approved merge and release.
+**Known blockers:** #156 head CI is now green, but the latest C11 source run was cancelled. Independent full-stack CI on this integration SHA remains required. True independent Recorder quiescence, complete physical lineage and admissible/transactional Energy enrollment are not established by this composition. Do not bypass any fail-closed guard; no actual HA acceptance exists. Check all mandatory CI and privacy controls on the exact integrated SHA before any future separately approved merge and release.
+
+## Complément de composition / Composition update — 13/11/2026
+
+**FR :** Contributions spécialisées complémentaires reprises au **chemin exact uniquement** : PR #157 (CI Gitleaks, SHA `c0cf7a71e51cbd4255b474758b61d3296f80c74b`, 2 chemins), #158 (#88 admin non enregistré, SHA `0750af43611326eb6bb8f8d01744aa622e576dd2`, 3 chemins propres hors héritage #153), #159 (#36, SHA `7ce922320da4bb46d7619fe8285f6c2c9d001ace`, 6 chemins), #160 (#37/#81, SHA `f99a6de148dffa56a560e7c0e6b5f20f039aa612`, 5 chemins), #162 (C11, 8 chemins) et #156 (6 chemins). Les 6 écarts hérités de #153 ne sont **pas** repris. #161 reste propriété du pilotage documentaire; #163 (Marketplace) demeure un lot distinct. Chacune de ces PR reste non fusionnée.
+
+Les contrats administratifs #88 restent dormants, les contrôles #36/#37 restent fail-closed et les tests synthétiques ne prouvent aucune admisibilité réelle. Les PR source #157, #159, #156 avaient une CI réussie au point de lecture ; #158 et #160 étaient en file, #162 annulée ; **seul l'état CI du SHA final de cette PR** établira la qualification automatique de la composition. Aucun état source ne vaut recette HA.
+
+**EN:** Leaf-only import from #157 (CI 2 paths), #158 (#88 dormant admin 3 paths), #159 (#36 6 paths), #160 (#37/#81 5 paths), #162 (C11 8 paths), and #156 (UI 6 paths). Six stale #153 CI/docs differences are excluded. #161 owns MOE tracking; #163 marketplace work is separate. No admission, writer reopening, production acceptance or deployment. All source PRs remain untouched and unmerged.

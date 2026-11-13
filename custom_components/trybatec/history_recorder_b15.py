@@ -164,17 +164,35 @@ async def queue_b15_plan(
                 "read_only_recovery": checked["read_only_recovery"],
             }
         recovery = checked["read_only_recovery"]
-        if not recovery["safe_to_offer_retry"]:
+        if not recovery["retry_preflight_candidate"]:
             raise ValueError(
                 "Pending Recorder import has partial, conflicting or "
                 "unattested buckets; selective retry denied"
             )
         # Native SynchronizeTask is necessary but insufficient: a failed
-        # ImportStatisticsTask can requeue itself after that barrier. The
-        # second, independent proof has no production implementation yet.
-        # Until such a durable per-statistic writer fence exists, deny retry.
-        allowed_ids = set(recovery["retry_only_these_statistic_ids"])
+        # ImportStatisticsTask can requeue itself after that barrier. A native
+        # preflight must NEVER be exposed as write authorization.
+        allowed_ids = set(recovery["retry_candidates_requiring_independent_proof"])
         await _independent_writer_quiescence_proof(hass, entry_id, allowed_ids)
+        # Even after a separately proven writer fence, read back once more:
+        # a series could have committed while that fence was being acquired.
+        # Never enqueue a series newly found to be persisted or partial.
+        after_proof = await verify_b15_recorder(
+            hass, entry_id, queue_quiescent=True,
+        )
+        if after_proof["status"] == "recorder_verified":
+            return {
+                "status": "unchanged_all_series_previously_verified",
+                "queued": [], "pending": [],
+                "read_only_recovery": after_proof["read_only_recovery"],
+            }
+        after_recovery = after_proof["read_only_recovery"]
+        if (not after_recovery["retry_preflight_candidate"]
+                or set(after_recovery["retry_candidates_requiring_independent_proof"])
+                != allowed_ids):
+            raise ValueError(
+                "Recorder changed after writer-fence acquisition; selective retry denied"
+            )
         stage = await store.async_load()
         _match_pending(stage, plan)
         selected = [item for item in plan["series"]

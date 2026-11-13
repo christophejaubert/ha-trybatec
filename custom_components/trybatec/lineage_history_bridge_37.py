@@ -7,7 +7,7 @@ The output deliberately NEVER asserts independent historical completeness.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
@@ -49,13 +49,27 @@ def _amount(value: Any) -> Decimal:
     return result
 
 
-def _daily(raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[str]) -> dict:
+def _daily(
+    raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[str],
+    daily_decisions: Mapping[date, str] | None = None,
+) -> dict:
     if not isinstance(raw, Mapping) or not isinstance(smoothed, Mapping):
         raise ValueError("Unqualified daily variants")
     if len(raw) > 36600 or len(smoothed) > 36600:
         raise ValueError("Excessive historical daily coverage")
     if set(raw) - set(smoothed):
         raise ValueError("Smoothing lost measured days")
+    if daily_decisions is not None:
+        if (not isinstance(daily_decisions, Mapping)
+                or len(daily_decisions) > 36600
+                or any(type(day) is not date or not isinstance(ref, str)
+                       or not ref or ref not in decisions
+                       for day, ref in daily_decisions.items())):
+            raise ValueError("Invalid per-day decision references")
+        if selected != "smoothed":
+            raise ValueError("Per-day approvals cannot attach to raw selection")
+    individual = daily_decisions or {}
+    used_individual: set[date] = set()
     # A selected set of gap approvals is not a day-by-day attribution.
     # Never label every estimated day with the first unrelated approval.
     decision_set_fingerprint = (
@@ -87,10 +101,20 @@ def _daily(raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[st
             )
         entry = {"amount": str(quantity), "provenance": provenance}
         if delta:
-            entry["decision_fingerprint"] = decision_set_fingerprint
+            if day in individual:
+                entry["decision_fingerprint"] = individual[day]
+                entry["decision_attribution"] = "day_candidate_unverified"
+                used_individual.add(day)
+            else:
+                # A pooled decision fingerprint is a set membership hint, never
+                # proof that any particular day's estimate was approved.
+                entry["decision_fingerprint"] = decision_set_fingerprint
+                entry["decision_attribution"] = "approval_set_unattributed"
             entry["measured"] = str(observed)
             entry["estimated"] = str(delta)
         normalized[day.isoformat()] = entry
+    if set(individual) != used_individual:
+        raise ValueError("Per-day decision without matching positive estimate")
     return normalized
 
 
@@ -134,6 +158,16 @@ def prepare_physical_continuity_37(
             raise ValueError("Invalid historical source readings")
         if any(b[0] <= a[0] for a, b in zip(readings, readings[1:])):
             raise ValueError("Unsorted or duplicate historical observations")
+        # Revalidate the source indices rather than trusting a supplied
+        # decreases/conflicts counter. A rollover needs a separate #36 ruling.
+        try:
+            raw_indices = [Decimal(str(reading[1])) for reading in readings]
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError("Invalid raw historical index") from exc
+        if any(not index.is_finite() or index < 0 for index in raw_indices):
+            raise ValueError("Invalid raw historical index")
+        observed_decrease = any(after < before for before, after
+                                in zip(raw_indices, raw_indices[1:]))
         fingerprint = meter.get("source_fingerprint")
         if not isinstance(fingerprint, str) or len(fingerprint) != 64:
             raise ValueError("Historical source fingerprint missing")
@@ -150,7 +184,7 @@ def prepare_physical_continuity_37(
             "readings_origin": "unknown_manual_or_automatic",
             "historical_reading_only": meter.get("retired") is True,
         }
-        if meter.get("fatal_conflicts") or meter.get("conflicts") or meter.get("decreases"):
+        if observed_decrease or meter.get("fatal_conflicts") or meter.get("conflicts") or meter.get("decreases"):
             physical[key]["blockers"].append("unresolved_physical_source_anomaly")
 
     for item in (current or {}).values():
@@ -259,12 +293,24 @@ def prepare_physical_continuity_37(
                 "lot": key[0], "fluid": key[1], "serial": key[2],
                 "kind": "consumption", "variant": choice,
                 "unit": unit, "source_fingerprint": row["source_fingerprint"],
-                "daily": _daily(variant.get("raw"), variant.get("smoothed"),
-                                selected=choice, decisions=decisions),
+                "daily": _daily(
+                    variant.get("raw"), variant.get("smoothed"),
+                    selected=choice, decisions=decisions,
+                    daily_decisions=variant.get("day_decision_fingerprints"),
+                ),
             })
         if missing:
+            contradictory = {
+                "unresolved_physical_source_anomaly", "source_status_conflict",
+                "archive_source_fingerprint_changed", "variant_source_fingerprint_changed",
+                "unverified_normalized_unit",
+            }
+            missing_reasons = {reason for item in missing for reason in item["reasons"]}
             all_previews.append({
                 "lot": scope[0], "fluid": scope[1], "status": "blocked_incomplete_physical_series",
+                "historical_evidence_qualification": (
+                    "contradictoire" if missing_reasons & contradictory else "inconnu"
+                ),
                 "blockers": sorted({reason for item in missing for reason in item["reasons"]}),
                 "unresolved_meters": missing,
                 "rows": [], "total": None, "energy_activation_authorized": False,

@@ -41,4 +41,11 @@ def test_gitleaks_incremental_and_full_history_scan_remain_enforced():
     assert "Assert synthetic Git credentials are rejected" in job
     assert "finding_report" not in job  # Diagnostic-only reporting has been removed.
     assert "gitleaks detect --source" in job
+    assert 'if [[ "$clean_scan_code" -ne 0 ]]' in job
     assert 'if [[ "$synthetic_scan_code" -ne 2 ]]' in job
+    assert job.index("Clean synthetic fixture") < job.index("Historical synthetic leak must be rejected")
+    assert job.index("Historical synthetic leak must be rejected") < job.index("Remove fake credential from final tree")
+    assert job.count("--gitleaks-ignore-path \"$synthetic_repo/.gitleaksignore\"") == 2
+    assert "gitleaks detect --redact --exit-code=2 --log-level=warn" in job
+    assert "--no-git" not in job
+    assert "continue-on-error:" not in job

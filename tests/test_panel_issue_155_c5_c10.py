@@ -74,6 +74,7 @@ const f={
   _historySelected:"",_originMeter:null,_historyPreview:null,_historyMessage:"",
   _historyError:"",_historyJobStatus:null,_historyJobId:null,
   _heading:()=>"",_historySummary:()=>"",_readingReview:()=>"",_originView:()=>"",
+  _historyDayBars:()=>"",_historyComparison:()=>"",
   _syncHistoryDates:P._syncHistoryDates,_historyDatesHelp:P._historyDatesHelp,
   _meterActionState:P._meterActionState,_meterField:P._meterField,
   _statusIndicator:P._statusIndicator,_auditDetails:()=>"",
@@ -154,17 +155,18 @@ assert.match(history,/fluid-ecs/);
 assert.match(history,/mdi:water-thermometer/);
 assert.doesNotMatch(history,/Ancienne IHM de révision/);
 assert.match(history,/Pourquoi cet intervalle est-il espacé/);
-assert.match(history,/Origine indéterminée/);
-assert.match(history,/value="undetermined" selected/);
 assert.equal(localize("Origine indéterminée","en-US"),"Undetermined origin");
 assert.match(style,/max-width:1050px/);
 assert.match(style,/trybatec-cet-fg/);
 // C10: undetermined cannot call the persistence endpoint or be relabeled manual.
-const interval={interval_key:"SYNTH-INTERVAL",status:
+const interval={interval_key:"SYNTH-INTERVAL",fluid:"ECS",lot:"SYNTH-LOT",status:
   "linear_available_after_explicit_confirmation",meter_serial:"SYNTH-ECS",
   start_date:"2024-01-01",end_date:"2024-04-01",choice:{mode:"none",reason:"other"}};
 f._historySelected=interval.interval_key;
 f._historyPreview={proposals:{intervals:[interval]}};
+const selectedHistory=P._history.call(f);
+assert.match(selectedHistory,/Origine indéterminée/);
+assert.match(selectedHistory,/value="undetermined" selected/);
 let calls=[];
 f._hass={callWS:async payload=>{calls.push(payload);return {status:"saved"}}};
 (async()=>{

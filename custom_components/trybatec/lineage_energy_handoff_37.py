@@ -140,6 +140,8 @@ def prepare_energy_lineage_handoff_37(
         previous_day = None
         cumulative = Decimal(0)
         contributions = set()
+        estimated_without_daily_ref = False
+        estimated_with_daily_candidate = False
         for item in rows:
             if not isinstance(item, Mapping):
                 raise ValueError("Invalid daily row")
@@ -172,7 +174,32 @@ def prepare_energy_lineage_handoff_37(
                 ):
                     raise ValueError("Unknown or duplicate physical contributor/provenance")
                 seen_members.add(key)
-                daily_contributions += _number(contributor.get("consumption"))
+                amount = _number(contributor.get("consumption"))
+                provenance = contributor["provenance"]
+                if provenance == "measured":
+                    if any(name in contributor for name in (
+                        "decision_fingerprint", "decision_attribution", "measured", "estimated"
+                    )):
+                        raise ValueError("Measured contribution cannot carry an estimation decision")
+                else:
+                    decision = contributor.get("decision_fingerprint")
+                    attribution = contributor.get("decision_attribution", "approval_set_unattributed")
+                    if not isinstance(decision, str) or not decision or len(decision) > 128:
+                        raise ValueError("Estimated day lacks a decision reference")
+                    if attribution not in ("day_candidate_unverified", "approval_set_unattributed"):
+                        raise ValueError("Unrecognized estimated-day attribution")
+                    measured = _number(contributor.get("measured"))
+                    estimated = _number(contributor.get("estimated"))
+                    if measured + estimated != amount or estimated <= 0:
+                        raise ValueError("Physical measured/estimated amounts do not reconcile")
+                    if ((provenance == "mixed" and measured <= 0)
+                            or (provenance == "estimated_linear_confirmed" and measured != 0)):
+                        raise ValueError("Invalid physical consumption provenance")
+                    if attribution == "day_candidate_unverified":
+                        estimated_with_daily_candidate = True
+                    else:
+                        estimated_without_daily_ref = True
+                daily_contributions += amount
                 contributions.add(key)
             if daily_contributions != delta:
                 raise ValueError("Physical contributions do not conserve daily consumption")
@@ -202,7 +229,24 @@ def prepare_energy_lineage_handoff_37(
             )}
             for key in sorted(scoped)
         ]
+        if estimated_without_daily_ref:
+            reference_blockers.append("estimated_day_decision_not_individually_attributed")
+        if estimated_with_daily_candidate:
+            # A supplied day-level key must still be independently matched to
+            # an approved, revision-specific #36 decision by the consuming backend.
+            reference_blockers.append("day_decision_requires_independent_36_match")
         all_blockers = sorted(set(raw_blockers + reference_blockers))
+        qualification = (
+            "contradictoire" if any(reason in all_blockers for reason in (
+                "unverified_physical_period_overlap",
+                "duplicate_or_ambiguous_consumption_day",
+                "consumption_outside_observed_period",
+                "consumption_outside_proven_service_period",
+                "unresolved_physical_source_anomaly",
+                "source_status_conflict",
+            ))
+            else "partiel" if rows else "inconnu"
+        )
         rendered.append({
             "lot": lot, "fluid": fluid,
             "physical_meters_observed": len(scoped),
@@ -215,6 +259,12 @@ def prepare_energy_lineage_handoff_37(
                  "contributors": [dict(c) for c in item["contributors"]]}
                 for item in rows
             ],
+            "historical_qualification": qualification,
+            "local_arithmetic_checked": True,
+            "day_decisions_independently_verified": False,
+            "retired_consumption_candidate_only": any(
+                physical[key].get("status") == "depose" for key in contributions
+            ),
             "total": str(cumulative) if not blocked else None,
             "logical_id": group.get("logical_id") if not blocked else None,
             "physical_scope_fingerprint": _digest(source_inventory),
@@ -250,4 +300,85 @@ def prepare_energy_lineage_handoff_37(
         "competing_versions_exhausted": False,
         "energy_activation_authorized": False,
         "writes": False,
+    }
+
+
+def audit_ha_identity_references_37(
+    account_key: str,
+    entry_id: str,
+    meters: Sequence[Mapping[str, Any]],
+    registry_entities: Sequence[Mapping[str, Any]],
+    observed_references: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Read-only #81 compatibility audit; no entity suffix implies a meter.
+
+    Registry rows and consumer references are observations, not an exhaustive
+    audit of external dashboards, Recorder, HomeKit or Energy configurations.
+    Does not alter the existing #81 migration plan or authorize cleanup.
+    """
+    from .meter_identity import preview_stable_identity_transition
+
+    if (not isinstance(observed_references, (tuple, list))
+            or len(observed_references) > MAX_REFERENCES):
+        raise ValueError("Invalid observed consumer references")
+    plan = preview_stable_identity_transition(
+        account_key, entry_id, meters, registry_entities
+    )
+    known_ids = {row["entity_id"] for row in registry_entities}
+    known_unique_ids = {row["unique_id"] for row in registry_entities}
+    examined = set()
+    foreign = []
+    observed = []
+    for item in observed_references:
+        if not isinstance(item, Mapping):
+            raise ValueError("Invalid consumer reference")
+        consumer, kind, reference = (
+            item.get("consumer"), item.get("kind"), item.get("reference")
+        )
+        if (consumer not in ("dashboard", "automation", "energy", "recorder", "external", "other")
+                or kind not in ("entity_id", "statistic_id", "unique_id")
+                or not isinstance(reference, str)
+                or not 0 < len(reference) <= 512):
+            raise ValueError("Malformed observed HA consumer reference")
+        key = (consumer, kind, reference)
+        if key in examined:
+            raise ValueError("Duplicate observed consumer reference")
+        examined.add(key)
+        matched = (
+            reference in known_ids if kind == "entity_id"
+            else reference in known_unique_ids if kind == "unique_id"
+            else None
+        )
+        if matched is False:
+            foreign.append({"consumer": consumer, "kind": kind, "reference": reference})
+        observed.append({
+            "consumer": consumer, "kind": kind,
+            "reference": reference, "entity_registry_match": matched,
+        })
+    contradictions = bool(foreign) or any(
+        item["status"] == "migration_blocked" for item in plan["meters"]
+    )
+    suffixes = sorted(
+        row["entity_id"] for row in registry_entities
+        if isinstance(row.get("entity_id"), str)
+        and row["entity_id"].rsplit("_", 1)[-1].isdigit()
+    )
+    return {
+        "schema": "lineage_37_ha_identity_audit_v1",
+        "status": "contradictoire" if contradictions
+                  else "partiel" if registry_entities or observed
+                  else "inconnu",
+        "identity_plan_81": plan,
+        "technical_suffix_entity_ids_observed": suffixes,
+        "suffixed_entity_id_is_physical_meter_evidence": False,
+        "observed_consumers": observed,
+        "unresolved_consumer_entity_references": foreign,
+        "consumer_inventory_exhaustive": False,
+        "recorder_statistic_references_exhaustive": False,
+        "external_dashboard_automation_references_exhaustive": False,
+        "safe_to_delete_legacy_entity": False,
+        "safe_to_migrate": False,
+        "registry_writes": False,
+        "recorder_writes": False,
+        "energy_writes": False,
     }

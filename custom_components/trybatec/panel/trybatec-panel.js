@@ -185,6 +185,10 @@ function trybatecMergeHistoricalObservationDates(account, coverage) {
 
 /* English is a local presentation layer; measurement and decision records stay unchanged. */
 const TRYBATEC_EN_LABELS = new Map([
+  ["Eau froide","Cold water"],
+  ["Eau chaude","Hot water"],
+  ["Chauffage","Heating"],
+  ["Index historique archivé (non qualifié)","Archived historical index (unqualified)"],
   ["Unité et identifiant du compteur","Meter unit and device identifier"],
   ["Ce compteur ne dispose pas encore d’une identité source éligible à une modification. Lancez une analyse historique ou utilisez le menu natif de secours.","This meter does not yet have an eligible source identity. Run a history preview or use the native fallback options."],
   ["Analyser l’historique","Analyze history"],
@@ -1984,10 +1988,11 @@ class TrybatecPanel extends HTMLElement {
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
       '<div><span class="smallhead">Unité</span><strong>'+safe(m.unit||"À vérifier")+'</strong></div>'+
       this._meterField(this._t("Dernier index disponible","Latest available index"),
-        m.last_index===null||m.last_index===undefined?
-          (m.status==="depose"?this._t("Sans index courant","No current index"):
-            this._t("Non vérifié","Not verified")):this._number(m.last_index),
-        m.last_index!==null&&m.last_index!==undefined?"known":m.status==="depose"?"na":"unverified",
+        m.status==="depose"?this._t("Sans index courant","No current index"):
+          m.last_index===null||m.last_index===undefined?
+            this._t("Non vérifié","Not verified"):this._number(m.last_index),
+        m.status==="depose"?"na":
+          m.last_index!==null&&m.last_index!==undefined?"known":"unverified",
         "history",this._t("Consulter l'historique","Review history"),
         m.status==="depose"?this._t(
           "Compteur déposé : vérifier séparément les éventuels index historiques.",
@@ -2010,10 +2015,15 @@ class TrybatecPanel extends HTMLElement {
         m.last_observed_at?"":"history",m.last_observed_at?"":m.status==="depose"?
           this._t("Consulter l'historique","Review history"):
           this._t("Analyser les index","Review readings"))+
-      (m.status==="depose" && m.historical_last_index_raw!==undefined?
-        '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
-        safe(this._number(m.historical_last_index_raw))+
-        '</strong><span class="muted">'+safe(this._date(m.historical_last_index_at))+
+      (m.status==="depose" && (m.historical_last_index_raw!==undefined ||
+          m.last_index!==null && m.last_index!==undefined)?
+        '<div><span class="smallhead">'+safe(
+          m.historical_last_index_raw!==undefined?
+          this._t("Dernier index historique source (non qualifié)","Latest historical source index (unqualified)"):
+          this._t("Index historique archivé (non qualifié)","Archived historical index (unqualified)"))+
+        '</span><strong>'+safe(this._number(m.historical_last_index_raw??m.last_index))+
+        '</strong><span class="muted">'+safe(this._date(
+          m.historical_last_index_at||m.last_source_observed_at))+
         (m.historical_index_conflict?" · conflit de relevés à vérifier":" · relevé historique à qualifier")+
         '</span></div>':"")+
       this._meterField(this._t("Statut de l’unité","Unit status"),
@@ -2041,7 +2051,8 @@ class TrybatecPanel extends HTMLElement {
     if (!item) return "";
     return '<section class="line fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+
       '" style="margin-top:16px"><h3>'+trybatecFluidTag(m.fluid)+
-      ' · Contrôles historiques de ce compteur</h3>'+
+      ' · '+safe(this._t("Contrôles historiques de ce compteur",
+        "Historical checks for this meter"))+'</h3>'+
       '<p class="muted">Indicateurs issus du dernier aperçu ; un écart ou conflit n’est pas nécessairement une erreur de mesure.</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Intervalles lacunaires</span><strong>'+safe(item.gaps)+'</strong></div>'+
@@ -2639,7 +2650,7 @@ class TrybatecPanel extends HTMLElement {
       (meter?'<section class="meter-history-context fluid-surface '+safe(FLUID_CLASS[meter.fluid]||"")+'"><strong>'+
         trybatecFluidTag(meter.fluid)+' · '+
         safe(this._t("Compteur sélectionné : ","Selected meter: ")+
-          (FLUID[meter.fluid]||meter.fluid)+" · "+meter.serial+" · "+meter.lot)+'</strong>'+
+          meter.serial+" · "+meter.lot)+'</strong>'+
         '<p class="muted">'+safe(this._t(
           "L’analyse est lancée séparément et couvre le compte ; seuls les résultats de ce compteur sont affichés ici.",
           "The analysis must be started separately and covers the account; only this meter's results are displayed here."))+
