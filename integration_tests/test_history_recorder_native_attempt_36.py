@@ -526,3 +526,45 @@ async def test_unconfirmed_estimation_refused_before_journal(hass, native_fixtur
         await _reserve(hass, plan)
     assert await native._read_disk(hass, "synthetic-36") is None
     assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_wrong_selected_day_even_with_recomputed_group_hash_is_denied(
+    hass, native_fixture,
+):
+    plan = _plan()
+    group = plan["coverage_evidence"]["groups"][0]
+    group["rows"][1]["date"] = "2026-01-05"
+    group["fingerprint"] = _digest({
+        key: value for key, value in group.items() if key != "fingerprint"
+    })
+    plan["series"][0]["coverage_fingerprint"] = group["fingerprint"]
+    plan["fingerprint"] = _digest([{
+        "logical": LOGICAL, "source": SOURCE, "unit": "m³",
+        "coverage": group["fingerprint"],
+        "rows": [[row["start"].isoformat(), row["sum"]]
+                 for row in plan["series"][0]["rows"]],
+    }])
+    with pytest.raises(ValueError, match="Selected calendar days"):
+        await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_estimate_cannot_be_relabelled_as_measured(hass, native_fixture):
+    plan = _plan(estimated=True)
+    group = plan["coverage_evidence"]["groups"][0]
+    group["rows"][1]["provenance"] = "measured"
+    group["fingerprint"] = _digest({
+        key: value for key, value in group.items() if key != "fingerprint"
+    })
+    plan["series"][0]["coverage_fingerprint"] = group["fingerprint"]
+    plan["fingerprint"] = _digest([{
+        "logical": LOGICAL, "source": SOURCE, "unit": "m³",
+        "coverage": group["fingerprint"],
+        "rows": [[row["start"].isoformat(), row["sum"]]
+                 for row in plan["series"][0]["rows"]],
+    }])
+    with pytest.raises(ValueError, match="cannot be called supplier measurement"):
+        await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
