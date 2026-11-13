@@ -326,7 +326,8 @@ async def async_collect_native_scopes_88(
         attempts = await _read_native_attempt_catalog_88(
             hass, entry.entry_id, lot,
         )
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError,
+            ImportError):
         attempts = {}
         for group in groups.values():
             group["reasons"].append("native_36_attempt_catalog_unavailable")
