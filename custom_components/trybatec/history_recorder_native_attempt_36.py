@@ -238,7 +238,15 @@ async def _persist(hass: Any, entry_id: str, document: dict) -> None:
     await _store(hass, entry_id).async_save(deepcopy(document))
     persisted = await _read_disk(hass, entry_id)
     if persisted != document:
-        raise ValueError("Native attempt journal differs from its persisted disk content")
+        # Report key names only, NEVER journal values (which may be private).
+        changed = sorted(
+            str(key) for key in (set(persisted or {}) | set(document))
+            if (persisted or {}).get(key) != document.get(key)
+        )
+        raise ValueError(
+            "Native attempt journal differs from its persisted disk content: "
+            + ",".join(changed)
+        )
 
 
 def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[dict]]:
