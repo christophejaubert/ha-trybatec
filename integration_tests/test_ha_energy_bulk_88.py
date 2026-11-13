@@ -79,3 +79,98 @@ async def test_native_confirmation_route_is_unconditionally_blocked(monkeypatch)
     assert client.send_error.call_count == 1
     assert client.send_error.call_args.args[1] == "energy_bulk_not_qualified"
     client.send_result.assert_not_called()
+
+
+async def test_native_preview_websocket_passes_only_selected_scope_intent(monkeypatch):
+    records = []
+    selections = [{
+        "fluid": "EF", "start": "2026-01-01", "end": "2026-01-31",
+        "statistic_id": "trybatec:synthetic_ef_v1",
+        "generation_ids": ["SYNTH-METER"],
+    }]
+
+    class FakeService:
+        def __init__(self, _hass, _coordinator, *, lot):
+            assert lot == "synthetic-lot"
+
+        async def preview(self, actor, *, selections=None):
+            records.append((actor.id, selections))
+            return {
+                "schema": "energy_bulk_admin_actions_88_v1",
+                "status": "blocked", "writes": False,
+                "activation_authorized": False,
+            }
+
+    monkeypatch.setattr(api, "EnergyBulkAdminService88", FakeService)
+    coordinator = SimpleNamespace(
+        entry=SimpleNamespace(
+            entry_id="synthetic-entry", unique_id="synthetic-account",
+        ),
+        data={"lots": ["synthetic-lot"]},
+    )
+    jobs = []
+
+    def create_task(coro, _name, **_kwargs):
+        job = asyncio.create_task(coro)
+        jobs.append(job)
+        return job
+
+    hass = SimpleNamespace(
+        data={"trybatec": {"synthetic-entry": coordinator}},
+        async_create_background_task=create_task,
+    )
+    client = SimpleNamespace(
+        user=SimpleNamespace(id="synthetic-admin", is_admin=True),
+        send_error=Mock(), send_result=Mock(),
+    )
+    api.ws_energy_bulk_preview_88(hass, client, {
+        "id": 887, "type": "trybatec/energy_bulk_88/preview",
+        "entry_id": "synthetic-entry", "lot": "synthetic-lot",
+        "selections": selections,
+    })
+    await asyncio.gather(*jobs)
+    assert records == [("synthetic-admin", selections)]
+    client.send_error.assert_not_called()
+    result = client.send_result.call_args.args[1]
+    assert result["writes"] is False
+    assert result["activation_authorized"] is False
+
+
+async def test_native_preview_websocket_refuses_foreign_lot_before_collector(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api, "EnergyBulkAdminService88",
+        lambda *_args, **_kw: (_ for _ in ()).throw(
+            AssertionError("No foreign-lot service access")
+        ),
+    )
+    coordinator = SimpleNamespace(
+        entry=SimpleNamespace(
+            entry_id="synthetic-entry", unique_id="synthetic-account",
+        ),
+        data={"lots": ["synthetic-lot"]},
+    )
+    jobs = []
+
+    def create_task(coro, _name, **_kwargs):
+        task = asyncio.create_task(coro)
+        jobs.append(task)
+        return task
+
+    hass = SimpleNamespace(
+        data={"trybatec": {"synthetic-entry": coordinator}},
+        async_create_background_task=create_task,
+    )
+    client = SimpleNamespace(
+        user=SimpleNamespace(id="synthetic-admin", is_admin=True),
+        send_error=Mock(), send_result=Mock(),
+    )
+    api.ws_energy_bulk_preview_88(hass, client, {
+        "id": 88, "type": "trybatec/energy_bulk_88/preview",
+        "entry_id": "synthetic-entry", "lot": "foreign-lot",
+    })
+    await asyncio.gather(*jobs)
+    assert client.send_error.call_count == 1
+    assert client.send_error.call_args.args[1] == "energy_bulk_preview_unavailable"
+    client.send_result.assert_not_called()
