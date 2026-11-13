@@ -382,11 +382,35 @@ async function runCase(browser, locale, device, dark=false) {
       assert.doesNotMatch(content,/data-technical-delete/);
     }
     if(tab==="tariffs"){
-      await page.locator("trybatec-panel button[data-historical-scan]").first().click();
+      // Navigating to tariffs is passive: history supplier reads require a click.
+      const jobStartsBefore=await page.evaluate(()=>
+        globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_start").length);
+      assert.equal(jobStartsBefore,0,
+        "Entering Tariffs must never trigger an implicit supplier scan");
+      assert.equal(await page.locator("trybatec-panel input#tariff-year").isEnabled(),true,
+        "Tariff editing must remain available before historical discovery");
+      const historyAction=page.locator("trybatec-panel button[data-tariff-years-retry]");
+      assert.equal(await historyAction.count(),1,
+        "Tariffs must show one explicit C11 history retry/search action");
+      assert.equal(await historyAction.isEnabled(),true);
+      await historyAction.click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
         return root?.querySelector('datalist#tariff-year-options option[value="2020"]');
       });
+      const scanEvidence=await page.evaluate(()=>({
+        starts:globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_start").length,
+        polls:globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_status").length,
+        kind:globalThis.__lastJobKind,
+        result:document.querySelector("trybatec-panel")?._tariffCoverage
+          ?.get("SYNTHETIC-ENTRY-NO-SECRETS")?.status,
+      }));
+      assert.equal(scanEvidence.starts,jobStartsBefore+1,
+        "One explicit tariff search click must launch exactly one read-only job");
+      assert.ok(scanEvidence.polls>=1,
+        "The browser must verify the job result before using observed years");
+      assert.equal(scanEvidence.kind,"tariff_year_coverage");
+      assert.equal(scanEvidence.result,"complete");
       const year=page.locator("trybatec-panel input#tariff-year");
       assert.equal(await year.count(),1,"Annual year must be a native numeric field");
       if(await year.inputValue()==="2026") {
