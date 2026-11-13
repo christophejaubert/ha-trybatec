@@ -1514,6 +1514,33 @@ class TrybatecPanel extends HTMLElement {
     this._meters().forEach(m=>{if (values[m.status]!==undefined)values[m.status]++;});
     return values;
   }
+  _meterActionState(m) {
+    const account=this._current||{};
+    const option=(account.meter_options||[]).find(row=>row.physical_key===m.physical_key);
+    if (account.data_loaded!==true) return {kind:"unverified",
+      label:this._t("Inventaire à vérifier","Inventory not verified")};
+    if (option?.source_unit==="conflict" || m.historical_index_conflict)
+      return {kind:"unverified",
+        label:this._t("Vérification nécessaire","Verification needed")};
+    if (m.status==="en_service" && m.unit_verified!==true &&
+        option && Array.isArray(option.allowed_units) && option.allowed_units.length &&
+        !["conflict","unverified"].includes(option.source_unit))
+      return {kind:"issue",label:this._t("Action possible : vérifier l’unité",
+        "Action available: verify unit")};
+    if (m.unit_verified!==true || m.status==="inconnu" ||
+        (m.status==="en_service" && (m.last_index===null || m.last_index===undefined)))
+      return {kind:"unverified",label:this._t(
+        "Contrôle non vérifié (aucune anomalie confirmée)",
+        "Unverified check (no confirmed fault)")};
+    if (m.status==="depose" && m.historical_last_index_raw!==undefined)
+      return {kind:"unverified",label:this._t(
+        "Index historique source à qualifier","Historical source index to qualify")};
+    if (!m.first_observed_at || !m.last_source_observed_at)
+      return {kind:"known",label:this._t(
+        "Historique facultatif à examiner","Optional history review")};
+    return {kind:"passed",label:this._t("Configuration complète",
+      "Configuration complete")};
+  }
   _meterRow(m,i,action) {
     const fluidClass=FLUID_CLASS[m.fluid]||"";
     const fluidIcon=FLUID_ICON[m.fluid]?
@@ -1524,9 +1551,15 @@ class TrybatecPanel extends HTMLElement {
         m.status==="en_service"?this._t("En service","Active"):
           this._t("Statut inconnu","Unknown status"))+'</span>';
     if (action==="detail") {
+      const state=this._meterActionState?.(m);
+      const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
+        unverified:"mdi:help-circle-outline",known:"mdi:information-outline"};
+      const stateLabel=state?'<span class="status-indicator '+safe(state.kind)+
+        '" role="status"><ha-icon aria-hidden="true" icon="'+safe(icon[state.kind]||icon.unverified)+
+        '"></ha-icon><span>'+safe(state.label)+'</span></span>':"";
       const selected=i===this._meter;
       return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
-        '" aria-pressed="'+(selected?"true":"false")+'" data-meter="'+i+'">'+line+
+        '" aria-pressed="'+(selected?"true":"false")+'" data-meter="'+i+'">'+line+stateLabel+
         (selected?'<ha-icon class="selected-indicator" icon="mdi:check-circle" aria-hidden="true"></ha-icon>':"")+
         '</button></div>';
     }
@@ -1820,7 +1853,9 @@ class TrybatecPanel extends HTMLElement {
       (this._meterOptionError?'<div role="alert" class="notice warning">'+safe(this._meterOptionError)+'</div>':"")+
       (this._meterOptionMessage?'<div role="status" class="notice">'+safe(this._meterOptionMessage)+'</div>':"")+
       '<div class="actions"><button type="button" class="primary" data-meter-options-save '+
-      (this._meterOptionBusy?"disabled":"")+'>Enregistrer ce compteur</button>'+
+      (this._meterOptionBusy ||
+        (draft.unit===option.selected_unit && (draft.device_uuid||"")===(option.device_uuid||"")) ||
+        (conflicting && draft.unit!=="unverified")?"disabled":"")+'>Enregistrer ce compteur</button>'+
       '<button type="button" class="secondary" data-meter-options-reset>Annuler les modifications</button></div>'+
       '<p class="muted">Aucun index source, historique Recorder ou tableau Énergie n’est modifié. Un choix confirmé est associé uniquement à ce compteur.</p></section>';
   }
@@ -1941,6 +1976,9 @@ class TrybatecPanel extends HTMLElement {
       (FLUID_ICON[m.fluid]?'<ha-icon icon="'+FLUID_ICON[m.fluid]+'" aria-hidden="true"></ha-icon>':'')+
       safe(this._meterName(m))+' · '+safe(m.serial)+'</h2>'+
       this._badge(m)+'</div><p class="muted">Compteur physique · '+safe(m.source==="live_api"?"Relevé par l’API":"Archivé localement")+'</p>'+
+      (m.status==="depose"?'<div class="notice">'+safe(this._t(
+        "Compteur déposé : aucun index courant n’est attendu. Le dernier index historique source, lorsqu’il existe, reste à qualifier ; la continuité historique peut être examinée séparément. Un état HA « unknown » seul n’établit aucune anomalie.",
+        "Retired meter: no current index is expected. The latest historical source index, if available, needs separate qualification; historical continuity can be reviewed independently. HA unknown alone does not prove a fault."))+'</div>':"")+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Lot</span><strong>'+safe(m.lot||"Non renseigné")+'</strong></div>'+
       '<div><span class="smallhead">Fluide</span><strong>'+safe(FLUID[m.fluid]||"Inconnu")+'</strong></div>'+
@@ -1968,9 +2006,10 @@ class TrybatecPanel extends HTMLElement {
         !m.last_source_observed_at&&(checkedHistory||unmatchedAccountScan)?historyExplanation:"")+
       this._meterField(this._t("Date du dernier index exploitable","Date of latest usable index"),
         this._date(m.last_observed_at)||this._t("Non vérifié","Not verified"),
-        m.last_observed_at?"known":"unverified",
-        m.last_observed_at?"":"history",m.last_observed_at?"":this._t(
-          "Analyser les index","Review readings"))+
+        m.last_observed_at?"known":m.status==="depose"?"na":"unverified",
+        m.last_observed_at?"":"history",m.last_observed_at?"":m.status==="depose"?
+          this._t("Consulter l'historique","Review history"):
+          this._t("Analyser les index","Review readings"))+
       (m.status==="depose" && m.historical_last_index_raw!==undefined?
         '<div><span class="smallhead">Dernier index historique source (non qualifié)</span><strong>'+
         safe(this._number(m.historical_last_index_raw))+
