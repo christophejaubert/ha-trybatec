@@ -288,17 +288,19 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     await page.waitForFunction(()=>
       document.querySelector("trybatec-panel")._tariffCoverage
         .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status==="complete");
-    const callsBefore=await page.evaluate(()=>globalThis.__crossCalls.length);
+    const callsBefore=await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length);
     await locator('nav button[data-tab="meters"]').click();
     await locator('nav button[data-tab="history"]').click();
     await locator('nav button[data-tab="tariffs"]').click();
     const calls=await page.evaluate(()=>globalThis.__crossCalls);
-    assert.equal(calls.length,callsBefore,
-      "Navigation must reuse completed account scan rather than start it again");
+    assert.equal(calls.filter(c=>c.type!=="trybatec/panel_history_discovery_status").length,
+      callsBefore,"Navigation must not start a new supplier history job");
     assert.equal(calls.filter(c=>c.type==="trybatec/panel_history_job_start").length,2);
     assert.ok(calls.every(c=>[
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status",
-      "trybatec/panel_history_job_cancel"
+      "trybatec/panel_history_job_cancel",
+      "trybatec/panel_history_discovery_status"
     ].includes(c.type)),"No Recorder/Energy/tariff/HA mutation permitted");
     assert.ok(calls.every(c=>!c.entry_id||c.entry_id==="SYNTHETIC-ENTRY-NO-SECRETS"),
       "Supplier history must remain account-isolated");
@@ -323,6 +325,120 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.equal(observed.call.entry_id,"SYNTHETIC-ENTRY-NO-SECRETS");
     assert.equal(observed.status,"complete",
       "A cancelled action must not fabricate another successful scan");
+  });
+
+  await page.evaluate(data=>{globalThis.__c11Snapshot=structuredClone(data);},snapshot);
+
+  await check("C11 actual WebSocket status states, cache evidence and fail-closed UI", async () => {
+    const observed=await page.evaluate(async data=>{
+      const host=document.querySelector("trybatec-panel");
+      const original=host._hass.callWS;
+      const key=data.accounts[0].meters[1].physical_key;
+      const account="SYNTHETIC-ENTRY-NO-SECRETS";
+      const rows=[{physical_key:key,
+        first_observed_at:"2021-12-21T00:00:00+01:00",
+        last_observed_at:"2024-12-30T00:00:00+01:00"}];
+      const full={status:"complete",completeness:"account_full",
+        coverage_start:"2000-01-01",coverage_end:"2026-11-13",
+        meters:rows,cache_reused:true,cache_expires_at:"2026-11-13T23:00:00+00:00"};
+      const partial={...full,status:"incomplete",completeness:"bounded_period_only",
+        coverage_start:"2023-01-01"};
+      const fixtures=[
+        ["none",{discovery_status:"not_started",coverage:{status:"not_started"}}],
+        ["running",{discovery_status:"running",status:"running",
+          progress:{periods_verified:4,http_requests:7}}],
+        ["partial",{discovery_status:"incomplete",coverage:partial,
+          retry_mode:"restart_from_zero"}],
+        ["interrupted",{discovery_status:"interrupted",status:"cancelled",
+          failure_category:"cancelled",retry_mode:"restart_from_zero"}],
+        ["error",{discovery_status:"error",status:"failed",failure_category:"network",
+          retry_mode:"restart_from_zero",failure_type:"PRIVATE_ERROR_SHOULD_NOT_APPEAR"}],
+        ["full",{discovery_status:"complete",coverage:full,cache_reused:true}],
+        ["invalidated",{discovery_status:"not_started",
+          coverage:{status:"not_started",cache_invalidation_reason:"identity_changed"}}],
+        ["unsafe",{discovery_status:"complete",coverage:full,recorder_writes:true}],
+      ];
+      const calls=[],results=[];
+      try {
+        host._tab="meters";
+        for(const [name,payload] of fixtures) {
+          if(name!=="invalidated") {
+            host._data=structuredClone(data);host._account=0;host._meter=0;
+            host._tariffCoverage.clear();
+          }
+          host._discoveryStates.clear();
+          host._hass.callWS=async cmd=>{
+            calls.push(cmd);
+            if(cmd.type!=="trybatec/panel_history_discovery_status")
+              throw new Error("Unexpected mutation or supplier read");
+            return {...payload,recorder_writes:payload.recorder_writes??false,
+              energy_writes:false};
+          };
+          await host._refreshDiscoveryStatus(account);
+          host._render();
+          results.push({name,view:host.shadowRoot.querySelector(
+            "[data-discovery-status]")?.textContent||"",
+            cached:host._tariffCoverage.get(account)?.status||"none",
+            meterCount:host._tariffCoverage.get(account)?.meters?.length||0,
+            state:host._discoveryStates.get(account)?.discovery_status});
+        }
+      } finally {
+        host._hass.callWS=original;host._data=structuredClone(data);
+        host._tariffCoverage.clear();host._discoveryStates.clear();
+        host._tab="meters";host._render();
+      }
+      return {calls,results};
+    },snapshot);
+    const find=name=>observed.results.find(r=>r.name===name);
+    assert.equal(observed.calls.length,8);
+    assert.ok(observed.calls.every(c=>
+      c.type==="trybatec/panel_history_discovery_status" &&
+      c.entry_id==="SYNTHETIC-ENTRY-NO-SECRETS"));
+    assert.match(find("none").view,/Aucune recherche historique|No verified historical/);
+    assert.match(find("running").view,/4.*7/);
+    assert.equal(find("partial").cached,"none","Bounded read cannot become complete");
+    assert.match(find("partial").view,/partielle|Partial coverage/);
+    assert.match(find("interrupted").view,/recherche complète|Full restart/);
+    assert.match(find("error").view,/réseau|Network error|communication/i);
+    assert.doesNotMatch(find("error").view,/PRIVATE_ERROR/);
+    assert.equal(find("full").cached,"complete");
+    assert.equal(find("full").meterCount,1);
+    assert.match(find("full").view,/Cache mémoire|In-memory cache/);
+    assert.equal(find("invalidated").cached,"none");
+    assert.match(find("invalidated").view,/Cache invalidé|Cache invalidated/);
+    assert.equal(find("unsafe").state,"unavailable");
+    assert.equal(find("unsafe").cached,"none");
+  });
+
+  await check("C11 read-only refresh button uses status command, never supplier scan", async () => {
+    const before=await page.evaluate(()=>{
+      const host=document.querySelector("trybatec-panel");
+      host._data=structuredClone(globalThis.__c11Snapshot);
+      host._tab="meters";host._render();
+      const previous=host._hass.callWS;
+      const calls=[];
+      host._hass.callWS=async cmd=>{
+        calls.push({type:cmd.type,entry_id:cmd.entry_id});
+        if(cmd.type!=="trybatec/panel_history_discovery_status")
+          throw new Error("Unexpected supplier read");
+        return {discovery_status:"not_started",status:"not_started",
+          coverage:{status:"not_started",completeness:"unknown"},
+          recorder_writes:false,energy_writes:false};
+      };
+      globalThis.__c11Refresh={previous,calls};
+      return calls.length;
+    });
+    await locator("[data-discovery-refresh]").click();
+    await page.waitForFunction(()=>globalThis.__c11Refresh.calls.length===1);
+    const calls=await page.evaluate(()=>{
+      const state=globalThis.__c11Refresh;
+      document.querySelector("trybatec-panel")._hass.callWS=state.previous;
+      delete globalThis.__c11Refresh;
+      return state.calls;
+    });
+    assert.equal(before,0);
+    assert.deepEqual(calls,[{type:"trybatec/panel_history_discovery_status",
+      entry_id:"SYNTHETIC-ENTRY-NO-SECRETS"}]);
   });
 
   const failures=checks.filter(c=>c.result==="FAIL");
