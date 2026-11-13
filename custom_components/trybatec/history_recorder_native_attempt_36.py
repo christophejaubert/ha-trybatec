@@ -12,6 +12,7 @@ import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -20,9 +21,11 @@ from typing import Any
 from weakref import WeakKeyDictionary
 
 from homeassistant.components.recorder.statistics import (
-    async_add_external_statistics, async_list_statistic_ids, valid_statistic_id,
+    async_add_external_statistics, async_list_statistic_ids, get_metadata,
+    valid_statistic_id,
 )
 from homeassistant.helpers.storage import Store
+from homeassistant.components.recorder.models import StatisticMeanType
 
 from .const import DOMAIN
 from .history_plan_b15 import _digest as plan_digest
@@ -550,6 +553,49 @@ async def async_enqueue_native_attempt_36(
         }
 
 
+async def _read_db_metadata(
+    hass: Any, statistic_id: str, *, fluid: str, unit: str,
+) -> None:
+    """Query native DB statistics_meta using an executor, bypassing ID cache.
+
+    Unlike async_list_statistic_ids (which may answer from a cache), HA
+    statistics.get_metadata opens a read-only SQL session.
+    """
+    rows = await hass.async_add_executor_job(partial(
+        get_metadata, hass, statistic_ids={statistic_id}, statistic_source=DOMAIN,
+    ))
+    if not isinstance(rows, dict) or set(rows) != {statistic_id}:
+        raise ValueError("Native Recorder database metadata missing or duplicated")
+    value = rows[statistic_id]
+    if (not isinstance(value, tuple) or len(value) != 2
+            or type(value[0]) is not int or not isinstance(value[1], dict)):
+        raise ValueError("Invalid persisted Recorder metadata tuple")
+    meta = value[1]
+    if (meta.get("statistic_id") != statistic_id
+            or meta.get("source") != DOMAIN
+            or meta.get("unit_of_measurement") != unit
+            or meta.get("unit_class") != ("energy" if fluid == "CET" else "volume")
+            or meta.get("has_sum") is not True
+            or meta.get("mean_type") not in (
+                StatisticMeanType.NONE, StatisticMeanType.NONE.value,
+            )):
+        raise ValueError("Recorder SQL metadata does not match approved scope")
+
+
+def _actual_snapshot_hash(rows: list[dict[str, Any]]) -> str:
+    """Recompute a canonical content fingerprint from the native SQL rows."""
+    actual = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Invalid native Recorder row")
+        try:
+            stamp = datetime.fromisoformat(row["start"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("Invalid actual Recorder timestamp") from exc
+        actual.append({"start": stamp, "sum": row.get("sum")})
+    return _digest_snapshot(_snapshot(actual))
+
+
 async def async_native_attempt_proof_36(
     hass: Any, entry_id: str, statistic_id: str,
 ) -> dict[str, Any]:
@@ -584,6 +630,12 @@ async def async_native_attempt_proof_36(
                 hass, statistic_id,
                 fluid=record["scope"]["fluid"], unit=record["unit"],
             )
+            await _read_db_metadata(
+                hass, statistic_id,
+                fluid=record["scope"]["fluid"], unit=record["unit"],
+            )
+            if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
+                raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
         except (ValueError, TimeoutError, KeyError, TypeError, RuntimeError, OSError) as exc:
             return {
                 "schema": _PROOF_SCHEMA, "status": "blocked_native_readback_incomplete",
@@ -615,6 +667,8 @@ async def async_native_attempt_proof_36(
             "coverage_fingerprint": record["coverage_fingerprint"],
             "snapshot_hash": record["snapshot_hash"],
             "native_buckets_verified": len(record["snapshot"]),
+            "recorder_sql_metadata_readback_verified": True,
+            "recorder_sql_snapshot_hash_verified": True,
             "daily_approval_refs": deepcopy(record["daily"]),
             "day_approval_fingerprint": record["daily_hash"],
             "journal_disk_verified": True,
