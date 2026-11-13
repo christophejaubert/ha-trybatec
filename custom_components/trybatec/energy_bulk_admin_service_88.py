@@ -11,6 +11,7 @@ from typing import Any
 
 from .energy_bulk_native_port_l7 import HAGuardedEnergyPort
 from .energy_bulk_transaction import (
+    EnergyRecoveryRequired,
     EnergyTransactionRefused,
     _prepare_state,
     apply_bulk_energy_transaction,
@@ -110,12 +111,32 @@ class EnergyBulkAdminService88:
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
         preview, _ = _prepare_state(state, self._account, self._lot)
         independent = _blockers(state.evidence)
+        # Only report journal state: never expose stored preference snapshots or
+        # backup identifiers to a browser. An unreadable/pending journal blocks.
+        try:
+            previous = await self._port.read_last_journal()
+            journal_status = ("none" if previous is None else
+                              previous.get("status", "invalid")
+                              if isinstance(previous, dict) else "invalid")
+        except (EnergyRecoveryRequired, EnergyTransactionRefused, OSError, ValueError):
+            journal_status = "unreadable"
+        terminal = ("none", "verified", "rolled_back_verified",
+                    "no_write_observed")
+        recovery_required = journal_status not in terminal
+        independent = (*independent, "l7_journal_recovery_required") if recovery_required else independent
         blocked = preview.status != "prepared_for_explicit_admin_review" or bool(independent)
         return {
             "schema": "energy_bulk_admin_actions_88_v1",
             "status": "blocked" if blocked else "confirmation_required",
             "preview": asdict(preview),
             "fluids": _fluid_status(state.evidence),
+            "transaction": {
+                "journal_status": journal_status,
+                "recovery_required": recovery_required,
+                "last_terminal_result": journal_status if (
+                    journal_status in terminal and journal_status != "none"
+                ) else None,
+            },
             "prerequisites": {
                 "independent_admission": not independent,
                 "verified_no_conflicting_sources": (
