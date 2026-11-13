@@ -22,7 +22,9 @@ from .const import (
 )
 from .history import build_history, combine_payloads
 from .panel_tariff_years import _meter_date_bounds
-from .panel_history_coverage import get_source, store_source, coverage_view
+from .panel_history_coverage import (
+    get_source, store_source, coverage_view, _today, _EARLIEST_DATE,
+)
 from .history_reconstruction import preview_sparse_intervals, propose_interval
 from .history_comparison import preview_daily_before_after
 from .history_services import _load
@@ -177,7 +179,8 @@ async def preview_history_for_panel(
 ) -> dict[str, Any]:
     """Explicit user-triggered API fetch; same validated preview as Options."""
     start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
-    if start >= end or (end - start).days > _MAX_DAYS or end > datetime.now(timezone.utc).date():
+    if (start < _EARLIEST_DATE or start >= end or
+            (end - start).days > _MAX_DAYS or end > _today()):
         raise ValueError("Invalid or excessive interval")
     call = SimpleNamespace(data={
         "entry_id": coordinator.entry.entry_id,
