@@ -11,7 +11,6 @@ from typing import Any
 
 from .energy_bulk_native_port_l7 import HAGuardedEnergyPort
 from .energy_bulk_transaction import (
-    EnergyRecoveryRequired,
     EnergyTransactionRefused,
     _prepare_state,
     apply_bulk_energy_transaction,
