@@ -238,7 +238,7 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertIn("selected_administrator_decision_not_authenticated", p["blockers"])
 
     def test_missing_native_36_producer_stays_blocked(self):
-        bundle = fixtures()
+        bundle = list(fixtures())
         bundle[3] = None
         p = evaluate(bundle)
         self.assertFalse(p["selected_scope_reconciled"])
