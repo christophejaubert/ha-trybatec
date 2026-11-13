@@ -244,6 +244,59 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertFalse(evidence["writes"])
         self.assertEqual(bundle, original)
 
+    def test_two_successive_meters_same_day_add_separate_raw_deltas(self):
+        bundle = fixtures()
+        selected, history, preview, recorder, payloads = bundle
+        # OLD closes at T2; NEW begins at the same instant. There is no
+        # physical overlap, and each supplier-native index pair is separate.
+        later = datetime(2026, 1, 2, 18, tzinfo=timezone.utc)
+        history["__physical_meters__"][(LOT, FLUID, "NEW")][
+            "reviewed_readings"
+        ] = [(T2, 50), (later, 51), (T3, 53)]
+        payloads[0]["lines"][1]["indexes"] = [{
+            "date": stamp.isoformat(), "value": value,
+        } for stamp, value in history["__physical_meters__"][
+            (LOT, FLUID, "NEW")
+        ]["reviewed_readings"]]
+        preview["groups"][0]["rows"][0]["contributors"].append({
+            "serial": "NEW", "provenance": "measured", "consumption": "1",
+        })
+        preview["groups"][0]["rows"][0]["consumption"] = "2"
+        recorder["daily"][0]["contributions"].append({
+            "serial": "NEW", "measured": "1", "estimated": "0",
+            "decision_refs": [],
+        })
+        recorder["daily"][0]["measured"] = "2"
+        recorder["selected_total"] = "4"
+        selected["physical_snapshot_digest"] = scoped.selected_snapshot_37(
+            ACCOUNT, preview, lot=LOT, fluid=FLUID,
+            start=selected["start"], end=selected["end"],
+            serials=selected["serials"],
+        )
+        recorder["selection_digest"] = native._hash(dict(selected))
+        result = evaluate(bundle)
+        self.assertTrue(result["selected_scope_reconciled"], result["blockers"])
+        self.assertEqual(result["daily"][0]["total"], "2.000000")
+        self.assertEqual(len(result["daily"][0]["contributors"]), 2)
+        self.assertEqual(result["selected_total"], "4.000000")
+        self.assertNotIn("selected_generations_observation_spans_overlap",
+                         result["blockers"])
+        self.assertFalse(result["energy_activation_authorized"])
+
+    def test_overlapping_meter_footprints_cannot_share_same_day(self):
+        bundle = fixtures()
+        moved = datetime(2026, 1, 2, 11, tzinfo=timezone.utc)
+        bundle[1]["__physical_meters__"][(LOT, FLUID, "NEW")][
+            "reviewed_readings"
+        ][0] = (moved, 50)
+        bundle[4][0]["lines"][1]["indexes"][0] = {
+            "date": moved.isoformat(), "value": 50,
+        }
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("selected_generations_observation_spans_overlap",
+                      result["blockers"])
+
     def test_recorder_meter_swap_with_same_total_is_refused(self):
         bundle = fixtures()
         bundle[3]["daily"][0]["contributions"][0]["serial"] = "NEW"
