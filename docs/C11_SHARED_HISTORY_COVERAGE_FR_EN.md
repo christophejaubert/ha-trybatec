@@ -58,7 +58,7 @@ Existing job `status`: `running | complete | failed | cancelled` **means the job
 
 The discovery endpoint also returns **`verified_coverage`**: a snapshot of the **currently valid** cache, independently of the last job outcome. On a running/failed/cancelled job, `coverage=null` (that job has not produced an accepted new result) while `verified_coverage` can still be `complete` or `incomplete` from an earlier valid scan. When there is no retained job, `coverage` and `verified_coverage` are identical, including `cache_invalidation_reason`. An expired or scope-invalidated completed job is not exposed as a successful current discovery. On the discovery command, `coverage.cache_reused=true` means this **status query** did not read the supplier; the job-level `cache_reused` and `api_requests` continue to describe the original job, not the status poll. / Le statut de job et la preuve encore en cache sont **indépendants** ; une erreur ou annulation n'efface pas une preuve antérieure encore valide.
 
-Job `progress` comes from the matched running task only (`http_requests`, `periods_verified`, `subdivisions`, elapsed, budgets). **Do not display individual validated windows or a resumable checkpoint**: their exact atomic boundaries are not retained.
+Job `progress` comes from the matched running task only (`http_requests`, `periods_verified`, `subdivisions`, elapsed, budgets). **`periods_verified` counts supplier response windows accepted by the bounded reader, not an independently proven complete physical-meter history**. A later `combine_payloads` check can still fail the overall request. Counts are operational progress only, not resumable checkpoints; exact atomic windows are not retained. / Le compteur de périodes est une progression technique, **pas** une preuve d'exhaustivité ni un journal de reprise.
 
 Job `failure_type` remains an exception **class name only**. New `failure_category`: `cancelled | safety_budget | timeout_or_budget | supplier_response | supplier_validation | network | authentication | authorization | invalid_scope_or_period | unexpected_error`. Never surface a vendor error body, source URLs, personal identifiers, raw indexes or account credentials.
 
@@ -109,7 +109,7 @@ Job `failure_type` remains an exception **class name only**. New `failure_catego
 ### 7. Cache valide sans job / Valid cache, no retained job
 
 ```json
-{"id":null,"status":"complete","discovery_status":"complete","coverage":{"status":"complete","completeness":"account_full","cache_reused":true,"verified_at":"2026-11-13T09:00:00+00:00","cache_expires_at":"2026-11-13T10:00:00+00:00"},"verified_coverage":{"status":"complete","completeness":"account_full","cache_reused":true},"api_requests":0,"failure_category":null}
+{"id":null,"status":"complete","discovery_status":"complete","coverage":{"status":"complete","completeness":"account_full","cache_reused":true,"verified_at":"2026-11-13T11:00:00+00:00","cache_expires_at":"2026-11-13T12:00:00+00:00"},"verified_coverage":{"status":"complete","completeness":"account_full","cache_reused":true},"api_requests":0,"failure_category":null}
 ```
 
 ### 8. Cache invalidé par expiration / TTL-invalidated cache
