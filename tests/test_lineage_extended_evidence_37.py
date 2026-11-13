@@ -242,6 +242,57 @@ class CatalogReconciliation37Tests(unittest.TestCase):
             self.assertIn("energy_selection_reused_across_logical_scopes", group["blockers"])
             self.assertFalse(group["energy_version_exclusivity_proven"])
 
+    def test_recorder_overlapping_version_windows_reject_exclusivity(self):
+        m = source()
+        report = handoff.prepare_energy_lineage_handoff_37(
+            run([m]),
+            known_statistic_versions={
+                ("LOT-EXAMPLE", "EF"): ["stat-v1", "stat-v2"],
+            },
+            known_statistic_windows={
+                ("LOT-EXAMPLE", "EF"): [
+                    {"statistic_id": "stat-v1", "start": "2026-01-01",
+                     "end": "2026-01-03", "unit": "m³", "owner": "trybatec"},
+                    {"statistic_id": "stat-v2", "start": "2026-01-02",
+                     "end": "2026-01-04", "unit": "m³", "owner": "trybatec"},
+                ],
+            },
+            selected_energy_sources={
+                ("LOT-EXAMPLE", "EF"): ["stat-v1"],
+            },
+        )
+        item = report["groups"][0]
+        self.assertTrue(item["recorder_window_catalog_observed"])
+        self.assertEqual(item["observed_overlapping_statistic_pairs"],
+                         [["stat-v1", "stat-v2"]])
+        self.assertIn("overlapping_recorder_versions_require_exclusivity_review",
+                      item["blockers"])
+        self.assertFalse(report["competing_versions_exhausted"])
+
+    def test_recorder_window_wrong_unit_and_absent_legacy_metadata(self):
+        m = source()
+        report = handoff.prepare_energy_lineage_handoff_37(
+            run([m]),
+            known_statistic_versions={
+                ("LOT-EXAMPLE", "EF"): ["stat-v1", "old-stat"],
+            },
+            known_statistic_windows={
+                ("LOT-EXAMPLE", "EF"): [
+                    {"statistic_id": "stat-v1", "start": "2026-01-01",
+                     "end": "2026-01-03", "unit": "kWh", "owner": "external"},
+                ],
+            },
+            selected_energy_sources={
+                ("LOT-EXAMPLE", "EF"): ["old-stat"],
+            },
+        )
+        item = report["groups"][0]
+        for blocker in ("recorder_window_unit_incompatible",
+                        "statistic_window_metadata_incomplete",
+                        "selected_energy_window_not_observed"):
+            self.assertIn(blocker, item["blockers"])
+        self.assertFalse(report["energy_activation_authorized"])
+
     def test_discovery_interrupted_does_not_attest_full_account(self):
         m = source()
         report = handoff.prepare_energy_lineage_handoff_37(
