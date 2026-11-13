@@ -59,7 +59,8 @@ async def test_only_absent_series_requeued_after_native_barrier(hass, monkeypatc
         item = next(s for s in plan["series"] if s["logical_id"] + "_v1" == stat)
         data = ([{"start": r["start"].isoformat(), "sum": r["sum"]}
                  for r in item["rows"]] if stat in committed else [])
-        return {"statistics": {stat: data}}
+        # The actual HA 2026.11 service omits IDs with zero rows.
+        return {"statistics": {stat: data} if data else {}}
 
     hass.services.async_register(
         "recorder", "get_statistics", readback,
