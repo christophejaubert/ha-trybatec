@@ -124,6 +124,7 @@ def reconcile_native_handoffs_034b1(
                 raise ValueError("Invalid bounded Recorder daily provenance")
             observed_days = len(days)
             dates: set[str] = set()
+            date_totals: dict[str, Decimal] = {}
             measured = Decimal(0)
             estimated = Decimal(0)
             for row in days:
