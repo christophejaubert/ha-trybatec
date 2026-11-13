@@ -466,3 +466,62 @@ def test_synthetic_scoped_l6_to_l7_complete_additive_transaction():
         assert denied.backups == denied.writes == 0
 
     asyncio.run(scenario())
+
+
+def _approved_missing_day_bundle():
+    choice, recorder, lineage, audit = synthetic()
+    # Keep only the verified measured row. The second civil day is approved
+    # as having NO supplier/Recorder statistic, not invented zero consumption.
+    choice["accepted_missing_days"] = ["2026-03-02"]
+    recorder["daily"] = recorder["daily"][:1]
+    lineage["daily"] = lineage["daily"][:1]
+    recorder["selected_total"] = lineage["selected_total"] = "1"
+    proof = {
+        "date": "2026-03-02", "statistic_id": SID, "approved": True,
+        "provenance": "portal_unattested_user_approved",
+        "no_statistical_row": True, "quantity": None,
+        "decision_ref": "SYNTH-MISSING-02", "revision_hash": "e" * 64,
+    }
+    recorder["approved_absences"] = [deepcopy(proof)]
+    lineage["approved_absences"] = [deepcopy(proof)]
+    recorder["selection_digest"] = lineage["selection_digest"] = _digest(choice)
+    return choice, recorder, lineage, audit
+
+
+def test_approved_missing_window_does_not_fabricate_a_zero_or_vendor_reading():
+    bundle = _approved_missing_day_bundle()
+    result = validate(bundle)
+    assert result["status"] == "eligible_for_scoped_review"
+    assert result["approved_missing_days_without_fabricated_rows"] == 1
+    assert len(bundle[1]["daily"]) == len(bundle[2]["daily"]) == 1
+    assert bundle[1]["daily"][0]["date"] == "2026-03-01"
+    assert result["global_supplier_history_attested"] is False
+    assert result["activation_authorized"] is False
+
+
+def test_missing_day_without_both_independent_receipts_remains_blocked():
+    bundle = _approved_missing_day_bundle()
+    bundle[2].pop("approved_absences")
+    result = validate(bundle)
+    assert result["status"] == "blocked"
+    assert "independent_missing_day_receipts_unavailable" in result["blockers"]
+
+
+def test_missing_day_receipt_may_not_claim_a_measured_zero():
+    bundle = _approved_missing_day_bundle()
+    bundle[1]["approved_absences"][0]["quantity"] = "0"
+    bundle[2]["approved_absences"][0]["quantity"] = "0"
+    result = validate(bundle)
+    assert result["status"] == "blocked"
+    assert "invalid_missing_day_approval" in result["blockers"]
+
+
+def test_missing_day_cannot_be_implicitly_zero_when_unapproved():
+    bundle = list(_approved_missing_day_bundle())
+    bundle[0].pop("accepted_missing_days")
+    # Canonical selection digest is refreshed but the decision does not exist.
+    digest = _digest(bundle[0])
+    bundle[1]["selection_digest"] = bundle[2]["selection_digest"] = digest
+    result = validate(bundle)
+    assert result["status"] == "blocked"
+    assert "missing_days_not_exactly_user_approved" in result["blockers"]
