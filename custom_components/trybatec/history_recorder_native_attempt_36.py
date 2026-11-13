@@ -34,6 +34,8 @@ from .history_recorder_b15 import (
     _recorder_writer_barrier, ledger_store as b15_store,
 )
 from .history_v4 import _snapshot
+from .history_smoothing_store import load_choices
+from .history_origin_store import load_origin_choices
 from .recorder_guard import verified_snapshot
 
 _SCHEMA = "history_36_native_attempt_journal_v1"
@@ -376,6 +378,56 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
     return item, snapshot, approved
 
 
+async def _verify_stored_day_approvals(
+    hass: Any, entry_id: str, days: list[dict[str, Any]],
+) -> None:
+    """Match every estimated day to the exact currently persisted approval.
+
+    A day reference in a caller-built plan is NOT authorization. Legacy
+    decisions remain intact; cause='undetermined_confirmed' is an approved
+    uncertainty, not a fabricated manual/telemetry explanation.
+    """
+    choices = await load_choices(hass, entry_id)
+    origins = await load_origin_choices(hass, entry_id)
+    if not isinstance(choices, dict) or not isinstance(origins, dict):
+        raise ValueError("Approved source decisions unavailable")
+    for day in days:
+        for contribution in day["contributions"]:
+            for ref in contribution["decision_refs"]:
+                stamp = ref["updated_at"]
+                if ref.get("kind") == "sparse_residual":
+                    choice = choices.get(ref["reference"])
+                    if (not isinstance(choice, dict)
+                            or choice.get("mode") != "linear"
+                            or choice.get("reason") != ref["reason"]
+                            or choice.get("updated_at") != stamp
+                            or (choice.get("confirmed_unknown_origin") is True)
+                            != (ref["reason"] == "undetermined_confirmed")):
+                        raise ValueError("Sparse day approval is missing, stale or unconfirmed")
+                    digest = plan_digest({
+                        "interval_key": ref["reference"], "mode": "linear",
+                        "reason": choice["reason"],
+                        "confirmed_unknown_origin": (
+                            choice["reason"] == "undetermined_confirmed"
+                        ), "updated_at": stamp,
+                    })
+                    if digest != ref["decision_fingerprint"]:
+                        raise ValueError("Day approval fingerprint or revision mismatch")
+                elif ref.get("kind") == "estimated_origin":
+                    eligible = [value for value in origins.values()
+                                if isinstance(value, dict)
+                                and value.get("approval_fingerprint")
+                                == ref["decision_fingerprint"]
+                                and value.get("serial") == contribution["serial"]
+                                and value.get("updated_at") == stamp
+                                and value.get("reason") == ref["reason"]]
+                    if (len(eligible) != 1 or ref["reference"] !=
+                            "approved_origin:" + ref["decision_fingerprint"]):
+                        raise ValueError("Physical initial-origin approval missing or stale")
+                else:
+                    raise ValueError("Unsupported source-day approval type")
+
+
 async def _legacy_ids(hass: Any, entry_id: str) -> set[str]:
     ledger = await b15_store(hass, entry_id).async_load()
     if ledger is None:
@@ -418,6 +470,7 @@ async def async_reserve_native_attempt_36(
                 "attempts": [], "events": [],
             }
         states = _validate_journal(journal, entry_id)
+        await _verify_stored_day_approvals(hass, entry_id, days)
         previous = [r for r in journal["attempts"] if r["logical_id"] == logical_id]
         if previous:
             latest = previous[-1]
@@ -549,6 +602,7 @@ async def async_enqueue_native_attempt_36(
         if states[statistic_id] != "reserved":
             raise ValueError("Attempt already queued, quarantined or verified; no requeue")
         item, snapshot, days = _approved_plan(plan, record["logical_id"])
+        await _verify_stored_day_approvals(hass, entry_id, days)
         if (
             expected_plan_fingerprint != record["plan_fingerprint"]
             or plan["fingerprint"] != expected_plan_fingerprint
@@ -645,6 +699,7 @@ async def async_native_attempt_proof_36(
                 "energy_activation_authorized": False,
             }
         try:
+            await _verify_stored_day_approvals(hass, entry_id, record["daily"])
             await _recorder_writer_barrier(hass)
             rows = await _read_recorder_rows(
                 hass, statistic_id, record["snapshot"],
@@ -697,6 +752,7 @@ async def async_native_attempt_proof_36(
             "recorder_sql_snapshot_hash_verified": True,
             "daily_approval_refs": deepcopy(record["daily"]),
             "day_approval_fingerprint": record["daily_hash"],
+            "native_decision_store_crosscheck_verified": True,
             "journal_disk_verified": True,
             "scoped_recorder_persistence_verified": True,
             "global_history_exhaustiveness_claimed": False,
