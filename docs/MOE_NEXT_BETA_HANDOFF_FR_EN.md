@@ -1,0 +1,91 @@
+# 🤖 MOE #45 — Dossier de passage à la prochaine bêta / Next beta handoff
+
+> **Photographie GitHub / GitHub snapshot :** 13 novembre 2026, après convergence #164, sans décision de livraison exécutée. **Statut : BLOQUÉ / BLOCKED** pour une bêta complète et testable. Ce dossier ne modifie aucun code, aucune protection, aucun workflow, ni Home Assistant. Les données de production et leurs journaux restent privés.
+
+## FR — Références exactes, statut et intégration
+
+| Élément | Fait vérifié |
+| --- | --- |
+| `main`, version publiée | `8d621da9703b40662800b4a7c286707e8a7f895f` ; tag et release [`0.3.4b1`](https://github.com/christophejaubert/ha-trybatec/releases/tag/0.3.4b1), 2026-11-13 08:53:01 UTC |
+| [PR #164](https://github.com/christophejaubert/ha-trybatec/pull/164) | Brouillon, base `main` ci-dessus, HEAD **`7a9d3b778773e730cd95f0f04067f3f76dae7ba4`**, 92 chemins dans son diff contre `main` ; GitHub `mergeable=true` / `mergeable_state=clean` au contrôle, **non fusionnée** |
+| #159 / #36 | [PR](https://github.com/christophejaubert/ha-trybatec/pull/159) HEAD `f23ba0f739195539530df92b5b922d41af9b0cc4`, base `main` |
+| #160 / #37 | [PR](https://github.com/christophejaubert/ha-trybatec/pull/160) HEAD `37bea29f9c368ea171bcc27cb18870da79069702`, base `main` |
+| #158 / #88 | [PR](https://github.com/christophejaubert/ha-trybatec/pull/158) HEAD `ee08cc363374ac41ba972583f26796a1b14e98c1`, base historique empilée #153, **ne pas fusionner directement** |
+| Recettes #165, #166, #167 | Brouillons sur `main`, #156 et #164 respectivement ; SHAs `50fa9ea3440cfc40c8b350ab998c59458bb704c4`, `acbff2c8497a02de319119f19a7598f7072f6929`, `254cddfd4e42fa3dadfa1d5e7c281e4f4c3cc42d` |
+| Source C11 et UX | #162 `51a43ed409a50ef184dfe6fe0f6e8fd812bf2e0f`, #156 `c0123734ce4d205e210927e852476ad7c1dcfed3` ; CI/CD #157 `1bac3aae43e9704b42f6ae607d788e0b22ad5c59` |
+
+**Comparaison indépendante de blobs :** dans #164, les blobs de `history_quarantine_design_36.py`, `history_recorder_native_attempt_36.py`, `history_interval_day_contract_36.py` sont identiques aux sources #159 ; `lineage_native_scoped_37.py`, `lineage_scope_attestation_37.py`, `lineage_selected_scope_37.py` sont identiques à #160 ; `energy_bulk_l6_admission_88.py`, `energy_bulk_scoped_l6_88.py`, `energy_bulk_admin_service_88.py`, `energy_bulk_native_port_l7.py` sont identiques à #158. Cette preuve établit la présence de ces fichiers, **pas** l'opérationnalité d'un parcours natif, ni l'absence de conflit futur.
+
+### CI : qualification par SHA, sans héritage entre PR
+
+| Objet / SHA | GitHub checks observés | Interprétation |
+| --- | --- | --- |
+| #164 `7a9d3b77…` | **30 success, 1 skipped (préparation manuelle facultative), 0 failure/cancelled/pending** ; [compatibilité #43504157746](https://github.com/christophejaubert/ha-trybatec/actions/runs/43504157746), [navigateur #43504158011](https://github.com/christophejaubert/ha-trybatec/actions/runs/43504158011) ; [commit/checks](https://github.com/christophejaubert/ha-trybatec/commit/7a9d3b778773e730cd95f0f04067f3f76dae7ba4/checks) | **10/10 statuts obligatoires réussis** selon ruleset actif #26796600 ; Python 3.13/3.14, HA isolé, Recorder et persistance, tests synthétiques FR/EN et C11, Gitleaks, CodeQL, confidentialité, intégrité, supply-chain, HACS/Hassfest verts ; **pas de recette métier réelle** |
+| #159 `f23ba0f…` | 23 success, 1 optional skipped, 0 failure | Tests du code source #36 seulement ; aucun transfert automatique à #164 |
+| #160 `37bea29…` | 23 success, 1 optional skipped, 0 failure | Tests du code source #37 seulement |
+| #158 `ee08cc3…` | **14 success, 1 failure Gitleaks historique, 3 skipped** ; l'intégrité trusted y est skipped sur base empilée | **CI de #158 non verte**, même si la convergence #164 passe indépendamment Gitleaks ; ne pas effacer ce fait |
+| #165 `50fa9ea…` | 21 success, **1 failure navigateur**, 1 skipped | Ancienne tête test isolé ; aucune certification de la candidate |
+| #166 `acbff2c…` | 15 success, **1 failure navigateur**, 2 skipped | Ancienne composition avec #156 ; aucune certification de #164 |
+| #167 `254cddf…` | 16 success, 2 skipped ; test navigateur réussi | Qualification spécifique de tests empilés, **SHA différent de #164** ; les trois contre-tests #36/#37/#88 utiles sont inclus dans #164 et ses tests sur son propre SHA sont verts |
+
+**Statuts requis GitHub :** ruleset actif [#26796600](https://github.com/christophejaubert/ha-trybatec/rules/26796600), protection stricte de `main` : `pure-tests (Python 3.13)`, `pure-tests (Python 3.14)`, `ruff-essential`, `hacs`, `gitleaks`, `ha-runtime-and-storage`, `latest-homeassistant-import`, `hassfest`, `decision-persistence-gate`, `trusted-workflow-integrity`. **`public-privacy-preflight` réussit sur #164 mais ne figure pas parmi ces dix contextes obligatoires** ; conserver une revue de confidentialité explicite avant toute fusion, et faire examiner au chantier CI/CD la nécessité d'une obligation protectrice sans modifier ici les règles.
+
+### Écarts bloquants avant proposition de bêta complète / Remaining release blockers
+
+1. **#36 — preuve native :** réservation durable, quarantaine, journal, relecture Recorder et test de refus d'écrivain tardif présents. Le serveur émet `history_36_native_attempt_proof_v1`, mais **pas** le reçu `history_36_scoped_selection_v2` requis par #37/L6 pour sélectionner des journées avec décisions vérifiables ; exclusion indépendante des imports Recorder différés/non clôturés non démontrée. Ne pas réutiliser d'identifiant ambigu ni activer de reprise spéculative.
+2. **#37 — filiation conditionnelle :** `lineage_37_scoped_selection_v2` et conservation des consommations par génération présentes. Un trou API ne devient jamais un index nul ; une période sélectionnée et approuvée peut être qualifiée sans exiger l'exhaustivité **globale** de tout l'historique fournisseur. Les deltas d'index ne relient jamais deux compteurs physiques. La filiation reste dépendante du reçu natif #36 et des preuves Recorder exactes.
+3. **#88 — fonction non activable de bout en bout :** tests synthétiques **positifs** d'admission L6 dans un périmètre choisi et contrôles négatifs ; le lecteur natif ne fournit pas encore l'ensemble des reçus v2 concordants. Dans `energy_bulk_activation_gate_88.py`, `NATIVE_ENERGY_BULK_WRITES_ENABLED_88 = False`. Le WebSocket admin est **enregistré dans le code de la candidate**, mais sa confirmation reste bloquée ; exclusivité des écrivains Energy, sauvegarde/restauration native prouvée et transaction L7 réelle manquent. Ne pas annoncer d'ajout groupé EF/ECS/CET opérationnel ni lever le verrou pour une CI verte.
+4. **Confidentialité et intégration :** les scans Gitleaks et `public-privacy-preflight` réussissent sur #164 ; ils ne remplacent pas une revue ciblée du diff final. Ne jamais publier journaux réels, compteurs, adresses, identifiants de logement, captures, sauvegardes, données d'énergie ou clés ; seules conclusions expurgées, non réidentifiables et données synthétiques.
+5. **Versionnage :** le manifeste dans #164 est encore **`0.3.4b1`** ; le tag `0.3.4b2` est **absent** lors de la vérification GitHub. **`0.3.4b2` est une hypothèse de prochaine bêta conforme à la succession observée et au nom du chantier MOE, pas une version approuvée ni publiable en l'état.** Tout correctif et changement du manifeste produira un **nouveau SHA à requalifier intégralement**. Ne pas publier le SHA actuel sous un tag prétendant contenir des fonctions encore bloquées.
+
+**CET / chauffage :** EF et ECS en `m³` et CET en `kWh` ; ne pas classifier arbitrairement le chauffage sous `gas` ni convertir en volume. La **compatibilité effective du CET kWh dans le tableau Énergie réel** est une **recette post-publication et post-installation** selon la décision du propriétaire. Avant publication, demander uniquement des vérifications de schéma/unités/catégories et de refus sûr avec données synthétiques.
+
+### Brouillon des notes de release — FR (non publiables avant levée des blocages)
+
+**Titre envisagé :** `🤖 Trybatec <VERSION_APPROUVÉE> — Bêta intégrée / Integrated beta`.
+
+**Corps conditionnel :** « Cette préversion rassemble les améliorations validées C1–C11 du panneau Trybatec, la découverte historique mutualisée, la traçabilité des générations de compteurs et les nouveaux contrôles des séries Recorder et du tableau Énergie. [Décrire **uniquement** les chemins réellement implémentés et testables sur <SHA_FINAL>.] Les index Trybatec bruts restent inchangés ; les lacunes et consommations estimées sont tracées. Aucune différence d'index n'est calculée entre compteurs physiques distincts. Les procédures de révision Recorder et d'ajout groupé Énergie ne sont proposées comme opérationnelles que si l'admission et les protections serveur sont effectivement qualifiées. Aucune écriture réelle, restauration, migration ou mise à jour HA n'est déclenchée par la publication. Installation et recette production requièrent leurs autorisations et preuves distinctes. Les limitations résiduelles et restrictions CET kWh sont indiquées explicitement. »
+
+**À compléter par MOE 03 avant publication :** numéro autorisé, commit fusionné dans `main`, test CI de ce nouveau SHA, différences depuis `0.3.4b1`, notes d'installation, fonctions disponibles/bloquées et approbation explicite de publication. Ne jamais recopier automatiquement les assurances d'une ancienne PR.
+
+### Draft release notes — EN (not for publication before gates clear)
+
+**Proposed title:** `🤖 Trybatec <APPROVED_VERSION> — Integrated beta / Bêta intégrée`.
+
+**Conditional body:** “This prerelease includes the verified C1–C11 panel improvements, shared historical discovery, physical-meter lineage traceability, and guarded Recorder/Energy evidence paths. [Describe only the capabilities **actually implemented and testable** at <FINAL_SHA>.] Raw supplier readings remain intact, missing observations are not zero measurements, and estimated consumption retains explicit provenance and approval. Index differences are never computed across separate physical-meter generations. Recorder revision and bulk Energy enrollment are advertised as working only when their native safety and transaction prerequisites have been independently qualified. Release does not approve production writes, restoration, migration or deployment. Installation and real HA acceptance require separate controlled steps. Report CET kWh behavior and residual limits without falsely reclassifying heating as gas.”
+
+**Complete before publication:** exact owner-approved version and scope, final merged SHA, post-merge CI, public change notes, verified availability/limitations, explicit release authorization.
+
+## FR — Remise à MOE 03 : mise à jour Home Assistant SANS REDÉMARRAGE
+
+**Limite officielle :** la [documentation Home Assistant sur les intégrations Marketplace](https://contributors.home-assistant.io/marketplace/guides/integrations/) précise qu'une **mise à jour d'une intégration déjà chargée requiert un redémarrage** pour prendre effet. Le [rechargement d'une entrée de configuration](https://www.home-assistant.io/actions/homeassistant.reload_config_entry/) décharge et recharge cette entrée, mais **ne garantit pas le rechargement du code Python importé**. Une mise à jour téléchargée ne constitue donc ni un chargement effectif ni une recette de la nouvelle version. **Ne jamais contourner le refus de redémarrer.**
+
+1. **Avant fusion / publication :** #164 reste brouillon et non admissible, donc MOE 03 ne déclenche aucune livraison en s'appuyant sur la seule CI verte. Après correctifs, comparer le **SHA final**, les diff publics, la confidentialité, 10/10 checks obligatoires et les tests indépendants ; vérifier que les notes ne revendiquent pas des boutons/actions dormants.
+2. **Fusion et release séparées :** MOE 03 exerce seulement ses autorisations propres, par opération. Vérifier le SHA du squash éventuel sur `main` puis toutes ses CI ; vérifier tag et release exacte, nom de version/manifest et notes FR/EN. Aucun automatisme fondé uniquement sur un statut CI.
+3. **Préparation HA en lecture seule :** contrôler la version effectivement active (sans publier les identifiants locaux), la disponibilité de l'intégration, de ses entités et du panneau, les erreurs pertinentes, les références Energy et Recorder et la compatibilité de méthode d'installation (Marketplace/HACS). Garder les preuves nominatives et journaux hors GitHub.
+4. **Sauvegarde / prérequis :** une sauvegarde de l'installation et sa vérification peuvent être nécessaires avant toute installation. **Une autorisation séparée est requise pour créer une sauvegarde**, de même que pour une restauration, une migration ou une écriture Recorder/Énergie ; ne pas les déduire de « mettre à jour sans redémarrage ». Si cette autorisation manque, s'arrêter avant l'opération risquée et préparer la demande ciblée.
+5. **Mise à jour sans redémarrage (seulement lorsque la candidate est réellement publiable et autorisée) :** sélectionner la version publiée exacte dans l'outil de mise à jour Home Assistant, vérifier la fin du téléchargement et l'identité du dépôt/version. **Ne pas redémarrer**, ne pas relancer automatiquement une nouvelle migration ou écriture. Vérifier si Home Assistant affiche « redémarrage requis ».
+6. **Vérification de l'effet réel :** différencier **version disponible**, **fichiers téléchargés**, **version chargée** et **fonctions opérationnelles**. Contrôler si le manifeste installé et les services exécutés concordent avec la version publiée ; un reload de config entry peut être essayé seulement s'il est autorisé, avec constat contradictoire des modules réellement chargés. Le panneau frontend peut changer indépendamment de Python ; prévenir les incohérences possibles.
+7. **STOP si activation requiert un redémarrage :** conserver l'état « fichiers téléchargés ; activation non vérifiée / redémarrage requis ». **Ne pas dire “installé et validé”**, ne pas lancer de recette Recorder/L6/L7 de la nouvelle version. Signaler au propriétaire la nécessité d'une autorisation de redémarrage distincte. Pas de redémarrage silencieux.
+
+**Sources officielles :** [Marketplace Home Assistant : redémarrage après mise à jour](https://contributors.home-assistant.io/marketplace/guides/integrations/), [Restart required](https://www.home-assistant.io/conditions/homeassistant.restart_required/), [Reload config entry](https://www.home-assistant.io/actions/homeassistant.reload_config_entry/), [Restart vs reload](https://www.home-assistant.io/common-tasks/general/restarting/).
+
+### Recette réelle post-installation (uniquement après chargement effectif, autorisations adaptées)
+
+- **Lecture seule initiale :** version Python réellement chargée et panneau, navigation C1–C11 FR/EN, desktop/mobile, clair/sombre, états de compteur actif/déposé, focus, origine inconnue, préremplissage expliqué, cache/reprise historique et édition manuelle des tarifs.
+- **Historique/Recorder :** séries/versions et provenance par compteur/lot/fluide, décisions de lissage (aucun zéro implicite), périodes retenues, statistiques persistées, pas de doublon ; aucune simulation d'incident destructeur sur la production. Toute importation, révision ou correction nécessite une décision expresse distincte.
+- **Filiation/Énergie :** vérifier sur sources **réelles privées** les générations, séparations physiques, consommations cohérentes, statistiques sélectionnées et conservation des autres sources. Si L6/L7 restent verrouillés, **le consigner explicitement comme non recettables**, sans écrire.
+- **CET kWh :** vérifier sur la version HA réellement chargée la disponibilité d'une statistique CET en `kWh`, sa classe `energy`, sa catégorie effectivement proposée, son traitement graphique et les totaux dans le tableau Énergie ; l'absence de prise en charge doit être rapportée, **jamais masquée via `gas` ou conversion fictive**. Toute modification d'Énergie exige sa propre autorisation, une sauvegarde/piste de reprise qualifiée et l'absence de double comptage.
+- **Rapport public minimal :** date, version, SHA, scénario et verdict **expurgés et non réidentifiables uniquement**. Tous les détails physiques, clés, identifiants, volumes, adresses, captures/logs et sauvegardes restent privés. Une CI verte ne vaut pas recette.
+
+## EN — Handoff / no-restart installation and post-install acceptance
+
+**Official Home Assistant guidance:** updates to an already loaded custom integration require a Home Assistant restart to take effect. Reloading a config entry is **not proof** that new Python modules were loaded. Accordingly a strict **no-restart** mandate may allow downloading published files, but not a complete verified runtime upgrade.
+
+**MOE 03 sequence:** keep #164 draft while native #36/#37/#88 blockers persist; after corrections and exact-final-SHA checks, independently approve/perform merge and verify post-merge SHA CI; separately publish the authorized beta and tag with bilingual accurate notes; inspect HA privately, obtain any necessary distinct backup approval, download the exact version **without restarting**, inspect restart-required flags and loaded behavior, then **STOP** if the new Python code cannot be proven active without restart. Do not bypass the user's no-restart restriction or claim the new version is fully installed/accepted. Ask for a distinct restart authorization if needed. Recorder imports, Energy writes, backup and restore are independent authorizations.
+
+**Post-install acceptance** only after verified code activation: read-only C1–C11; authorized scoped Recorder/lineage evidence; non-destructive L6 status; carefully authorized native L7 transactions after proper recovery safeguards; CET `kWh` compatibility in the **real** Energy UI; preserve external sources and never misrepresent heating as gas. Publish only redacted, non-reidentifiable decisions/limits. If any capability remains unavailable without restarting, explicitly record it as **not accepted**.
+
+---
+
+**Décision MOE / MOE decision:** **NOT READY** at #164 SHA `7a9d3b778773e730cd95f0f04067f3f76dae7ba4`, even though mandatory CI is green. No release, merge, Home Assistant action or live acceptance was executed by this documentary handoff.
