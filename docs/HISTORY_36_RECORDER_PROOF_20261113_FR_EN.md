@@ -1,5 +1,19 @@
 # 🤖 #36 — Preuve Recorder et refus conservés / Recorder proof and retained denials
 
+<!-- BO-DELIVERY-DOC-20261113 -->
+## 🤖 Décision BO applicable / Governing business decision — 13/11/2026
+
+**FR —** Les contre-exemples sur la barrière native Recorder continuent de montrer qu'un rejeu ambigu sur le **même** `statistic_id` n'est pas sûr. **Ils ne constituent pas une exigence métier de verrouillage global de tous les écrivains avant la publication d'une bêta.** La nouvelle voie approuvée est la conception et la qualification de séries statistiques **versionnées et immuables**, avec `statistic_id` distinct par génération/révision/tentative, versions incertaines **en quarantaine**, conservation des anciennes séries et basculement Énergie **uniquement** après relecture de persistance, contrôle de provenance et transaction sûre. L'absence de fence globale ne doit ni être masquée, ni conduire automatiquement à exiger une preuve impossible si un mécanisme alternatif démontre les garanties pertinentes pour la sélection. Aucune activation du mécanisme alternatif n'est acquise aujourd'hui.
+
+**#36 inchangé :** une date sans observation API n'est pas un index zéro ; lissage linéaire explicite et résiduel autorisé sur périodes/bornes retenues, estimations tracées, jamais de soustraction entre compteurs physiques. Les tests synthétiques avant publication couvrent répétition, écriture tardive, crash, reprise, identifiants distincts, sélection unique, absence de double comptage, refus et retour arrière. Réelle recette Recorder/Énergie seulement après publication puis installation autorisées.
+
+**EN —** Native barrier counterexamples still invalidate **ambiguous replay into the same statistic ID**, but do **not** impose an impossible global all-writer fence as a beta-release business prerequisite. Design and test immutable, versioned series with distinct IDs, quarantine uncertain attempts, persistent readback, selected version exclusivity and controlled Energy switching/rollback. Do not declare them active or safe before positive synthetic/isolated qualification. Missing API days are not zero readings; approved residual linear smoothing with estimated provenance is preserved. Index subtraction never crosses physical meter generations. Production acceptance follows separately authorized release and installation.
+
+**Coordination :** #36 ↔ #37 ↔ #88 ↔ #164; décision complète dans `docs/CONVERGENCE_CURRENT_FR_EN.md` sur #164. Les analyses techniques anciennes ci-dessous restent exploitables en tant que constats historiques, **pas comme des critères BO absolus**.
+
+<!-- END-BO-DELIVERY-DOC-20261113 -->
+
+
 **Base observée / Observed base:** `main` `8d621da9703b40662800b4a7c286707e8a7f895f` (0.3.4b1), 2026-11-13.  
 **Périmètre / Scope:** #36 uniquement ; #37 et #88 consommateurs en lecture seule.  
 **Preuves / Evidence:** chemins et tests du dépôt ; le statut des contrôles CI du SHA de cette branche doit être consulté séparément. Aucune recette ni opération Recorder réelle.
@@ -129,3 +143,64 @@ For UI C10, `undetermined` is an **unapproved draft sentinel**, not a persisted 
 The source-derived FIFO counterexample suite is a **model, not a live HA Recorder test**. Newly added isolated HA fixture tests cover late partial writes after a fictitious fence and refusal after native barrier success alone. Tests do not assert native durability after process crash, cross-process fencing or safety of production retries.
 
 **Contract for #37/#88/#164:** retain `safe_to_offer_retry=false`, `retry_only_these_statistic_ids=[]`, `independent_writer_fence_verified=false`, `admissible=false`, `activation_authorized=false`. Existing per-window readback, source fingerprints, units, versions and measured/estimated provenance are necessary evidence, not writer exclusivity or Energy write permission. Alternative quarantine/new-ID approaches are future design candidates only, requiring explicit approvals and independent audits; none is active. No real Recorder access, HA mutation, merge, release or restoration is authorized.
+
+
+---
+
+## FR — Alternative étudiée : tentatives à identité distincte et quarantaine (#36, 13/11/2026)
+
+**Décision technique : architecture de préparation développée en lecture seule et testée sur modèles synthétiques ; aucune admission Recorder/Énergie en production.** Le business owner valide ce chantier, **pas** la levée des verrous. L'architecture réduit les risques pour les *anciens writers coopérants* sans fournir une immutabilité native des statistiques HA.
+
+### Contrat de nommage et migration
+
+- **Identité logique** inchangée et indépendante du matériel : \`trybatec:logical_<fluide>_<empreinte>\`. Les compteurs physiques remplacés gardent leurs identités distinctes, selon #37.
+- **Révision métier Vn** : nouveaux index/choix approuvés, nouvelles empreintes source, lissage et provenance ; jamais de modification de l'ancienne série.
+- **Tentative technique Ak** : chaque nouveau placement en file reçoit un ID différent, par exemple \`trybatec:logical_ef_synthetic_v2_a3_0123456789abcdef0123456789abcdef\`. Un identifiant n'est **jamais réutilisé**, même après timeout, annulation, crash ou résultat « absent ». Le jeton d'exemple est fictif ; une réalisation future générerait une valeur imprévisible côté serveur.
+- **Patrimoine B15 existant** : les anciens IDs \`_vN\` et toute tentative préparée/importée restent inventoriés comme réservés. Aucune conversion silencieuse d'un Vn ambigu en nouvelle tentative ; aucune hypothèse de succès de la transaction antérieure.
+- **Registre d'identités requis** : append-only et durable, contenant numéro de révision/tentative, scope physique, unité, source fingerprint, hash du snapshot complet, horodatage, état, tombstone des IDs antérieurs et références Énergie. Le Store actuel seul ne réserve pas atomiquement une identité contre un autre writer, ni contre une écriture après crash.
+
+### Parcours hypothétique (aucun appel effectif ici)
+
+1. Valider la source physique complète, les index d'origine **inchangés**, le zéro selon le seuil, le sparse selon le seuil, les variantes et les décisions confirmées ; reporter les journées sous provenance **measured**, **estimated_linear**, ou leur composition **mixed**. Lissage strictement linéaire du résiduel non mesuré ; quantités fournisseur jamais fabriquées.
+2. Calculer et faire confirmer les empreintes source, snapshot, version et par-journée ; conserver un index initial estimé à 0 par défaut, **modifiable**, séparé d'un relevé fournisseur. Si la cause du défaut est inconnue, enregistrer **\`undetermined_confirmed\`** uniquement avec \`confirmed_unknown_origin=true\` ; \`undetermined\` reste un brouillon non approuvé.
+3. Allouer **durablement et sans réutilisation** un ID de tentative, avec comparaison/échange atomique et unicité globale avant toute mise en file. **Cette réservation n'est pas implémentée ni prouvée** : \`preview_quarantined_successor\` ne fait qu'une vérification des identifiants fournis.
+4. Placer **une seule fois** la nouvelle tentative dans Recorder. Après interruption ou échec non conclusif, **mettre l'identité en quarantaine**, garder le journal et l'éventuelle tâche ancienne. **Ne jamais rejouer l'ID ambigu**. Une autre tentative utiliserait un autre ID, même si son contenu source est identique.
+5. Réconcilier la nouvelle tentative par relecture complète des fenêtres, des métadonnées natives (source, unité, classe, sommes), vérifier dates hors fenêtres et stabilité ; consigner les lacunes/incohérences sans classer « absent » comme un droit de rejeu. Un import partiel demeure hors sélection.
+6. L'admission à Énergie ne peut viser **qu'une version entièrement vérifiée** sur un inventaire exhaustif, avec exclusion de toutes versions/tentatives concurrentes du même lot/fluide. La mise à jour Énergie doit **remplacer atomiquement** la référence précédemment sélectionnée, non faire un simple append ; nouvelle lecture live ET persistée, journal de transaction, sauvegarde fiable et rollback conditionnel. **La transaction native #88 actuelle privilégie les ajouts et n'établit pas cette substitution** ; aucune sélection n'est autorisée ici.
+7. Conserver toutes les anciennes séries physiques, versions, tentatives et décisions auditables ; prévenir le double comptage non seulement dans Énergie mais aussi dans les références de consommateurs tiers lorsqu'ils sont connus. Ne jamais supprimer, purger, fusionner ou réécrire une série ambiguë sans mandat distinct.
+
+### Limites démontrées, risques et tests
+
+| Scénario synthétique | Résultat du modèle | Garantie production |
+|---|---|---|
+| Ancienne tâche tardive écrivant son **ancien** ID distinct | Les buckets du nouvel ID ne changent pas dans un dictionnaire indexé par ID | Isolation de nom seulement ; dépend de l'exécution native fidèle à l'ID |
+| Écrivain tiers utilisant **le nouvel ID** | Il peut écraser les données du nouveau candidat dans le modèle ; HA peut mettre à jour une ligne existante | **Aucune immutabilité globale** |
+| Deux demandeurs proposant depuis le même journal | Calculent la même identité si la génération/nonce est identique | Exige réservation atomique durable hors modèle |
+| Crash avant enregistrement du token, puis redémarrage | Même prévisualisation possible ; statut non autorisant | Idempotence/réservation non prouvée |
+| Abandon ou timeout d'un import initial | Ancienne tentative conservée dans le rapport de quarantaine | Aucun ancien writer annulé ; pas de rejeu |
+| Batch multi-statistique, source/empreinte modifiée, collision Recorder/Énergie | Refus du candidat ou blocage explicitement identifié | Inventaires et lecture globale encore non attestés |
+| Deux anciennes versions sélectionnées Énergie | Blocage \`multiple_historical_versions_referenced_by_energy\` | L'exclusivité native complète dépend de #88 |
+| Indices fournisseur + lissage avec cause inconnue validée | Journées mesurées restent mesurées ; seul résiduel est estimé, origine étiquetée \`unknown\` | Attribution synthétique, pas preuve de portail ni de filiation |
+
+Les nouveaux composants **sans enregistrement ni accès HA** sont \`history_quarantine_design_36.py\` (prévisualisation d'un ID candidat, tombstones, inventaire et refus) et \`history_interval_day_contract_36.py\` (projection par jour des décisions confirmées, strictement non probante pour #37). Les tests : \`tests/test_history_quarantine_design_36.py\`, \`integration_tests/test_history_interval_day_contract_36.py\` et le complément à \`integration_tests/test_history_smoothing_origin_c10_36.py\`. L'interface \`panel_history.py\` appartient à #156 ; ce chantier ne l'a pas modifiée.
+
+**Contrat C10 à raccorder dans #156 :** ajouter \`undetermined_confirmed\` aux motifs du chemin utilisateur de décision d'intervalle, mais **seulement quand** \`confirm=true\` et \`confirm_unknown_origin=true\` (case de consentement distincte, sans sélection par défaut). Le backend \`history_smoothing_store.save_choice(..., confirm_unknown_origin=True)\` valide et persiste le booléen, avec timestamp UTC et interval_key de l'aperçu recalculé sous verrou. \`undetermined\` seul, \`unknown\`, \`manual_periodic\` auto-sélectionné et motif hors liste demeurent invalides ; les choix historiques ne sont pas migrés. La décision d'intervalle ne devient pas une affirmation « panne de télérelève » ou « relevé manuel ». L'origine physique du premier index estimé est distincte : aucune écriture sur index fournisseur, ni création d'un relevé authentique fictif.
+
+### Preuves indépendantes encore indispensables
+
+- **Recorder** : une réservation atomique et durable du nouvel ID, une attestation de la couverture des métadonnées/horodatages, l'absence d'une collision avec un writer non coopérant à ce même ID, ainsi qu'une politique contre les réécritures tardives *après* vérification. L'API \`async_add_external_statistics\` et les métadonnées ne garantissent pas l'immuabilité ; un nonce rend la collision accidentelle improbable mais ne la **prouve** pas impossible.
+- **#37** : inventaire de toutes les générations physiques, statut actif/déposé, périodes et chevauchements, attribution **par journée** de la décision, empreinte source et règle exacte zéro/sparse ; un \`day_decision_fingerprint\` calculé à partir d'une projection ne vaut pas approbation fournisseur indépendante.
+- **#88** : comparaison live/durable des références natives par lot et fluide, exclusion de tous les anciennes versions / nouveaux IDs ambigus, sélection atomique d'une version, absence de double comptage et contrôle des consommateurs non coopérants, rollback et test de restauration séparé. \`recorder_persistence_verified\` n'est **pas** \`recorder_immutable_or_fenced\`.
+- **#164** : comparer les empreintes de blobs déjà reprises avant d'intégrer le seul delta ; ne pas modifier les handlers UI #156, \`lineage_*\` #37 ou \`energy_bulk_*\` #88 depuis #159.
+
+**Refus inchangés :** \`safe_to_offer_retry=false\`, \`retry_only_these_statistic_ids=[]\`, \`independent_writer_fence_verified=false\`, \`admissible=false\`, \`activation_authorized=false\`. L'alternative *permettrait* de ne plus dépendre du fencing **des anciennes tentatives identifiées** si un contrat supplémentaire de réservation et sélection atomique était qualifié. Elle ne prouve pas une immutabilité globale Recorder avec les API natives disponibles.
+
+## EN — Immutable attempt IDs and quarantined uncertainty: design only
+
+The business owner approved designing and developing a versioned immutable-series architecture, **not** enabling Recorder or Energy writes. The proposed \`_vN_aK_<128-bit-token>\` naming separates business revisions from technical attempts. A failed, cancelled or ambiguous attempt is permanently tombstoned and never replayed under its original ID. A new candidate receives a distinct, uniquely reserved ID, subject to a **missing native durable atomic reservation proof**. Prior B15 \`_vN\` IDs remain reserved; no silent rewrite, deletion, or manufactured completion.
+
+Synthetic tests demonstrate key separation under exact-string identity and counterexamples for concurrent allocations, missing durable reservations, stale tasks, cross-writer collisions, partial histories and competing Energy selections. They **do not** demonstrate immutable Home Assistant statistics: the native import path can UPDATE an existing bucket, any external writer can address the same ID, and the present #88 transaction is addition-oriented rather than a qualified atomic version replacement.
+
+The interval reason \`undetermined_confirmed\` is a distinct explicitly approved unknown-cause value, requiring \`confirmed_unknown_origin=true\`; the UI draft \`undetermined\` is never stored, and existing manual/telemetry approvals are left unchanged. Per-day projection preserves \`measured\` versus \`estimated_linear\`, residual-only linear smoothing, raw index immutability and editable estimated starting index; it expressly claims **no independent supplier, physical-lineage or Recorder proof**. #156 owns the frontend wiring. #37 must independently attest per-day decisions and physical generations, and #88 must qualify a genuinely exclusive Energy switch across existing sources and versions.
+
+**Conclusion / Decision:** conditional isolation is promising, but no complete independent safety proof for actual import/activation can be established using the currently inspected HA 2026.11.1 interfaces. Keep all fail-closed gates. No production Recorder operations, HA changes, merge, release, or restore.
