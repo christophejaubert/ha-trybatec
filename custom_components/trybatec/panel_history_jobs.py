@@ -218,7 +218,11 @@ async def ws_panel_history_job_status(
 ) -> None:
     coordinator = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
     job = _job(coordinator) if coordinator is not None else None
-    if job is None or job["id"] != msg["job_id"]:
+    if (job is None or job["id"] != msg["job_id"] or (
+        job["state"] == "complete" and get_source(coordinator) is None
+    )):
+        # A retained job result must never survive a contract, scope or TTL
+        # invalidation, even for the same HA entry id.
         connection.send_error(msg["id"], "history_job_not_found", "History job unavailable")
         return
     connection.send_result(msg["id"], _job_view(coordinator, job, include_result=True))
@@ -263,12 +267,14 @@ async def ws_panel_history_discovery_status(
         connection.send_error(msg["id"], "trybatec_not_found", "Account not loaded")
         return
     existing = _job(coordinator)
-    if existing is not None:
+    valid = get_source(coordinator)
+    if existing is not None and (
+        existing["state"] != "complete" or valid is not None
+    ):
         connection.send_result(msg["id"], _job_view(
             coordinator, existing, include_result=False,
         ))
         return
-    valid = get_source(coordinator)
     coverage = coverage_view(
         valid, cache_reused=valid is not None,
         invalidation_reason=getattr(coordinator, "_panel_history_cache_invalidation", None),
