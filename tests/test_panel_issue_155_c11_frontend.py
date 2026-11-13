@@ -106,7 +106,13 @@ assert.equal(complete.cache_reused,true);
 // A successful *bounded job* is not complete account discovery.
 const partialCoverage={...fullCoverage,status:"incomplete",
   completeness:"bounded_period_only",coverage_start:"2023-01-01",
-  coverage_end:"2023-12-31",suggested_years:[2023]};
+  coverage_end:"2023-12-31",suggested_years:[2023],
+  meters:[
+    {physical_key:key1,first_observed_at:"2023-02-01T10:00:00+01:00",
+      last_observed_at:"2023-11-01T10:00:00+01:00"},
+    {physical_key:key2,first_observed_at:"2023-03-01T10:00:00+01:00",
+      last_observed_at:"2023-12-01T10:00:00+01:00"},
+  ]};
 const partial=view({...base,status:"complete",discovery_status:"incomplete",
   coverage:partialCoverage,cache_reused:false});
 assert.equal(partial.discovery_status,"incomplete");
@@ -140,6 +146,10 @@ assert.equal(bounds(account,key2,complete.coverage).end,"2024-04-01");
 assert.equal(bounds(account,other,complete.coverage).start,"");
 assert.equal(bounds(account,key1,partial.coverage).complete,false);
 assert.equal(bounds(account,key1,partial.coverage).basis,"bounded_period_only");
+assert.equal(bounds(account,key1,partial.coverage).startSource,"inventory");
+assert.equal(bounds(account,key1,partial.coverage).endSource,"inventory");
+assert.equal(bounds(account,key2,partial.coverage).startSource,"bounded");
+assert.equal(bounds(account,key2,partial.coverage).endSource,"bounded");
 // Source timestamps can cross a Europe/Paris day boundary.
 const dayCoverage={...fullCoverage,first_observed_at:"2025-03-01T23:30:00Z"};
 assert.equal(bounds(account,null,dayCoverage).start,"2025-03-02");
