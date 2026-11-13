@@ -182,7 +182,7 @@
       },
       "history_smoothing_choice": {
         "title": "Choose smoothing",
-        "description": "**Interval:** {interval}\\n\\n**Status:** {status}\\n**Bounded consumption:** {total} (verified source unit)\\n\\nLinear smoothing estimates only uncovered daily consumption and never fabricates measured indexes. No smoothing preserves observed consumption only. Confirmation is mandatory on the next screen.",
+        "description": "**Interval:** {interval}\\n\\n**Status:** {status}\\n**Bounded consumption:** {total} (verified source unit)\\n\\nLinear smoothing applies only to unobserved daily consumption; original source readings remain unchanged. No smoothing preserves observed consumption only. Confirmation is mandatory on the next screen.",
         "data": {
           "mode": "Method",
           "reason": "User-declared reason"
