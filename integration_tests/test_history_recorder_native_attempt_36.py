@@ -28,6 +28,22 @@ FINGERPRINT = "c" * 64
 STAMP = "2026-11-01T12:00:00+00:00"
 
 
+@pytest.fixture
+def hass_storage():
+    """Disable pytest-homeassistant's in-memory mock for THIS test module.
+
+    The native Store must actually write its temporary .storage file here.
+    This fixture is scoped to this module and never affects real HA.
+    """
+    return {}
+
+
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir):
+    """Use an isolated temporary config directory for real Store I/O."""
+    return hass_tmp_config_dir
+
+
 def _plan(*, estimated: bool = False, reason: str = "undetermined_confirmed"):
     data = {
         date(2026, 1, 1): 2.0, date(2026, 1, 2): 3.0,
