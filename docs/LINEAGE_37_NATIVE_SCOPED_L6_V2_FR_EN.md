@@ -210,3 +210,30 @@ when both branches are integrated. It authenticates the HA administrator
 and configured account before reading the source. The result reports the
 native SQL observation separately from post-restart and concurrent-writer
 protection. No native v2 observation is upgraded into an immutable L6 proof.
+
+
+---
+
+## FR — Réconciliation des contributions natives par compteur (14 novembre 2026)
+
+**SHA de développement :** voir les commits de la PR #160 à partir de `e8483c0`. Le producteur `lineage_37_scoped_selection_v2` est désormais plus strict : il ne déduit plus une filiation physique du seul total journalier Recorder.
+
+La sélection doit être validée sur une source C11 encore valide, avec le lot/fluide/compte, les dates exactes, les identifiants physiques et les index fournisseur d'origine. Pour chaque jour sélectionné, le lecteur natif #36 doit renvoyer une ligne `daily[]` comportant `contributions[]` avec `serial`, `measured`, `estimated`, `decision_refs[]` (chacune portant `reference` et `decision_fingerprint` si estimation). #37 vérifie alors indépendamment le **même compteur**, la même date, l'égalité du mesuré/estimé et les révisions des décisions, avant toute consolidation des volumes.
+
+Deux compteurs physiques successifs peuvent contribuer **le même jour** si leurs périodes d'observation ne se chevauchent pas et que chacun a ses propres paires d'index fournisseur. Leur somme est admise à la *qualification physique*, jamais par soustraction d'un index entre deux compteurs. Un chevauchement temporel, même si le total paraît plausible, reste refusé.
+
+La lecture v2 observée sur le HEAD #159 `9fb2c57` ne renvoie pas encore les contributions individuelles et conserve `independent_future_writer_exclusion_verified=False`. Le refus est explicite : `native_36_daily_physical_readback_unavailable` et `native_36_future_writer_exclusion_unverified`. Pour débloquer L6, #159 doit fournir ces données depuis son journal natif et démontrer une exclusion effective des écrivains tardifs ; une simple lecture SQL double ne suffit pas. #158 doit transmettre les contributions réellement relues et ne doit **pas** construire artificiellement les indicateurs d'immuabilité à partir de `_recorder_envelope_88`.
+
+**Cas obligatoirement refusés :** exclusion des écrivains futurs non prouvée ; manque du détail Recorder par compteur ; permutation de séries physiques ; montant ou provenance modifiés sous un total identique ; référence/révision de décision divergente ; journée absente sans approbation spécifique ; date de remplacement contradictoire ; chevauchement de périodes ; index fournisseur modifié ou inexistant ; version concurrente en attente, inconnue ou contradictoire ; métrique estimée/mixte non représentable sans ambiguïté. Un compteur déposé et une date de remplacement inconnue, en eux-mêmes, **ne sont pas** des motifs de refus. Aucun contrôle d'exhaustivité globale de l'historique fournisseur n'est exigé.
+
+Les tests positifs du calcul et de la structure sont exécutés sur données de test fictives via les vraies fonctions de #37. Ils ne prouvent pas la sécurité d'un Recorder externe ; la validation positive de bout en bout, sur versions et révisions réelles, demeure bloquée par #36. Le code reste en lecture seule : aucun import, activation, migration ni modification de Home Assistant.
+
+## EN — Per-physical-meter Recorder contribution reconciliation (14 November 2026)
+
+**Development SHA:** PR #160, starting at `e8483c0`. `lineage_37_scoped_selection_v2` no longer assumes daily Recorder totals alone are sufficient to prove physical lineage.
+
+For every selected civil day, the native #36 reader must expose persisted `daily[].contributions[]` records containing the actual `serial`, `measured`, `estimated`, and `decision_refs[]` (with `reference` and `decision_fingerprint` for estimates). #37 independently checks these against same-meter, same-day raw supplier index pairs and exact user approval revisions. Amounts from successive physical generations may be summed within one day only when observation intervals do not overlap; indexes from different physical meters are **never subtracted**.
+
+At #159 HEAD `9fb2c57`, the scoped native reader still omits per-meter daily contributions and explicitly reports `independent_future_writer_exclusion_verified=False`. Both conditions must remain **blocked**. #159 must supply genuine journal-backed member records and a demonstrated late-writer exclusion contract. #158 must forward actual readback, not synthesize immutable status from observed SQL or on-disk journals.
+
+**Mandatory refusals:** missing writer exclusion, missing per-meter native readback, swapped serials, changed per-meter amount or origin under equal daily total, contradictory approval/revision, unapproved no-row day, overlapping meter footprints, invalid supplier raw indexes, ambiguous/pending competing version, unsupported mixed day. Retired meters and unknown service dates are retained; global provider-history exhaustiveness is never required. Positive arithmetic tests on fictional input are not a real native Recorder immutability proof. No Recorder, Energy, installation or HA mutation is permitted by this implementation.
