@@ -11,6 +11,7 @@ from typing import Any
 
 from .energy_bulk_activation_gate_88 import NATIVE_ENERGY_BULK_WRITES_ENABLED_88
 from .energy_bulk_l6_admission_88 import assess_independent_admission_l6_88
+from .energy_bulk_scoped_l6_88 import assess_scoped_selection_l6_88
 from .energy_bulk_native_port_l7 import HAGuardedEnergyPort
 from .energy_bulk_transaction import (
     EnergyRecoveryRequired,
@@ -28,10 +29,57 @@ _HISTORY_SCHEMA = "history_36_recorder_handoff_v1"
 _LINEAGE_SCHEMA = "lineage_37_energy_handoff_v1"
 
 
-def _blockers(evidence: Any) -> tuple[str, ...]:
-    """Require three *independent* backend contracts, not caller booleans."""
+def _blockers(evidence: Any, *, account: str | None = None,
+              lot: str | None = None) -> tuple[str, ...]:
+    """Keep v1 fail-closed; v2 uses only explicitly selected boundaries.
+
+    The v2 branch never accepts the obsolete impossible all-account proof.
+    A diagnostic cannot establish native writer locking, so the service and
+    websocket still block all writes until separately qualified.
+    """
     if not isinstance(evidence, dict):
         return ("l6_evidence_missing",)
+    if "scoped_selections_v2" in evidence:
+        rows = evidence["scoped_selections_v2"]
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 3:
+            return ("l6_selected_scopes_missing_or_ambiguous",)
+        problems: set[str] = set()
+        seen: set[str] = set()
+        for item in rows:
+            if not isinstance(item, dict):
+                problems.add("l6_selected_scope_malformed")
+                continue
+            choice = item.get("selection")
+            if not isinstance(choice, dict):
+                problems.add("l6_native_selection_missing")
+                continue
+            if (account is None or lot is None
+                    or choice.get("account") != account
+                    or choice.get("lot") != lot):
+                problems.add("l6_selected_scope_not_bound_to_native_account")
+            fluid = choice.get("fluid")
+            if fluid not in _FLUIDS or fluid in seen:
+                problems.add("l6_selection_fluid_duplicate_or_unknown")
+                continue
+            seen.add(fluid)
+            try:
+                diagnostic = assess_scoped_selection_l6_88(
+                    choice, item.get("history_36"), item.get("lineage_37"),
+                    item.get("energy_audit"),
+                )
+            except (ValueError, TypeError, KeyError, OverflowError):
+                problems.add("l6_scoped_crosscheck_invalid")
+                continue
+            problems.update("l6_scoped:" + b for b in diagnostic["blockers"])
+        # A native, post-restart restore drill is distinct from archive
+        # readability. Existing backend has not demonstrated that drill.
+        if evidence.get("native_backup_restore_qualified") is not True:
+            problems.add("native_backup_restore_not_qualified")
+        # A scoped statistical proof does not lock external HA Energy writers.
+        # The current port has only optimistic readback, not an independent
+        # cross-writer transaction/commit proof.
+        problems.add("l7_external_writer_commit_guarantee_not_qualified")
+        return tuple(sorted(problems))
     reasons: list[str] = []
     historical = evidence.get("historical_contract")
     if (not isinstance(historical, dict)
@@ -92,6 +140,52 @@ def _fluid_status(evidence: Any) -> dict[str, dict[str, Any]]:
 
 def _native_l6_diagnostics(evidence: Any, *, account: str, lot: str) -> dict[str, dict[str, Any]]:
     """Explain independent #36/#37 gaps; never produce a transaction permit."""
+    scoped = evidence.get("scoped_selections_v2") if isinstance(evidence, dict) else None
+    if scoped is not None:
+        output = {fluid: {
+            "status": "blocked", "blockers": ["selected_scope_not_provided"],
+            "activation_authorized": False,
+        } for fluid in _FLUIDS}
+        if not isinstance(scoped, list) or len(scoped) > 3:
+            return output
+        for item in scoped:
+            if not isinstance(item, dict):
+                continue
+            selection = item.get("selection")
+            if not isinstance(selection, dict) or selection.get("fluid") not in _FLUIDS:
+                continue
+            fluid = selection["fluid"]
+            if (selection.get("account") != account or selection.get("lot") != lot
+                    or output[fluid]["blockers"] != ["selected_scope_not_provided"]):
+                output[fluid] = {
+                    "status": "blocked",
+                    "blockers": ["selected_scope_invalid_or_duplicated"],
+                    "activation_authorized": False,
+                }
+                continue
+            try:
+                verdict = assess_scoped_selection_l6_88(
+                    selection, item.get("history_36"), item.get("lineage_37"),
+                    item.get("energy_audit"),
+                )
+                output[fluid] = {
+                    "status": verdict["status"],
+                    "blockers": verdict["blockers"],
+                    "approved_unattested_contributions":
+                        verdict["approved_unattested_contributions"],
+                    "approved_missing_days_without_fabricated_rows":
+                        verdict["approved_missing_days_without_fabricated_rows"],
+                    "quarantined_alternative_versions":
+                        verdict["quarantined_alternative_versions"],
+                    "global_supplier_history_attested": False,
+                    "activation_authorized": False,
+                }
+            except (ValueError, TypeError, KeyError, OverflowError):
+                output[fluid] = {
+                    "status": "blocked", "blockers": ["selected_scope_invalid"],
+                    "activation_authorized": False,
+                }
+        return output
     source = evidence.get("independent_contracts") if isinstance(evidence, dict) else None
     if not isinstance(source, dict):
         return {fluid: {
@@ -142,7 +236,9 @@ class EnergyBulkAdminService88:
         await self._port.assert_admin(actor)
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
         preview, _ = _prepare_state(state, self._account, self._lot)
-        independent = _blockers(state.evidence)
+        independent = _blockers(
+            state.evidence, account=self._account, lot=self._lot
+        )
         # Only report journal state: never expose stored preference snapshots or
         # backup identifiers to a browser. An unreadable/pending journal blocks.
         try:
@@ -213,7 +309,8 @@ class EnergyBulkAdminService88:
             raise EnergyTransactionRefused("Explicit matching confirmation required")
         # Never use a cached, browser-supplied or previously computed admission.
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
-        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(state.evidence):
+        if (not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(
+                state.evidence, account=self._account, lot=self._lot)):
             raise EnergyTransactionRefused("Independent L6/#36/#37 admission not qualified")
         return await apply_bulk_energy_transaction(
             self._port, actor, account=self._account, lot=self._lot,
