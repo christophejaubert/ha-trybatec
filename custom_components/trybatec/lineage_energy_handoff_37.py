@@ -142,6 +142,7 @@ def prepare_energy_lineage_handoff_37(
         contributions = set()
         estimated_without_daily_ref = False
         estimated_with_daily_candidate = False
+        estimated_with_revision_candidate = False
         for item in rows:
             if not isinstance(item, Mapping):
                 raise ValueError("Invalid daily row")
@@ -186,8 +187,18 @@ def prepare_energy_lineage_handoff_37(
                     attribution = contributor.get("decision_attribution", "approval_set_unattributed")
                     if not isinstance(decision, str) or not decision or len(decision) > 128:
                         raise ValueError("Estimated day lacks a decision reference")
-                    if attribution not in ("day_candidate_unverified", "approval_set_unattributed"):
+                    if attribution not in (
+                        "day_candidate_unverified", "day_revision_candidate_unverified",
+                        "approval_set_unattributed",
+                    ):
                         raise ValueError("Unrecognized estimated-day attribution")
+                    revision = contributor.get("revision_fingerprint")
+                    if attribution == "day_revision_candidate_unverified":
+                        if (not isinstance(revision, str) or len(revision) != 64
+                                or any(ch not in "0123456789abcdef" for ch in revision)):
+                            raise ValueError("Revision-scoped estimate requires exact revision")
+                    elif revision is not None:
+                        raise ValueError("Unscoped estimate cannot assert a revision")
                     measured = _number(contributor.get("measured"))
                     estimated = _number(contributor.get("estimated"))
                     if measured + estimated != amount or estimated <= 0:
@@ -197,6 +208,8 @@ def prepare_energy_lineage_handoff_37(
                         raise ValueError("Invalid physical consumption provenance")
                     if attribution == "day_candidate_unverified":
                         estimated_with_daily_candidate = True
+                    elif attribution == "day_revision_candidate_unverified":
+                        estimated_with_revision_candidate = True
                     else:
                         estimated_without_daily_ref = True
                 daily_contributions += amount
@@ -232,9 +245,11 @@ def prepare_energy_lineage_handoff_37(
         if estimated_without_daily_ref:
             reference_blockers.append("estimated_day_decision_not_individually_attributed")
         if estimated_with_daily_candidate:
-            # A supplied day-level key must still be independently matched to
-            # an approved, revision-specific #36 decision by the consuming backend.
             reference_blockers.append("day_decision_requires_independent_36_match")
+        if estimated_with_revision_candidate:
+            # A syntactically exact record is still not independently certified:
+            # the authoritative #36 ledger and persisted Recorder snapshot matter.
+            reference_blockers.append("day_revision_requires_independent_36_match")
         all_blockers = sorted(set(raw_blockers + reference_blockers))
         qualification = (
             "contradictoire" if any(reason in all_blockers for reason in (
