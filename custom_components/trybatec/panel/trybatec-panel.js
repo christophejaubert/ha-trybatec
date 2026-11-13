@@ -1157,6 +1157,12 @@ class TrybatecPanel extends HTMLElement {
   /** Passive C11 read: never starts supplier traffic. */
   async _readHistoryDiscovery(entryId=this._current?.entry_id) {
     if (!entryId || !this._hass || this._historyDiscoveryInflight?.has(entryId)) return;
+    // The command is administrator-only. Do not attempt it before HA has
+    // established an administrator identity for this panel session.
+    if (this._hass?.user?.is_admin!==true) {
+      this._historyDiscovery.set(entryId,{discovery_status:"unverified",coverage:null});
+      return;
+    }
     this._historyDiscoveryInflight.add(entryId);
     try {
       const response=await this._hass.callWS({
