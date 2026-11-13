@@ -36,27 +36,44 @@ function trybatecHistoricalBounds(account, selectedKey, coverage) {
       timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
     }).format(new Date(value));} catch (_) {return "";}
   };
-  const dates=scoped.map(m=>{
+  const firstCandidates=[],lastCandidates=[];
+  const add=(list,raw,source)=>{
+    const value=iso(raw);
+    if (value) list.push({value,source});
+  };
+  const scanned=scoped.map(m=>{
     const matches=rows.filter(row=>row?.physical_key===m.physical_key);
     const row=matches.length===1?matches[0]:null;
-    const first=full && row?[iso(row.first_observed_at)]:
-      [m.first_observed_at,row?.first_observed_at].map(iso).filter(Boolean).sort();
-    const last=full && row?[iso(row.last_observed_at||row.last_source_observed_at)]:
-      [m.last_source_observed_at,row?.last_observed_at,
-        row?.last_source_observed_at].map(iso).filter(Boolean).sort();
-    return {first:first[0]||"",last:last[last.length-1]||"",verified:Boolean(row)};
+    if (full && row) {
+      add(firstCandidates,row.first_observed_at,"full");
+      add(lastCandidates,row.last_observed_at||row.last_source_observed_at,"full");
+    } else {
+      add(firstCandidates,m.first_observed_at,"inventory");
+      add(lastCandidates,m.last_source_observed_at,"inventory");
+      if (row && partial) {
+        add(firstCandidates,row.first_observed_at,"bounded");
+        add(lastCandidates,row.last_observed_at||row.last_source_observed_at,"bounded");
+      }
+    }
+    return Boolean(row);
   });
-  const starts=dates.map(r=>r.first).filter(Boolean).sort();
-  const ends=dates.map(r=>r.last).filter(Boolean).sort();
-  // Full account-wide status, when available, is authoritative for the global bounds.
-  const accountFirst=!selected && full?iso(coverage.first_observed_at):"";
-  const accountLast=!selected && full?iso(coverage.last_observed_at):"";
-  const start=accountFirst||starts[0]||"";
-  const end=accountLast||ends[ends.length-1]||"";
-  const complete=Boolean(full && scoped.length && dates.every(r=>r.verified));
+  // Account-wide verified first/last timestamps override inventory dates.
+  if (!selected && full) {
+    const first=iso(coverage.first_observed_at),last=iso(coverage.last_observed_at);
+    if (first) {firstCandidates.length=0;add(firstCandidates,first,"full");}
+    if (last) {lastCandidates.length=0;add(lastCandidates,last,"full");}
+  }
+  const priority={full:3,bounded:2,inventory:1};
+  const first=firstCandidates.sort((a,b)=>a.value.localeCompare(b.value)||
+    priority[b.source]-priority[a.source])[0];
+  const last=lastCandidates.sort((a,b)=>b.value.localeCompare(a.value)||
+    priority[b.source]-priority[a.source])[0];
+  const start=first?.value||"",end=last?.value||"";
+  const complete=Boolean(full && scoped.length && scanned.every(Boolean));
   const range=iso(coverage?.coverage_start) && iso(coverage?.coverage_end)?
     iso(coverage.coverage_start)+" → "+iso(coverage.coverage_end):"";
   return {start,end,complete,selected,
+    startSource:first?.source||"unknown",endSource:last?.source||"unknown",
     basis:complete?"account_full":partial?"bounded_period_only":"inventory_partial",
     range};
 }
@@ -2898,8 +2915,19 @@ class TrybatecPanel extends HTMLElement {
           "observations in a verified but incomplete source interval"):
         t("couverture partielle ou non vérifiée : observations connues de l’inventaire",
           "partial or unverified coverage: known inventory observations");
-    const covered=bounds.basis==="bounded_period_only" && bounds.range?
-      t(" · Période vérifiée : "," · Verified interval: ")+bounds.range:"";
+    const provenance=(field)=>{
+      const source=bounds[field+"Source"];
+      if (source==="full") return t("observation source vérifiée sur la couverture intégrale",
+        "source observation verified across full coverage");
+      if (source==="bounded") return t("observation de la période source vérifiée, couverture partielle",
+        "source observation from verified bounded coverage");
+      if (source==="inventory") return t(
+        "couverture partielle ou non vérifiée : observation connue de l’inventaire",
+        "partial or unverified coverage: known inventory observation");
+      return evidence;
+    };
+    const covered=bounds.range?
+      t(" · Période source contrôlée : "," · Reviewed source interval: ")+bounds.range:"";
     const reason=(field)=>{
       const date=field==="start"?this._historyStart:this._historyEnd;
       const edited=this._historyDatesEdited?.[field]===true;
@@ -2913,7 +2941,7 @@ class TrybatecPanel extends HTMLElement {
       return safe(date)+" — "+safe(t(
         field==="start"?"première observation connue ":"dernière observation connue ",
         field==="start"?"earliest known observation ":"latest known observation "))+
-        safe(scope)+" ("+safe(evidence)+safe(covered)+")";
+        safe(scope)+" ("+safe(provenance(field))+safe(covered)+")";
     };
     return '<div class="history-date-help muted" role="status">'+
       safe(t("Les dates de début et de fin de période ont été préremplies comme suit :",
