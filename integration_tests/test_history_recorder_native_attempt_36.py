@@ -424,6 +424,23 @@ async def test_modified_on_disk_snapshot_or_hash_chain_blocks_action(
     assert native_fixture["queued"] == []
 
 
+def _rehash_approved_group(plan):
+    """Recompute BOTH source group and outer plan proof after synthetic change."""
+    group = plan["coverage_evidence"]["groups"][0]
+    group["fingerprint"] = _digest({
+        key: value for key, value in group.items() if key != "fingerprint"
+    })
+    series = plan["series"][0]
+    series["coverage_fingerprint"] = group["fingerprint"]
+    plan["fingerprint"] = _digest([{
+        "logical": series["logical_id"],
+        "source": series["source_fingerprint"],
+        "unit": series["unit"],
+        "coverage": group["fingerprint"],
+        "rows": [[row["start"].isoformat(), row["sum"]] for row in series["rows"]],
+    }])
+
+
 @pytest.mark.asyncio
 async def test_changed_day_approval_revision_denies_enqueue(hass, native_fixture):
     plan = _plan(estimated=True)
@@ -433,6 +450,7 @@ async def test_changed_day_approval_revision_denies_enqueue(hass, native_fixture
     tampered["coverage_evidence"]["groups"][0]["rows"][1][
         "contributions"
     ][0]["decision_refs"][0]["updated_at"] = "2026-11-02T12:00:00+00:00"
+    _rehash_approved_group(tampered)
     with pytest.raises(ValueError, match="approval or source-day revision drift"):
         await _enqueue(hass, tampered, stat)
     assert native_fixture["queued"] == []
@@ -446,6 +464,7 @@ async def test_estimated_day_requires_exact_stored_approval_reference(
     plan["coverage_evidence"]["groups"][0]["rows"][1][
         "contributions"
     ][0]["decision_refs"] = []
+    _rehash_approved_group(plan)
     with pytest.raises(ValueError, match="lacks an exact approved"):
         await _reserve(hass, plan)
     assert native_fixture["queued"] == []
