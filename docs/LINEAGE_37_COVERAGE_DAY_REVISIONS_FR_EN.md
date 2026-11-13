@@ -1,5 +1,19 @@
 # 🤖 #37/#81 — Exhaustivité, générations et décisions / Coverage, generations and day revisions
 
+<!-- BO-DELIVERY-DOC-20261113 -->
+## 🤖 Décision BO applicable / Governing business decision — 13/11/2026
+
+**FR —** La découverte de tous les compteurs **observés par les données disponibles** et la comparaison avec un éventuel inventaire fournisseur demeurent importantes, mais **aucun certificat d'exhaustivité absolue de toute l'histoire d'un logement n'est exigé**. `historical_account_exhaustiveness_verified=false` décrit une **limite de portée**, pas un refus global automatique de toute période délimitée. Pour #88, fournir une qualification **sur les compteurs, journées, sources, révisions et fenêtres de l'opération sélectionnée** : attestée, partielle, inconnue ou contradictoire ; permettre une approbation explicite de périodes non attestées, avec provenance correctement étiquetée. Une inconnue hors sélection ne bloque pas mécaniquement ; une contradiction, un chevauchement, une double attribution ou une approbation non vérifiable **dans** la sélection bloque.
+
+**Rappel #37 :** calculer les consommations **par compteur physique**, jamais l'écart d'index entre compteurs remplacés ; consolider uniquement les consommations compatibles sans recouvrement. Une journée sans relevé API n'est pas un zéro et reste éligible, sous #36, à un lissage linéaire validé avec estimation traçable. L'utilisateur compare le portail Trybatec et signale les incohérences au fournisseur.
+
+**EN —** Observed physical lineage and supplier-catalog comparison are retained, but **no absolute full-property-history certificate** is required. A false `historical_account_exhaustiveness_verified` is a scope limitation, not an unconditional veto on a bounded selected operation. Provide attested/partial/unknown/contradictory qualifications **by selected physical generation, date, decision, source and revision**. Explicit user approval can include unknown spans without turning estimates into observations. Reject in-scope conflicts, overlap, duplicate allocations or unauthenticated decisions; don't reject only because of unrelated outside-scope unknowns. Meter readings are differenced within each physical generation, then compatible derived consumptions may be combined. Missing data are not zero.
+
+**Coordination :** #37/#81 → #36 → #88 → #164; `docs/CONVERGENCE_CURRENT_FR_EN.md` sur #164. Les anciens constats d'inventaire global ci-dessous restent des limitations factuelles, non des prérequis de publication.
+
+<!-- END-BO-DELIVERY-DOC-20261113 -->
+
+
 **Périmètre / Scope:** contribution #160 uniquement, lecture seule, données de test fictives. / Draft #160 only, read-only, fictitious tests.
 
 **Références / Links:** [#37](https://github.com/christophejaubert/ha-trybatec/issues/37), [#81](https://github.com/christophejaubert/ha-trybatec/issues/81), [#36](https://github.com/christophejaubert/ha-trybatec/issues/36), [#88](https://github.com/christophejaubert/ha-trybatec/issues/88), [convergence #164](https://github.com/christophejaubert/ha-trybatec/pull/164), [MOE #45](https://github.com/christophejaubert/ha-trybatec/issues/45).
