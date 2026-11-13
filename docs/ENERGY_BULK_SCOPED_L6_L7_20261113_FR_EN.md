@@ -79,3 +79,45 @@ L7 simulation covers native admin, fresh plan fingerprints that now bind L6 evid
 - **#164 :** reprendre uniquement les blobs modifiés de la branche #158, jamais son historique #153/#147 ; vérifier la composition et toutes les CI au SHA résultant, en conservant la PR en brouillon.
 
 **Documents sources / Sources:** [Home Assistant — Energy](https://www.home-assistant.io/docs/energy/), [Energy cards](https://www.home-assistant.io/dashboards/energy/), issues #36/#37/#88/#45 et PR #158/#164. Official Energy charts distinguish gas and water; they do not establish a native thermal category for CET. 
+
+
+## FR — Collecteur HA réellement raccordé et inspection de reprise
+
+**Modules développés dans #158 :** `energy_bulk_native_scopes_88.py` (lecture seule native), `energy_bulk_l7_recovery_inspection_88.py` (journal), raccordés par `HAGuardedEnergyPort.collect_native_scope_observations()` et `EnergyBulkAdminService88.preview()`. Ils ne sont pas des producteurs des certificats v2 réservés à #36 et #37.
+
+Le collecteur authentifie l'administrateur dans `hass.auth`, vérifie la `config_entry`, le compte et le lot dans l'inventaire serveur, puis lit **sans migration ni écriture** les magasins B15, l'archive des compteurs déposés et les préférences Energy en mémoire et sur disque. Il confronte les identifiants des versions et générations physiques du compte, y compris la réutilisation d'un ID sur un autre lot, les versions en attente ou mises en quarantaine, les unités et les métadonnées Recorder natives. Les éléments non démontrables sont **énumérés comme des refus**, notamment la relecture intégrale des buckets d'une série immuable, les décisions signées par jour et la réservation d'un ID unique entre producteurs.
+
+La commande admin `trybatec/energy_bulk_88/preview` accepte désormais, **facultativement**, une intention de sélection bornée :
+
+```json
+{
+  "type": "trybatec/energy_bulk_88/preview",
+  "entry_id": "synthetic-entry",
+  "lot": "synthetic-lot",
+  "selections": [{
+    "fluid": "EF",
+    "start": "2026-01-01",
+    "end": "2026-01-31",
+    "statistic_id": "trybatec:synthetic_ef_v1",
+    "generation_ids": ["SYNTHETIC-GENERATION"]
+  }]
+}
+```
+
+Ces valeurs ne sont que des **choix**. Le serveur exige un `statistic_id` et des générations effectivement présents dans le journal chargé, une plage bornée (3660 jours maximum), une seule sélection par fluide et aucune propriété supplémentaire qui prétendrait à une preuve. L'aperçu renvoie `native_scoped_observations` avec les compteurs de versions, les sources concurrentes déjà sélectionnées, la validité des métadonnées, `selection_intent.native_ledger_ids_match` et `approval_and_daily_readback_verified=false`. Il n'expose pas les numéros de série de l'inventaire dans le statut compact. **Une correspondance d'identifiants n'est jamais assimilée à une admission positive L6** et ne peut pas produire une transaction.
+
+Le même aperçu expose `transaction.recovery_inspection` : `none`, `terminal_journal_consistent`, `terminal_journal_diverged`, `prepared_no_write_observed`, `prepared_applied_without_terminal_audit`, `prepared_in_memory_only`, `prepared_disk_only`, `prepared_external_or_partial_divergence`, `journal_unreadable`, `journal_snapshot_or_fingerprint_invalid`, etc. La réponse est **sans contenu du journal ni identifiant privé de sauvegarde** et toujours `automatic_retry_allowed=false`, `automatic_rollback_allowed=false`. Toute divergence impose une revue administrateur, jamais une réparation déduite ou automatique.
+
+**Ordre de transaction corrigé :** l'empreinte lie les candidats et toutes les preuves sélectionnées ; après confirmation administrateur, le plan est reconstruit, les préférences relues, une sauvegarde native identifiable est créée/vérifiée, **les preuves L6 sont collectées et confrontées une deuxième fois après cette sauvegarde**, puis les préférences sont relues avant journal `prepared`. Un changement de validation ou de version entre l'aperçu et la phase d'écriture provoque un refus **avant journal/écriture**, comme vérifié par les tests synthétiques. Les écritures additives, relectures et rollbacks conditionnels demeurent dans le moteur L7 existant, sans activation réelle.
+
+**Contrainte native prouvée :** Home Assistant Core 2026.11.1, [`EnergyManager.async_update` dans `data.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py#L844-L870), met à jour les préférences sans paramètre de comparaison atomique et programme l'écriture du Store. Le verrou L7 de Trybatec ne s'impose pas aux autres intégrations ni aux interfaces Énergie ; la détection avant/après et le rollback conditionnel ne sont pas une garantie native d'exclusivité inter-écrivains. **La confirmation reste désactivée** : aucune preuve de compare-and-swap global n'a été vérifiée. La solution sûre nécessite un protocole transactionnel commun/une API native d'écriture conditionnelle ou une isolation garantie de tous les écrivains pendant la transaction, et un exercice réel de restauration sur environnement isolé. Ne pas contourner ce refus.
+
+**Schéma CET :** [`ENERGY_SOURCE_SCHEMA` HA 2026.11.1](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/energy/data.py#L642-L663) accepte `grid`, `solar`, `home`, `battery`, `gas` et `water`, **pas `heat`**. Un CET thermique en kWh ne doit donc pas être inscrit comme une consommation de gaz par commodité. Le parcours EF/ECS `water`/m³ est préparé pour recette réelle après publication et installation distinctement autorisées. Les blocages de la catégorie chauffage ne sont pas une obligation de preuve de recette réelle avant publication, mais empêchent l'écriture dans une catégorie sémantiquement fausse.
+
+## EN — Native read-only scope evidence and durable recovery inspection
+
+#88 now includes an authentic HA read-only ledger/retired-generation/Recorder-metadata/live-and-persisted Energy collector. Native authentication, account/lot membership, bounded user *selection intent*, cross-lot statistic ID collisions, duplicate versions, pending and quarantined attempts and expected units are checked. These observations are **facts**, not fake immutable-version, user-approval or independent #36/#37 v2 certificates. Selected source IDs are never accepted from the browser as proof.
+
+A read-only L7 recovery inspector classifies pending and terminal journal against live/persisted fingerprints. It distinguishes no write, in-memory-only, disk-only, applied-but-unaudited and third-party-divergent states without leaking snapshots or backup identifiers or automatically rolling back. L7 now recollects independent L6 proof **after** native backup and aborts if the candidate/version/approval changed before staging.
+
+HA Core 2026.11.1 EnergyManager's `async_update` is not a compare-and-swap transaction; Trybatec's lock cannot fence all other HA Energy writers. No native cross-writer atomicity or actual backup restoration has been proved. Registered admin confirmation stays backend hard-disabled and production writes remain unavailable. The Core Energy schema has `water` and `gas`, but no thermal `heat` source; CET kWh must not be mislabelled as gas. Isolated synthetic tests are not live HA acceptance.
