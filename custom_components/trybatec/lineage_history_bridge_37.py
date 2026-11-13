@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
+import json
 from typing import Any, Mapping, Sequence
 
 from .meter_lineage_37 import FLUID_UNITS, preview_lineage
@@ -54,6 +56,12 @@ def _daily(raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[st
         raise ValueError("Excessive historical daily coverage")
     if set(raw) - set(smoothed):
         raise ValueError("Smoothing lost measured days")
+    # A selected set of gap approvals is not a day-by-day attribution.
+    # Never label every estimated day with the first unrelated approval.
+    decision_set_fingerprint = (
+        "decision_set:" + sha256(json.dumps(sorted(decisions), separators=(",", ":")).encode()).hexdigest()
+        if len(decisions) > 1 else (decisions[0] if decisions else None)
+    )
     normalized = {}
     for day in sorted(set(raw) | set(smoothed)):
         if not hasattr(day, "isoformat") or isinstance(day, datetime):
@@ -79,7 +87,7 @@ def _daily(raw: Mapping, smoothed: Mapping, *, selected: str, decisions: list[st
             )
         entry = {"amount": str(quantity), "provenance": provenance}
         if delta:
-            entry["decision_fingerprint"] = decisions[0]
+            entry["decision_fingerprint"] = decision_set_fingerprint
             entry["measured"] = str(observed)
             entry["estimated"] = str(delta)
         normalized[day.isoformat()] = entry
@@ -120,7 +128,8 @@ def prepare_physical_continuity_37(
         if not isinstance(readings, (tuple, list)):
             raise ValueError("Historical source readings unavailable")
         if any(not isinstance(item, (list, tuple)) or len(item) != 2 or
-               not isinstance(item[0], datetime) or item[0].tzinfo is None
+               not isinstance(item[0], datetime) or item[0].tzinfo is None or
+               item[0].utcoffset() is None
                for item in readings):
             raise ValueError("Invalid historical source readings")
         if any(b[0] <= a[0] for a, b in zip(readings, readings[1:])):
@@ -191,6 +200,22 @@ def prepare_physical_continuity_37(
         if row["source_fingerprint"] and item.get("source_fingerprint") != row["source_fingerprint"]:
             row["blockers"].append("archive_source_fingerprint_changed")
 
+    physical_keys = set(physical)
+    if not isinstance(confirmed_links, (tuple, list)) or len(confirmed_links) > _LIMIT:
+        raise ValueError("Invalid confirmed lineage collection")
+    for link in confirmed_links:
+        if not isinstance(link, Mapping):
+            raise ValueError("Invalid confirmed lineage")
+        source = (link.get("lot"), link.get("fluid"), link.get("from_serial"))
+        target = (link.get("lot"), link.get("fluid"), link.get("to_serial"))
+        if source not in physical_keys or target not in physical_keys:
+            raise ValueError("Foreign or incomplete lineage approval")
+    if approved_parallel is not None:
+        if not isinstance(approved_parallel, set) or any(
+            not isinstance(pair, frozenset) or len(pair) != 2
+            or not pair.issubset(physical_keys) for pair in approved_parallel
+        ):
+            raise ValueError("Foreign parallel meter approval")
     variant_by_key = {}
     for variant in snapshots:
         key = _key(variant)
@@ -226,7 +251,8 @@ def prepare_physical_continuity_37(
             meters.append({k: row[k] for k in (
                 "lot", "fluid", "serial", "status", "source_fingerprint",
                 "unit", "first_observed_at", "last_observed_at",
-                "service_start", "service_end"
+                "service_start", "service_end", "source",
+                "observation_count", "historical_reading_only"
             )})
             chosen[key] = choice
             daily_sources.append({
@@ -259,6 +285,7 @@ def prepare_physical_continuity_37(
         "groups": all_previews,
         "meter_count": len(physical),
         "historical_inventory_proven_complete": False,
+        "physical_scope_is_only_observed_union": True,
         "recorder_persistence_proven": False,
         "energy_version_exclusivity_proven": False,
         "energy_activation_authorized": False,

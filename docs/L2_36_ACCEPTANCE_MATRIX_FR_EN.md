@@ -59,3 +59,35 @@ The existing repository already provides reviewed source indexing, a linear meas
 - The administrator B15 preview exposes per-day measured/estimated/mixed quantities, physical-meter contributions, known gaps and fingerprints without Recorder or Energy writes. Consolidated selected daily values must agree with the independent provenance calculation.
 - `qualified_bounds_no_gaps` proves only completeness within the supplied qualified boundaries, **not** full historical continuity or Recorder persistence. #37 owns meter lineage and #88 owns independent Energy eligibility checks.
 - Earlier fail-closed B15 behavior for conflicted meters remains unchanged. CI on the final SHA and isolated HA acceptance are separate requirements.
+
+
+---
+
+## 🤖 Réconciliation #36 / #36 completion ledger — PR #149, 13 novembre 2026
+
+**FR — Périmètre exact :** branche `feat/36-recorder-finalization-034b1-20261113` empilée sur la candidate brouillon #147. Les développements #127/#128 préexistants ont été réutilisés, sans modification de #37 ni #88. La qualification CI doit être rattachée au **SHA final**, non aux commits intermédiaires. La recette sur HA de production et toute écriture nécessitent des autorisations distinctes.
+
+| REC | Développé / Development | Intégré dans #149 / In branch | Test synthétique identifié / Identified synthetic test | Recette réelle / Production acceptance | Statut bloquant / Blocker |
+|---|---|---|---|---|---|
+| REC-01 | Journal initial préparé/importé | Oui / Yes | `test_b15_versioned_history`, `test_b15_recovery_crash_l2` | Oui / Required | Test de crash réel isolé manquant / actual isolated crash absent |
+| REC-02 | File différée, lecture partielle | Oui / Yes | `test_b15_runtime` | Oui / Required | Persistance native réelle non attestée / no live native proof |
+| REC-03 | Buckets et sommes exacts, métadonnées natives | Oui / Yes | `test_b15_runtime`, `test_b15_selective_retry_36` | Oui / Required | Extérieurs à la fenêtre non exhaustifs / out-of-window rows not exhausted |
+| REC-04 | Surplus, doublons, somme changée bloqués | Oui / Yes | `test_history_recorder_recovery_l2`, `test_b15_runtime` | Oui / Required | Frontières globales restant à prouver / global boundaries pending |
+| REC-05 | Batch persistant/absent/partiel indépendant | Oui / Yes | `test_b15_recovery_crash_l2`, `test_b15_runtime` | Oui / Required | Rejeu absent interdit sans fencing / absent replay denied without fencing |
+| REC-06 | Journal relu après réinitialisation du Store | Partiel / Partial | `test_b15_recovery_crash_l2` | Oui / Required | Aucun redémarrage complet HA+SQLite / no full HA/SQLite restart |
+| REC-07 | Refus si writer incertain | Oui / Yes | `test_b15_selective_retry_36` | Oui / Required | Pas d'attestation indépendante anti-écrivain tardif / no independent late-writer fence |
+| REC-08 | Relecture idempotente, aucun rejeu persisté | Oui / Yes | `test_b15_runtime` | Oui / Required | Vérification cible HA requise / target HA acceptance required |
+| REC-09 | V2 demande approbation, V1 préservée | Oui / Yes | `test_b15_versioned_history` | Oui / Required | Confirmation IHM à recetter / UI confirmation pending |
+| REC-10 | V2 vérifiée sans activation, garde d'empreinte | Oui / Yes | `test_b15_versioned_history`, `test_b15_energy_switch` | Oui / Required | Énergie #88 non qualifiée / #88 Energy not qualified |
+| REC-11 | V1→V2→V3, activation conceptuelle exclusive | Oui / Yes | `test_b15_versioned_history` | Oui / Required | Transaction native Énergie #88 non qualifiée / #88 native transaction pending |
+| REC-12 | Échec journal et rollback préférences simulés | Oui / Yes | `test_b15_runtime` | Oui / Required | Restauration HA réelle interdite sans accord / live restoration unauthorized |
+| REC-13 | Sélection/retour d'une ancienne version gardés | Oui / Yes | `test_b15_versioned_history` | Oui / Required | Vérification réelle d'exclusivité à faire / actual exclusivity pending |
+| REC-14 | Générations physiques et 23/25 h | Oui / Yes (source préexistante) | `test_l2_midnight_bucket_bounds`, `test_ha_recorder_multimeter` | Oui / Required | Filiation complète #37 / complete #37 lineage |
+| REC-15 | Unités/sommes invalides, refus natif | Oui / Yes | `test_b15_selective_retry_36` | Oui / Required | Service et schéma HA réels à vérifier / live native schema pending |
+| REC-16 | Concurrence : empreinte et verrou Trybatec | Partiel / Partial | `test_b15_energy_switch`, `test_b15_selective_retry_36` | Oui / Required | Aucun verrou global writer Recorder ni exclusion tierce / no global writer fence |
+
+**Point de sécurité / Safety point :** `async_block_till_done()` attend le traitement des tâches Recorder antérieures, **mais ne suffit pas** à exclure une tâche d'import réenfilée après échec (`ImportStatisticsTask`). Ainsi `_independent_writer_quiescence_proof()` refuse par défaut la reprise sélective. Les seuls tests du chemin conditionnel lui substituent une preuve synthétique explicite ; **aucun adapter de production prétendument fiable n'est déclaré disponible**.
+
+**Interface stable / Stable handoff:** `history_recorder_handoff_36.async_b15_recorder_handoff_36` fournit en lecture seule l'empreinte du plan canonique, les séries logiques consolidées, versions concurrentes, `statistic_id`, somme et métadonnées effectivement relues, couverture, provenance quotidienne, lacunes, refus. `admissible=False` et `activation_authorized=False` en toutes circonstances ; #37 garde la responsabilité de la filiation exhaustive et #88 celle de l'exclusivité, des sauvegardes et des transactions natives.
+
+**EN — Qualification boundary:** this is implemented on #149, with isolated synthetic tests, but not signed off for production. Recorder's commit barrier is not a durable global writer fence; selective requeue remains blocked. Real acceptance, complete REC-01..16, #37 lineage, #88 Energy and exact-head CI are independent delivery gates. No merge, release, migration or production mutation is authorized.

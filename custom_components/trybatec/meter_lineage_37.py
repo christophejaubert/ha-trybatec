@@ -21,7 +21,10 @@ MAX_ROWS = 100000
 
 
 def _identity(value: Any) -> str:
-    if not isinstance(value, str) or not 0 < len(value) <= 128:
+    if (not isinstance(value, str) or not 0 < len(value) <= 128
+            or "\x00" in value):
+        # Logical IDs use NUL-separated scope components; embedded separators
+        # could alias a different account/dwelling without this rejection.
         raise ValueError("Invalid physical identity or reference")
     return value
 
@@ -106,10 +109,18 @@ def preview_lineage(
         end = _date(row.get("service_end"))
         if start and end and start > end:
             raise ValueError("Reversed service period")
+        count = row.get("observation_count")
+        if count is not None and (type(count) is not int or not 0 <= count <= MAX_ROWS):
+            raise ValueError("Invalid physical observation count")
+        historical_only = row.get("historical_reading_only", row["status"] == "depose")
+        if type(historical_only) is not bool or (row["status"] == "en_service" and historical_only):
+            raise ValueError("Historical-only meter cannot be an active live sensor")
         physical[key] = {
             "status": row["status"], "unit": row.get("unit"),
             "source_fingerprint": _identity(row.get("source_fingerprint")),
             "first": first, "last": last, "start": start, "end": end,
+            "source": row.get("source"), "observation_count": count,
+            "historical_reading_only": historical_only,
         }
     if expected_physical_keys is not None:
         if not isinstance(expected_physical_keys, set) or expected_physical_keys != set(physical):
@@ -202,6 +213,7 @@ def preview_lineage(
         ))
         blockers: set[str] = set()
         edges = []
+        unobserved_intervals = []
         for old, new in zip(ordered, ordered[1:]):
             before, after = physical[old], physical[new]
             if before["last"] is None or after["first"] is None:
@@ -220,7 +232,34 @@ def preview_lineage(
                 used_links.add(old)
                 if relation == "overlap_or_parallel":
                     blockers.add("replacement_overlap_requires_explicit_apportionment")
+            if before["last"] is not None and after["first"] is not None and before["last"] < after["first"]:
+                # Observation boundaries do NOT prove either a service switch
+                # or zero consumption in the intervening interval.
+                unobserved_intervals.append({
+                    "from_serial": old[2], "to_serial": new[2],
+                    "last_observed_at": before["last"].isoformat(),
+                    "next_observed_at": after["first"].isoformat(),
+                    "consumption": None, "service_transition_proven": False,
+                })
             edges.append({"from_serial": old[2], "to_serial": new[2], "relation": relation})
+
+        # Adjacent-generation checks are insufficient when an older physical
+        # meter overlaps a later, nonadjacent generation (A spans B and C).
+        # A sweep over known observation bounds catches such nonlocal overlaps
+        # even when their accepted daily consumption days are disjoint.
+        active_intervals: list[tuple[str, str, str]] = []
+        for key in ordered:
+            first, last = physical[key]["first"], physical[key]["last"]
+            if first is None or last is None:
+                continue
+            active_intervals = [
+                previous for previous in active_intervals
+                if physical[previous]["last"] >= first
+            ]
+            if any(frozenset((previous, key)) not in parallel
+                   for previous in active_intervals):
+                blockers.add("unverified_physical_period_overlap")
+            active_intervals.append(key)
 
         daily: dict[date, list[tuple[tuple[str, str, str], Decimal, str]]] = defaultdict(list)
         for key in group:
@@ -269,10 +308,18 @@ def preview_lineage(
                 "service_start": physical[key]["start"].isoformat() if physical[key]["start"] else None,
                 "service_end": physical[key]["end"].isoformat() if physical[key]["end"] else None,
                 "selected_variant": selections[key],
+                "unit": physical[key]["unit"],
+                "source_fingerprint": physical[key]["source_fingerprint"],
+                "historical_reading_only": physical[key]["historical_reading_only"],
+                "source": physical[key]["source"],
+                "observation_count": physical[key]["observation_count"],
             } for key in ordered],
-            "lineage": edges, "blockers": sorted(blockers),
+            "lineage": edges, "unobserved_intervals": unobserved_intervals,
+            "parallel_meter_approval_requires_independent_review": bool(parallel),
+            "blockers": sorted(blockers),
             "rows": output_rows, "total": str(cumulative) if output_rows else "0",
             "inventory_matches_supplied_scope": expected_physical_keys is not None,
+            "supplied_scope_does_not_prove_historical_exhaustiveness": True,
             "full_historical_coverage_verified": False,
             "version_exclusivity_verified": False,
             "energy_activation_authorized": False,
