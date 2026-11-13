@@ -102,7 +102,7 @@ def test_bounded_coverage_cannot_be_presented_as_global_or_extended():
     assert view["status"] == "incomplete"
     assert view["completeness"] == "bounded_period_only"
     assert view["periods_verified"] == 3
-    assert view["suggested_years"] == [2021, 2022, 2023, 2024, 2025]
+    assert view["suggested_years"] == [2022, 2023, 2024, 2025]
     assert view["suggested_years_basis"] == "observed_first_last_range_not_yearly_proof"
     assert len({r["physical_key"] for r in view["meters"]}) == 4
     assert shared.get_source(
