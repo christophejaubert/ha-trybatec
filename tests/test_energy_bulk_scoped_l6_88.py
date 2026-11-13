@@ -30,6 +30,7 @@ def synthetic():
         "post_restart_readback_verified": True,
         "pending_for_selected_id": False,
         "quarantined_selected_id": False,
+        "selected_statistic_id_owned_by_one_scope": True,
         "unit": "m³",
         "metadata": {
             "unit": "m³", "device_class": "water",
@@ -71,6 +72,7 @@ def synthetic():
             {"date": "2026-03-01", "total": "1", "contributors": [{
                 "generation_id": "GEN-RETIRED",
                 "amount": "1", "provenance": "measured",
+                "source_observation_verified": True, "reading_pair_hash": "c" * 64,
             }]},
             {"date": "2026-03-02", "total": "2", "contributors": [{
                 "generation_id": "GEN-NEW", "amount": "2",
@@ -125,6 +127,7 @@ def test_scoped_positive_fictional_no_global_exhaustiveness_needed():
     ("recorder_legacy_v1", "history_36_scoped_selection_v2_scope_or_digest_mismatch"),
     ("lineage_missing", "independent_native_producers_missing"),
     ("selected_quarantined", "selected_immutable_recorder_version_not_verified"),
+    ("reused_immutable_identity", "selected_immutable_recorder_version_not_verified"),
     ("unverified_readback", "selected_immutable_recorder_version_not_verified"),
     ("missing_restart_proof", "selected_immutable_recorder_version_not_verified"),
     ("unknown_recorder_unit", "selected_source_unit_incompatible"),
@@ -146,6 +149,7 @@ def test_scoped_positive_fictional_no_global_exhaustiveness_needed():
     ("approval_wrong_day", "missing_independent_day_version_user_approval"),
     ("unattested_as_measured", "measured_day_must_not_be_relabelled"),
     ("unknown_provenance", "unknown_or_falsified_source_provenance"),
+    ("measured_without_vendor_indexes", "measured_contribution_without_vendor_readings"),
     ("selected_generation_missing", "selected_generation_inventory_missing"),
     ("external_writer_check_missing", "external_energy_writer_concurrency_unaddressed"),
 ])
@@ -159,6 +163,8 @@ def test_scoped_refusals_are_not_mutation_permits(change, reason):
         lineage = None
     elif change == "selected_quarantined":
         recorder["quarantined_selected_id"] = True
+    elif change == "reused_immutable_identity":
+        recorder["selected_statistic_id_owned_by_one_scope"] = False
     elif change == "unverified_readback":
         recorder["selected_series_persisted"] = False
     elif change == "missing_restart_proof":
@@ -221,6 +227,8 @@ def test_scoped_refusals_are_not_mutation_permits(change, reason):
         lineage["daily"][1]["contributors"][0]["provenance"] = "measured"
     elif change == "unknown_provenance":
         lineage["daily"][1]["contributors"][0]["provenance"] = "invented_vendor_measured"
+    elif change == "measured_without_vendor_indexes":
+        lineage["daily"][0]["contributors"][0].pop("reading_pair_hash")
     elif change == "selected_generation_missing":
         lineage["generations"].pop()
     elif change == "external_writer_check_missing":
