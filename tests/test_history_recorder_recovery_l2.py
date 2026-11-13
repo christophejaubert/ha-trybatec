@@ -50,8 +50,12 @@ def test_partial_batch_retries_only_missing_after_quiescence():
     pending = preview_pending_recovery(l, rb, queue_quiescent=False)
     assert not pending["safe_to_offer_retry"]
     ready = preview_pending_recovery(l, rb, queue_quiescent=True)
-    assert ready["safe_to_offer_retry"]
-    assert ready["retry_only_these_statistic_ids"] == [b]
+    assert not ready["safe_to_offer_retry"]
+    assert ready["retry_only_these_statistic_ids"] == []
+    assert ready["retry_preflight_candidate"] is True
+    assert ready["retry_candidates_requiring_independent_proof"] == [b]
+    assert ready["independent_writer_fence_verified"] is False
+    assert ready["blocked_statistic_ids"] == [b]
     assert ready["decisions"][0]["outcome"] == "persisted_verified_no_requeue"
 
 
