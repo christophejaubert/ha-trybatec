@@ -12,7 +12,9 @@ from hashlib import sha256
 from typing import Any
 
 from homeassistant.components.recorder.models import StatisticMeanType
-from homeassistant.components.recorder.statistics import async_add_external_statistics
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics, async_list_statistic_ids,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.recorder import get_instance
 
@@ -235,6 +237,25 @@ async def queue_b15_plan(
     }
 
 
+async def _check_persisted_metadata(
+    hass: Any, statistic_id: str, *, fluid: str, unit: str,
+) -> None:
+    """Validate Recorder's independent statistic metadata, never UI claims."""
+    observed = await async_list_statistic_ids(hass, statistic_ids={statistic_id})
+    if not isinstance(observed, list) or len(observed) != 1:
+        raise ValueError("Recorder metadata missing or ambiguous")
+    meta = observed[0]
+    if not isinstance(meta, dict) or (
+        meta.get("statistic_id") != statistic_id
+        or meta.get("source") != DOMAIN
+        or meta.get("statistics_unit_of_measurement") != unit
+        or meta.get("unit_class") != _unit_class(fluid)
+        or meta.get("has_sum") is not True
+        or meta.get("mean_type") not in (StatisticMeanType.NONE, StatisticMeanType.NONE.value)
+    ):
+        raise ValueError("Recorder metadata conflicts with immutable version scope")
+
+
 async def verify_b15_recorder(
     hass: Any, entry_id: str, *, queue_quiescent: bool = False,
 ) -> dict[str, Any]:
@@ -283,6 +304,16 @@ async def verify_b15_recorder(
                 "statistic_id": stat_id, "missing_or_mismatched_rows": missing,
             })
             continue
+        # A matching sum alone cannot prove that Recorder is storing the
+        # approved unit, fluid or source. Refuse the version transition when
+        # the independent native metadata lookup disagrees.
+        scope = ledger["series"][logical].get("scope")
+        if not isinstance(scope, dict) or scope.get("fluid") not in FLUIDS:
+            raise ValueError("Recorder scope missing from version journal")
+        await _check_persisted_metadata(
+            hass, stat_id, fluid=scope["fluid"],
+            unit=ledger["series"][logical]["unit"],
+        )
         registered = ledger["series"][logical]["versions"]
         version = next(v for v in registered if v["statistic_id"] == stat_id)
         ledger = transition_version(
