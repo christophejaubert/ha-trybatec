@@ -1,5 +1,8 @@
 # 🤖 #88 — Recette de sauvegarde et reprise / Backup and recovery acceptance
 
+> **Recette réelle 0.3.4b1 / Real acceptance:** aucune plateforme HA de test n'est disponible. La recette en lecture seule et toute opération de production explicitement autorisée suivent [le protocole de production](PRODUCTION_ACCEPTANCE_0.3.4b1_FR_EN.md). Les scénarios de pannes, corruption, restauration destructrice ou concurrence artificielle décrits ci-dessous restent **réservés aux fixtures synthétiques**, sans toucher à l'installation réelle. / No HA staging system is available. Separately approved production acceptance follows the linked protocol; destructive fault, corruption and restore drills below remain synthetic-only. Aucun feu vert de release n'est déduit de ces tests. / This does not authorize release.
+
+
 ## FR — Procédure de qualification future, non exécutée sur Home Assistant
 
 **État : dossier de test, pas de recette de production.** Les vérifications sur répertoire `tmp_path` prouvent exclusivement le comportement simulé des fichiers de préférences, sauvegarde et journal. Elles **ne démontrent ni BackupManager natif, ni transaction atomique, ni restauration HA réelle**.
