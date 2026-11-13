@@ -81,6 +81,10 @@ def get_source(
         coordinator._panel_history_cache_invalidation = reason
         coordinator._panel_history_source_evidence = None
         coordinator._panel_tariff_coverage = None
+        # A review cache derived from the invalidated source must not
+        # authorize a smoothing decision against a changed account.
+        coordinator._history_review_cache = None
+        coordinator._history_review_candidates = []
         return None
     if start is not None and date.fromisoformat(source["coverage_start"]) > start:
         return None

@@ -16,6 +16,7 @@
 - **Coûts :** aucun coût annuel/historique n'est ajouté sans statistique et calcul vérifiés ; les tarifs ne sont pas requis pour une consommation seule.
 - **Transaction L7 conditionnelle :** confirmation explicite avec `before_fingerprint` et `plan_digest`; relecture des preuves et des préférences ; verrou ; sauvegarde native complète vérifiée ; journal durable `prepared` relu ; ajout strictement additif ; vidage de stockage, relecture disque/mémoire ; journal terminal `verified`. Le protocole existant refuse les divergences et le journal partiel.
 - **Refus avant écriture :** utilisateur non administrateur, empreintes anciennes, admission incomplète, catégories non validées, autre source potentiellement concurrente, sauvegarde non certifiée, ancien journal non résolu, HA non compatible. La phase de prévisualisation ne déclenche pas de sauvegarde.
+- **État du journal :** la prévisualisation expose uniquement le statut (`transaction.journal_status`) et le besoin de reprise, sans recopier les préférences Énergie, les identifiants de sauvegarde ou le contenu confidentiel du journal. Un état `prepared`, invalide ou illisible bloque la confirmation et demande une revue manuelle.
 - **Incident :** si l'état disque et mémoire reste identique à l'original, journal `no_write_observed` ; si l'état est exactement le nouvel état, rollback conditionnel vers l'ancien puis relecture et journal `rolled_back_verified`. Si l'état est mixte ou modifié par un tiers, **aucune écriture corrective automatique** ; état `EnergyRecoveryRequired` nécessitant revue manuelle. Une sauvegarde déchiffrable ne prouve pas sa restauration effective.
 - **Périmètre :** ne modifie ni `__init__.py`, ni Recorder, ni filiation #37, ni `trybatec-panel.js`. Aucun accès à une installation Home Assistant réelle.
 
@@ -39,6 +40,11 @@
     "EF": {"status": "insufficient_evidence", "reasons": []},
     "ECS": {"status": "insufficient_evidence", "reasons": []},
     "CET": {"status": "insufficient_evidence", "reasons": []}
+  },
+  "transaction": {
+    "journal_status": "none | prepared | verified | rolled_back_verified | no_write_observed | invalid | unreadable",
+    "recovery_required": false,
+    "last_terminal_result": null
   },
   "prerequisites": {
     "independent_admission": false,
@@ -84,6 +90,7 @@ L'exemple est **structurel** : les valeurs réelles proviennent exclusivement du
 - **L6 independent proofs remain pending:** #36 Recorder persisted history, late-writer quiescence, full coverage and version journal; #37 complete physical generations and per-day measured/estimated provenance; cross-checked concurrent statistic IDs and third-party Energy sources. The current non-authoritative contracts continue to deny new enrollment.
 - **Units:** EF/ECS `m³` to `water`. CET `kWh` technically matches the Core 2026.11.1 `gas` energy-unit schema, but heat/gas semantic correctness is **not established**. No invented gas-volume conversion or unverified historical costs.
 - **Conditional L7 phases:** native admin confirmation → immutable fingerprint/digest re-evaluation → exclusive lock → verified recoverable backup → durable prewrite journal and readback → additive update → flush and persisted/live verification → terminal durable journal. A crash, stale state, lost proof or conflicting third-party source fails closed.
+- **Recovery status:** preview discloses only the journal status and whether manual recovery is required; never stored preferences or backup details. Pending, malformed or unreadable journal states block confirmation.
 - **Recovery:** no-write outcome, conditional rollback and complete journal readback are distinguished. Mixed or externally modified states require manual review, never an automatic overwrite. Archive decryptability is not a tested real restore.
 - **Frontend:** use `energy_bulk_admin_actions_88_v1` above. Always display blockers, preconditions and safe fallback; enable confirmation only after real independent attestation. UI ownership stays with #155.
 - **Boundaries:** no Recorder, lineage, shared panel or installation mutation; no merge, release, production backup, restore or Energy update.
