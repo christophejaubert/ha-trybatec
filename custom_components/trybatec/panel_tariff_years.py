@@ -22,7 +22,8 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_DEAL_ID, DOMAIN, TIMEZONE
 from .history import combine_payloads, history_windows
 from .history_services import _fetch_history_payloads
-from .history_guardrails import tracked_history
+from .history_guardrails import tracked_history, active_history_operation
+from .panel_history_coverage import get_source, store_source, coverage_view, _scope
 from .units import meter_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,10 +44,13 @@ def merge_cached_historical_bounds(
     coordinator: Any, physical_meters: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Merge only exact account-specific physical meter IDs and dated evidence."""
+    today = dt_util.now().astimezone(ZoneInfo(TIMEZONE)).date()
+    # Never promote a bounded preview's first/last readings to account-wide
+    # earliest/latest evidence. Full coverage and current scope are mandatory.
+    if get_source(coordinator, start=_EARLIEST_SUPPORTED_DATE, end=today) is None:
+        return physical_meters
     cache = getattr(coordinator, "_panel_tariff_coverage", None)
-    if not isinstance(cache, dict) or cache.get("coverage_end") != (
-        dt_util.now().astimezone(ZoneInfo(TIMEZONE)).date().isoformat()
-    ):
+    if not isinstance(cache, dict):
         return physical_meters
     indexed = {
         row["physical_key"]: row for row in cache.get("meters", [])
@@ -110,23 +114,29 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
     as a complete historical range.
     """
     today = dt_util.now().astimezone(ZoneInfo(TIMEZONE)).date()
-    previous = getattr(coordinator, "_panel_tariff_coverage", None)
-    if isinstance(previous, dict) and previous.get("coverage_end") == today.isoformat():
-        return {**previous, "cache_hit": True}
+    existing_source = get_source(
+        coordinator, start=_EARLIEST_SUPPORTED_DATE, end=today,
+    )
+    if existing_source is not None:
+        result = {
+            "status": "complete",
+            "coverage_start": existing_source["coverage_start"],
+            "coverage_end": existing_source["coverage_end"],
+            "meters": existing_source["meters"],
+            "api_requests": 0,
+            "cache_hit": True,
+            "source": "verified_supplier_history",
+            "coverage": coverage_view(existing_source, cache_reused=True),
+            "recorder_writes": False,
+            "energy_writes": False,
+        }
+        coordinator._panel_tariff_coverage = result
+        return result
 
     current = coordinator.data
     if not isinstance(current, dict) or not isinstance(current.get("meters"), dict):
         raise ValueError("Trybatec account readings are not loaded")
-    allowed_lots = {
-        str(lot).strip() for lot in (current.get("lots") or ())
-        if isinstance(lot, str) and lot.strip()
-    } or {
-        str(meter.get("lot", "")).strip()
-        for meter in current["meters"].values() if isinstance(meter, dict)
-        and meter.get("lot")
-    }
-    if not allowed_lots:
-        raise ValueError("No verified dwelling scope available")
+    scope_before, allowed_lots = _scope(coordinator)
     if not hasattr(coordinator, "_history_lock"):
         coordinator._history_lock = asyncio.Lock()
 
@@ -136,9 +146,20 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
     ):
         async with coordinator._history_lock:
             # Avoid concurrent duplicate scans after waiting for another caller.
-            cached = getattr(coordinator, "_panel_tariff_coverage", None)
-            if isinstance(cached, dict) and cached.get("coverage_end") == today.isoformat():
-                return {**cached, "cache_hit": True}
+            cached = get_source(
+                coordinator, start=_EARLIEST_SUPPORTED_DATE, end=today,
+            )
+            if cached is not None:
+                result = {
+                    "status": "complete", "coverage_start": cached["coverage_start"],
+                    "coverage_end": cached["coverage_end"], "meters": cached["meters"],
+                    "api_requests": 0, "cache_hit": True,
+                    "source": "verified_supplier_history",
+                    "coverage": coverage_view(cached, cache_reused=True),
+                    "recorder_writes": False, "energy_writes": False,
+                }
+                coordinator._panel_tariff_coverage = result
+                return result
             payloads, count = await _fetch_history_payloads(
                 coordinator.client, coordinator.entry.data[CONF_DEAL_ID],
                 history_windows(_EARLIEST_SUPPORTED_DATE, today),
@@ -148,6 +169,14 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
                 start=_EARLIEST_SUPPORTED_DATE, end=today,
             )
             meters = _meter_date_bounds(validated)
+            if _scope(coordinator)[0] != scope_before:
+                raise ValueError("Account or physical inventory changed during historical scan")
+            active = active_history_operation()
+            shared = store_source(
+                coordinator, start=_EARLIEST_SUPPORTED_DATE, end=today,
+                payloads=payloads, meters=meters, requests=count,
+                periods_verified=active.periods_verified if active is not None else None,
+            )
             result = {
                 "status": "complete",
                 "coverage_start": _EARLIEST_SUPPORTED_DATE.isoformat(),
@@ -156,6 +185,7 @@ async def async_tariff_year_coverage(hass: HomeAssistant, coordinator: Any) -> d
                 "api_requests": count,
                 "cache_hit": False,
                 "source": "verified_supplier_history",
+                "coverage": coverage_view(shared),
                 "recorder_writes": False,
                 "energy_writes": False,
             }

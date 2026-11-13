@@ -20,7 +20,9 @@ from .const import (
     DOMAIN, CONF_METER_UNITS, CONF_SPARSE_HOURS, DEFAULT_SPARSE_HOURS,
     CONF_ZERO_REVIEW_DAYS, DEFAULT_ZERO_REVIEW_DAYS,
 )
-from .history import build_history
+from .history import build_history, combine_payloads
+from .panel_tariff_years import _meter_date_bounds
+from .panel_history_coverage import get_source, store_source, coverage_view
 from .history_reconstruction import preview_sparse_intervals, propose_interval
 from .history_comparison import preview_daily_before_after
 from .history_services import _load
@@ -163,6 +165,12 @@ async def _proposals_from_cached_history(
     }
 
 
+def _scope_for_panel(coordinator: Any) -> tuple[str, set[str]]:
+    # Use the same scope validation as the tariff-years cache.
+    from .panel_history_coverage import _scope
+    return _scope(coordinator)
+
+
 async def preview_history_for_panel(
     hass: HomeAssistant, coordinator: Any,
     *, start_date: str, end_date: str,
@@ -175,11 +183,43 @@ async def preview_history_for_panel(
         "entry_id": coordinator.entry.entry_id,
         "start_date": start.isoformat(), "end_date": end.isoformat(),
     })
-    # Existing _load verifies the account scope, reads Trybatec and sets the
-    # review cache only after complete source validation.
+    # The account-wide tariff scan can satisfy any bounded preview contained
+    # within its verified interval; no second supplier request is necessary.
+    if not hasattr(coordinator, "_history_lock"):
+        coordinator._history_lock = asyncio.Lock()
+    async with coordinator._history_lock:
+        reused = get_source(coordinator, start=start, end=end)
+        if reused is not None:
+            _marker, lots = _scope_for_panel(coordinator)
+            coordinator._history_review_cache = (reused["payloads"], start, end, lots)
+            result = await _proposals_from_cached_history(hass, coordinator)
+            result["api_requests"] = 0
+            result["cache_hit"] = True
+            result["coverage"] = coverage_view(reused, cache_reused=True)
+            return result
+
+    # Existing _load validates account scope, source and physical observations
+    # before publishing its review cache. Never bypass these validations.
     _, _, _, _, count = await _load(hass, call)
+    cached = getattr(coordinator, "_history_review_cache", None)
+    if not isinstance(cached, tuple) or len(cached) != 4:
+        raise ValueError("Unverified historical review source")
+    payloads, stored_start, stored_end, lots = cached
+    if stored_start != start or stored_end != end:
+        raise ValueError("Historical preview changed during loading")
     result = await _proposals_from_cached_history(hass, coordinator)
+    if getattr(coordinator, "_history_review_cache", None) is not cached:
+        raise ValueError("Historical preview changed during validation")
+    validated, _conflicts = combine_payloads(
+        payloads, allowed_lots=lots, start=start, end=end,
+    )
+    shared = store_source(
+        coordinator, start=start, end=end, payloads=payloads,
+        meters=_meter_date_bounds(validated), requests=count,
+    )
     result["api_requests"] = count
+    result["cache_hit"] = False
+    result["coverage"] = coverage_view(shared)
     return result
 
 
