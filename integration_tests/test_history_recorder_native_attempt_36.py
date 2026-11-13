@@ -24,8 +24,16 @@ from custom_components.trybatec.history_plan_b15 import _digest, statistic_rows
 LOGICAL = "trybatec:logical_ef_synthetic_lot"
 SOURCE = "a" * 64
 COVERAGE = "b" * 64
-FINGERPRINT = "c" * 64
 STAMP = "2026-11-01T12:00:00+00:00"
+
+
+def _decision_fingerprint(reason):
+    return _digest({
+        "interval_key": "d" * 32,
+        "mode": "linear", "reason": reason,
+        "confirmed_unknown_origin": reason == "undetermined_confirmed",
+        "updated_at": STAMP,
+    })
 
 
 @pytest.fixture
@@ -54,7 +62,7 @@ def _plan(*, estimated: bool = False, reason: str = "undetermined_confirmed"):
         is_est = estimated and day == date(2026, 1, 2)
         refs = [{
             "reference": "d" * 32,
-            "decision_fingerprint": FINGERPRINT,
+            "decision_fingerprint": _decision_fingerprint(reason),
             "reason": reason,
             "updated_at": STAMP,
             "kind": "sparse_residual",
@@ -72,26 +80,35 @@ def _plan(*, estimated: bool = False, reason: str = "undetermined_confirmed"):
                 "decision_refs": refs,
             }],
         })
+    physical_proofs = [{
+        "serial": "SYNTH-A", "source_fingerprint": SOURCE,
+        "selected_variant": "smoothed" if estimated else "raw",
+        "approved_decisions": ["d" * 32] if estimated else [],
+    }]
+    group = {
+        "lot": "SYNTH", "fluid": "EF", "unit": "m³",
+        "coverage": "qualified_bounds_no_gaps", "gaps": [],
+        "rows": evidence, "source_proofs": physical_proofs,
+    }
+    group["fingerprint"] = _digest(group)
+    coverage_fingerprint = group["fingerprint"]
     series = [{
         "logical_id": LOGICAL, "kind": "consolidated",
         "lot": "SYNTH", "fluid": "EF", "serial": None,
         "variant": "selected_physical_consumption",
         "unit": "m³", "source_fingerprint": SOURCE,
-        "coverage_fingerprint": COVERAGE,
+        "coverage_fingerprint": coverage_fingerprint,
         "rows": rows,
     }]
     digest = _digest([{
         "logical": LOGICAL, "source": SOURCE, "unit": "m³",
-        "coverage": COVERAGE,
+        "coverage": coverage_fingerprint,
         "rows": [[row["start"].isoformat(), row["sum"]] for row in rows],
     }])
     return {
         "status": "prepared_no_recorder_changes", "series": series,
         "fingerprint": digest,
-        "coverage_evidence": {"status": "preview_only", "groups": [{
-            "lot": "SYNTH", "fluid": "EF",
-            "fingerprint": COVERAGE, "rows": evidence,
-        }]},
+        "coverage_evidence": {"status": "preview_only", "groups": [group]},
     }
 
 
@@ -218,7 +235,9 @@ async def test_reserve_enqueue_and_native_readback_with_real_file(hass, native_f
     ref = estimated["contributions"][0]["decision_refs"][0]
     assert ref["reason"] == "undetermined_confirmed"
     assert ref["updated_at"] == STAMP
-    assert ref["decision_fingerprint"] == FINGERPRINT
+    assert ref["decision_fingerprint"] == _decision_fingerprint(
+        "undetermined_confirmed"
+    )
     assert (await native._read_disk(hass, "synthetic-36"))["events"][-1]["state"] == "verified"
 
 
@@ -432,7 +451,7 @@ async def test_new_revision_never_overwrites_prior_verified_id(hass, native_fixt
     revision["series"][0]["source_fingerprint"] = "e" * 64
     revision["fingerprint"] = _digest([{
         "logical": LOGICAL, "source": "e" * 64,
-        "unit": "m³", "coverage": COVERAGE,
+        "unit": "m³", "coverage": revision["series"][0]["coverage_fingerprint"],
         "rows": [[row["start"].isoformat(), row["sum"]]
                  for row in revision["series"][0]["rows"]],
     }])
