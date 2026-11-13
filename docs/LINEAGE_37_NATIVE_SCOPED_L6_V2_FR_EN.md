@@ -13,6 +13,14 @@ Le nouveau module `custom_components/trybatec/lineage_native_scoped_37.py` expos
 - **#36 décisions et Recorder :** le producteur #37 vérifie la concordance des références par **date, génération physique, série statistique, révision, source et montant**, contre les reçus du **producteur natif #36**, puis exige une relecture indépendante de ce registre par l'adaptateur de confiance. Les éventuels jours exclus comportent dans #36 un reçu `no_statistical_row=true`, `quantity=null` et une révision correspondante ; ils restent **absents**, sans zéro artificiel.
 - **Version :** même `statistic_id` que la sélection, même `selection_digest` (hash du dictionnaire de sélection), version Recorder immuable et relue, empreinte de lignes persistées (`rows_hash`), statut pending/quarantine non actif, inventaire de versions et unicité de l'identifiant dans son périmètre. L'audit de toutes les références Energy concurrentes et le véritable verrou de sérialisation Recorder relèvent de #88/#36 respectivement.
 
+### Adaptateur HA serveur natif et frontières de confiance
+
+`async_collect_server_scoped_lineage_37(hass, coordinator, actor_id, selection, preview_37, read_native_recorder_36, ...)` est un **point d'intégration backend non enregistré en WebSocket/service**. Il relit l'utilisateur par `hass.auth.async_get_user` et exige ses droits administrateur, impose la correspondance avec `coordinator.entry.unique_id`, obtient un cache C11 toujours valide pour l'intervalle, relit en lecture seule les choix de revue historiques #36 et reconstruit par `build_history` les index du même compte/lot et la provenance physique. Il n'ouvre aucune nouvelle requête fournisseur et n'appelle aucune méthode d'écriture.
+
+Les preuves `native_recorder_36`, `verify_user_selection`, `verify_36_day`, `verify_36_absence` sont fournies **uniquement par les propriétaires backend de confiance** : leur implémentation de production reste une dépendance #36/#88. Sans `read_native_recorder_36`, le résultat indique `selected_scope_reconciled=false`. Un callback de test peut démontrer le contrat sur un jeu fictif, mais ne fournit aucune attestation de persistance réelle. Le raccordement à C11 #162 doit être composé dans #164 ; le module #160 n'enregistre pas un nouveau flux HA.
+
+**EN — Native read-only server adapter:** The adapter authenticates the HA administrator from the server auth store, matches the configured account, reads a still-valid account-scoped C11 cache and existing historical review decisions, rebuilds source physical indexes without any supplier scan, then delegates to independent #36/user verifiers. No native #36 scoped-v2 reader is implemented by #160; without it the output remains blocked. This integration point is not registered as a WebSocket/service and cannot execute any Recorder, Energy or HA mutation.
+
 ### Entrée v2 de sélection du backend (forme illustrative fictive)
 
 ```python
