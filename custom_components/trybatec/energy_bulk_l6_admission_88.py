@@ -115,6 +115,15 @@ def assess_independent_admission_l6_88(
         issues.add("selected_consolidated_statistic_not_independently_matched")
     if record.get("unit") != expected_unit or lineage.get("unit") != expected_unit:
         issues.add("fluid_unit_not_independently_verified")
+    metadata = record.get("verified_recorder_metadata")
+    if (not isinstance(metadata, Mapping)
+            or metadata.get("unit") != expected_unit
+            or metadata.get("device_class") != (
+                "water" if fluid in ("EF", "ECS") else "energy")
+            or metadata.get("has_sum") is not True
+            or metadata.get("has_data") is not True
+            or metadata.get("persisted_after_barrier") is not True):
+        issues.add("recorder_native_metadata_or_persistence_unverified")
     if (record.get("persistence_verified") is not True or record.get("blockers")
             or lineage.get("blockers") or lineage.get("unknown_meter_count") != 0
             or lineage.get("observed_unread_intervals") != 0):
@@ -239,6 +248,10 @@ def assess_independent_admission_l6_88(
             right[day] = amount
         if left != right:
             issues.add("native_recorder_and_physical_days_disagree")
+        if left:
+            days = sorted(date.fromisoformat(value) for value in left)
+            if (days[-1] - days[0]).days + 1 != len(days):
+                issues.add("historical_daily_coverage_has_unknown_gaps")
         try:
             if sum(left.values()) != _amount(lineage.get("total")):
                 issues.add("physical_total_not_conserved")
