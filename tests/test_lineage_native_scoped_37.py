@@ -120,6 +120,7 @@ def fixtures(*, estimate=False, gap=False):
         "selected_version_state": "verified_immutable",
         "selected_series_persisted": True,
         "post_restart_readback_verified": True,
+        "independent_future_writer_exclusion_verified": True,
         "pending_for_selected_id": False,
         "quarantined_selected_id": False,
         "selected_statistic_id_owned_by_one_scope": True,
@@ -153,6 +154,23 @@ def fixtures(*, estimate=False, gap=False):
             "decision_ref": "accepted-sparse-day", "revision_hash": REV,
         }] if gap else [],
     }
+    # Populate the per-serial journal readback that #36 must supply to #37.
+    for stored_day in proof["daily"]:
+        physical_day = next(row for row in rows if row["date"] == stored_day["date"])
+        stored_day["contributions"] = [{
+            "serial": part["serial"],
+            "measured": (
+                part["consumption"] if part["provenance"] == "measured" else "0"
+            ),
+            "estimated": (
+                part["consumption"]
+                if part["provenance"] == "estimated_linear_confirmed" else "0"
+            ),
+            "decision_refs": ([{
+                "reference": part["decision_fingerprint"],
+                "decision_fingerprint": part["revision_fingerprint"],
+            }] if part["provenance"] == "estimated_linear_confirmed" else []),
+        } for part in physical_day["contributors"]]
     proof["selection_digest"] = native._hash(dict(selection))
     original_payloads = [{
         "lines": [{
@@ -225,6 +243,57 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertFalse(evidence["energy_activation_authorized"])
         self.assertFalse(evidence["writes"])
         self.assertEqual(bundle, original)
+
+    def test_recorder_meter_swap_with_same_total_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["daily"][0]["contributions"][0]["serial"] = "NEW"
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("native_36_physical_member_set_mismatch", result["blockers"])
+
+    def test_recorder_meter_amount_change_with_same_daily_total_refused(self):
+        bundle = fixtures()
+        bundle[3]["daily"][0]["contributions"][0]["measured"] = "0.5"
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn(
+            "native_36_physical_member_amount_or_origin_mismatch", result["blockers"],
+        )
+
+    def test_recorder_approval_revision_tamper_is_refused(self):
+        bundle = fixtures(estimate=True)
+        bundle[3]["daily"][1]["contributions"][0]["decision_refs"][0][
+            "decision_fingerprint"
+        ] = "f" * 64
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("native_36_physical_member_day_revision_mismatch",
+                      result["blockers"])
+
+    def test_future_writer_fence_is_not_deduced_from_sql_readback(self):
+        bundle = fixtures()
+        bundle[3]["independent_future_writer_exclusion_verified"] = False
+        bundle[3]["durable_disk_and_sql_readback_verified"] = True
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("native_36_future_writer_exclusion_unverified",
+                      result["blockers"])
+
+    def test_pending_competing_version_in_scope_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["versions"][1]["state"] = "enqueue_intent"
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("unresolved_competing_version_in_selected_scope",
+                      result["blockers"])
+
+    def test_missing_per_meter_recorder_readback_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["daily"][0].pop("contributions")
+        result = evaluate(bundle)
+        self.assertFalse(result["selected_scope_reconciled"])
+        self.assertIn("native_36_daily_physical_readback_unavailable",
+                      result["blockers"])
 
     def test_native_88_B15_serial_generation_ids_match_exact_scope(self):
         bundle = fixtures()
@@ -382,7 +451,7 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         bundle[3]["selection_digest"] = native._hash(dict(bundle[0]))
         p = evaluate(bundle)
         self.assertFalse(p["selected_scope_reconciled"])
-        self.assertIn("concurrent_physical_generations_not_apportioned", p["blockers"])
+        self.assertIn("native_36_physical_member_set_mismatch", p["blockers"])
 
     def test_overlapping_physical_lifetimes_inside_selected_period_blocked(self):
         bundle = fixtures()
