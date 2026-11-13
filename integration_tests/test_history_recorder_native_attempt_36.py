@@ -917,3 +917,39 @@ async def test_disk_approval_loss_overrides_cached_choice(
     assert native._validate_journal(
         journal, "synthetic-36",
     )[reserved["statistic_id"]] == "reserved"
+
+
+
+@pytest.mark.asyncio
+async def test_cached_metadata_glitch_does_not_permanently_tombstone(
+    hass, native_fixture, monkeypatch,
+):
+    """A stale metadata listing blocks approval but does not prove SQL damage."""
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await _enqueue(hass, plan, stat)
+    _persist_rows(native_fixture, plan, stat)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+
+    original = native._check_persisted_metadata
+
+    async def stale_cached_listing(*_args, **_kwargs):
+        raise ValueError("Cached Recorder metadata unavailable")
+
+    monkeypatch.setattr(native, "_check_persisted_metadata", stale_cached_listing)
+    blocked = await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    )
+    assert blocked["status"] == "blocked_native_readback_incomplete"
+    assert not blocked["verified_attempt_tombstoned"]
+    assert not blocked["scoped_recorder_persistence_verified"]
+    assert native._validate_journal(
+        await native._read_disk(hass, "synthetic-36"), "synthetic-36",
+    )[stat] == "verified"
+    monkeypatch.setattr(native, "_check_persisted_metadata", original)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", stat,
+    ))["scoped_recorder_persistence_verified"]
+    assert native_fixture["queued"] == [stat]
