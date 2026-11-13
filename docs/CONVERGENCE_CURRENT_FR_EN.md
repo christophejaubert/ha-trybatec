@@ -256,3 +256,12 @@ Ces bancs utilisent du code applicatif intégré, avec entrées et adaptateurs *
 
 **EN:** #160 source `d217578d…` passed its compatibility CI (run `43512827571`). Four source-blob changes since the previously integrated `e7274b07…` were selectively copied to #164 at `f107505e…` (physical lineage native verifier, its two test modules and bilingual owner documentation). No stacked commit replay or Energy write-gate change. Source CI must not be misreported as integrated-head qualification. No actual post-install production acceptance is claimed.
 <!-- END-NATIVE-LINEAGE-QUALIFIED-160-20261113 -->
+
+
+<!-- NATIVE-RECORDER-QUALIFIED-159-20261113 -->
+## 🤖 Recorder natif #159 qualifié / Qualified native Recorder #159
+
+**FR — Source :** PR #159, SHA `9fb2c57c75e3733bd11efbe9db765aa032466d61`, [workflow de compatibilité réussi](https://github.com/christophejaubert/ha-trybatec/actions/runs/43513305252). Après comparaison de son arbre avec le dernier SHA #159 intégré (`f23ba0f739195539530df92b5b922d41af9b0cc4`), **quatre fichiers** repris sélectivement au commit #164 `9e9ccc6b303c50433376ed7f715b983ce6ea45b5` : `history_recorder_native_attempt_36.py`, `integration_tests/test_history_recorder_native_attempt_36.py`, `integration_tests/test_history_recorder_native_sqlite_36.py`, `docs/HISTORY_36_NATIVE_ATTEMPTS_FR_EN.md`. Aucun ancien commit empilé n'a été rejoué. Le lecteur `async_read_native_scoped_selection_v2_36` apporte une observation bornée de vraie provenance, mais émet encore `independent_future_writer_exclusion_verified=false`, `selected_statistic_id_owned_by_one_scope=false`, `post_restart_readback_verified=false` et `version_catalog_complete_for_selected_scope=false`. La preuve observée n'est donc **pas un laissez-passer L6/L7**. Elle n'est pas modifiée pour forcer l'admission.
+
+**EN —** Source #159 exact SHA `9fb2c57c…` passed compatibility CI run `43513305252`. Four exact native Recorder, SQLite/storage tests and bilingual documentation paths were selectively composed into #164 at `9e9ccc6b…`. The real scoped v2 native reader deliberately reports that independent late-writer exclusion, ownership uniqueness, post-restart verification and exhaustive selected-version catalog have not been established. Native data observations are not independent Energy authorization. No HA installation, import, backup, mutation, merge or release was performed. Requalify the final #164 SHA independently from source CI.
+<!-- END-NATIVE-RECORDER-QUALIFIED-159-20261113 -->
