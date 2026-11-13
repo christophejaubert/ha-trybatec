@@ -1,12 +1,14 @@
 """#37 v2: synthetic native-scope proof; no HA, Recorder or API access."""
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
 import importlib.util
 from pathlib import Path
 import sys
 import types
+from types import SimpleNamespace
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "trybatec"
@@ -424,6 +426,101 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertEqual(physical, native.generation_id_37(ACCOUNT, LOT, FLUID, "NEW"))
         self.assertNotEqual(physical, native.generation_id_37(ACCOUNT, LOT, FLUID, "NEW_2"))
         self.assertTrue(physical.startswith("trybatec:physical_"))
+
+    def test_native_C11_server_adapter_uses_authenticated_admin_and_source(self):
+        selection, raw, preview, proof, payloads = fixtures()
+        native_data = {
+            "complete": True, "payloads": payloads,
+            "coverage_start": "2026-01-01", "coverage_end": "2026-01-04",
+        }
+        counters = {"store_reads": 0, "c11_reads": 0, "raw_rebuilds": 0}
+        modules = {}
+
+        def fake_module(name, **methods):
+            module = types.ModuleType(f"{PKG}.{name}")
+            for key, fn in methods.items():
+                setattr(module, key, fn)
+            modules[f"{PKG}.{name}"] = module
+
+        def fake_history(*args, **kwargs):
+            counters["raw_rebuilds"] += 1
+            self.assertEqual(kwargs["allowed_lots"], {LOT})
+            return raw
+
+        async def fake_decisions(*args):
+            counters["store_reads"] += 1
+            return {}
+
+        def fake_C11(*args, **kwargs):
+            counters["c11_reads"] += 1
+            self.assertEqual(kwargs["start"].isoformat(), "2026-01-02")
+            return native_data
+
+        fake_module("history", build_history=fake_history)
+        fake_module("history_store", load_decisions=fake_decisions)
+        fake_module("panel_history_coverage", get_source=fake_C11)
+
+        before = {k: sys.modules.get(k) for k in modules}
+        sys.modules.update(modules)
+
+        class Auth:
+            async def async_get_user(self, actor_id):
+                return SimpleNamespace(is_admin=actor_id == "fake-admin")
+
+        hass = SimpleNamespace(auth=Auth())
+        coordinator = SimpleNamespace(entry=SimpleNamespace(
+            unique_id=ACCOUNT, entry_id="FAKE-ENTRY",
+        ))
+
+        async def fake_36(*args):
+            return proof
+
+        async def run():
+            return await native.async_collect_server_scoped_lineage_37(
+                hass, coordinator, actor_id="fake-admin",
+                selection=selection, preview_37=preview,
+                read_native_recorder_36=fake_36,
+                verify_user_selection=approved_user,
+                verify_36_day=approved_day,
+                verify_36_absence=approved_absence,
+            )
+
+        try:
+            result = asyncio.run(run())
+            self.assertTrue(result["selected_scope_reconciled"], result["blockers"])
+            self.assertEqual(counters, {
+                "store_reads": 1, "c11_reads": 1, "raw_rebuilds": 1,
+            })
+            self.assertFalse(result["writes"])
+
+            async def denied():
+                return await native.async_collect_server_scoped_lineage_37(
+                    hass, coordinator, actor_id="not-admin",
+                    selection=selection, preview_37=preview,
+                )
+
+            with self.assertRaises(PermissionError):
+                asyncio.run(denied())
+            self.assertEqual(counters["store_reads"], 1)
+
+            async def no_recorder():
+                return await native.async_collect_server_scoped_lineage_37(
+                    hass, coordinator, actor_id="fake-admin",
+                    selection=selection, preview_37=preview,
+                    verify_user_selection=approved_user,
+                    verify_36_day=approved_day,
+                    verify_36_absence=approved_absence,
+                )
+            blocked = asyncio.run(no_recorder())
+            self.assertFalse(blocked["selected_scope_reconciled"])
+            self.assertIn("native_36_selected_revision_and_scope_unavailable",
+                          blocked["blockers"])
+        finally:
+            for key, original in before.items():
+                if original is None:
+                    sys.modules.pop(key, None)
+                else:
+                    sys.modules[key] = original
 
     def test_no_callbacks_is_never_an_native_attestation(self):
         p = evaluate(fixtures(), verify_user_selection=None,
