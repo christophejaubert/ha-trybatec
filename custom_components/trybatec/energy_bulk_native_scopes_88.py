@@ -119,6 +119,17 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
     return result
 
 
+async def async_read_recorder_metadata_88(
+    hass: Any, statistic_id: str, *, fluid: str, unit: str,
+) -> None:
+    """Delegate to #36's strict native metadata reader, never a mock in HA."""
+    from .history_recorder_b15 import _check_persisted_metadata
+
+    await _check_persisted_metadata(
+        hass, statistic_id, fluid=fluid, unit=unit,
+    )
+
+
 async def async_collect_native_scopes_88(
     hass: Any, coordinator: Any, *, actor: Any, lot: str,
 ) -> dict[str, Any]:
@@ -138,7 +149,8 @@ async def async_collect_native_scopes_88(
             or hass.data.get(DOMAIN, {}).get(entry.entry_id) is not coordinator
             or not isinstance(lot, str) or not lot or len(lot) > 128
             or not isinstance(getattr(coordinator, "data", None), dict)
-            or lot not in coordinator.data.get("lots", ())):
+            or not isinstance(coordinator.data.get("lots"), (list, tuple, set))
+            or lot not in coordinator.data["lots"]):
         raise EnergyTransactionRefused("Selected native account or lot not present")
     facts = _meter_rows(coordinator)
     native_prefs = await _energy_without_initializing(hass)
@@ -183,8 +195,7 @@ async def async_collect_native_scopes_88(
             # Native Recorder metadata is a real observed fact, not proof of
             # the complete immutable series or an all-writer exclusion.
             try:
-                from .history_recorder_b15 import _check_persisted_metadata
-                await _check_persisted_metadata(
+                await async_read_recorder_metadata_88(
                     hass, stat, fluid=fluid, unit=_UNITS[fluid],
                 )
                 group["metadata_verified"] = True
