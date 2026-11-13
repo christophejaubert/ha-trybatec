@@ -2051,7 +2051,8 @@ class TrybatecPanel extends HTMLElement {
     if (!item) return "";
     return '<section class="line fluid-surface '+safe(FLUID_CLASS[m.fluid]||"")+
       '" style="margin-top:16px"><h3>'+trybatecFluidTag(m.fluid)+
-      ' · Contrôles historiques de ce compteur</h3>'+
+      ' · '+safe(this._t("Contrôles historiques de ce compteur",
+        "Historical checks for this meter"))+'</h3>'+
       '<p class="muted">Indicateurs issus du dernier aperçu ; un écart ou conflit n’est pas nécessairement une erreur de mesure.</p>'+
       '<div class="detail-grid">'+
       '<div><span class="smallhead">Intervalles lacunaires</span><strong>'+safe(item.gaps)+'</strong></div>'+
