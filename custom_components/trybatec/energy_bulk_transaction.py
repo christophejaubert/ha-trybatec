@@ -125,7 +125,15 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
             previous[k] != proposed[k] for k in previous if k != "energy_sources"
         ) or proposed["energy_sources"][:len(previous["energy_sources"])] != previous["energy_sources"]:
             raise ValueError("non_additive_plan")
-        digest = _digest([account, lot, before, plan["after_fingerprint"], actions])
+        # A plan's fingerprint must bind the selected immutable series,
+        # scoped proof/version/approval references and all L6 assessment
+        # evidence. Otherwise an approval could change between preview and
+        # confirmation while the bare statistic_id remains unchanged.
+        # This is a hash only: never return raw private evidence to the UI.
+        digest = _digest([
+            account, lot, before, plan["after_fingerprint"], actions,
+            {"selected_candidates": candidates, "native_l6_evidence": evidence},
+        ])
         return EnergyPreview("prepared_for_explicit_admin_review", before,
                              plan["after_fingerprint"], digest,
                              len(actions), ()), plan
