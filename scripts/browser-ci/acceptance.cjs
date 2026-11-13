@@ -145,27 +145,53 @@ async function runCase(browser, locale, device, dark=false) {
       language,
       themes:{darkMode:dark},
       config:{time_zone:"Europe/Paris"},
+      user:{is_admin:true}, // C11 backend status is administrator-only
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
-        if (command.type==="trybatec/panel_history_discovery_status") return {
-          status:"not_started",discovery_status:"not_started",
-          coverage:{status:"not_started",completeness:"unknown"},
-          verified_coverage:null,recorder_writes:false,energy_writes:false,
-          retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints"
+        const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+        const datedMeters=[{
+          physical_key:snapshot.accounts[0].meters[1].physical_key,fluid:"EF",
+          first_observed_at:"2021-12-21T00:00:00+01:00",
+          last_observed_at:"2024-12-30T00:00:00+01:00",
+          last_source_observed_at:"2024-12-30T00:00:00+01:00",
+          observed_years:[2021,2024],provenance:"verified_supplier_observation"
+        }];
+        const verifiedCoverage={
+          status:"complete",completeness:"account_full",
+          coverage_start:"2000-01-01",coverage_end:today,
+          first_observed_at:datedMeters[0].first_observed_at,
+          last_observed_at:datedMeters[0].last_observed_at,
+          meters:datedMeters,observed_years:[2021,2024],
+          suggested_years:[2021,2022,2023,2024],
+          suggested_years_basis:"observed_first_last_range_not_yearly_proof",
+          cache_reused:false,periods_verified:8,api_requests:8,
+          cache_invalidation_reason:null,
+          provenance:"verified_supplier_history"
         };
+        if (command.type==="trybatec/panel_history_discovery_status") {
+          const complete=globalThis.__scanCompleted===true;
+          return {
+            status:complete?"complete":"not_started",
+            discovery_status:complete?"complete":"not_started",
+            coverage:complete?structuredClone(verifiedCoverage):
+              {status:"not_started",completeness:"unknown",meters:[]},
+            verified_coverage:complete?structuredClone(verifiedCoverage):null,
+            recorder_writes:false,energy_writes:false,
+            retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints"
+          };
+        }
         if (command.type==="trybatec/panel_history_job_start") {
           globalThis.__lastJobKind=command.kind;
           return {id:"SYNTHETIC-JOB",kind:command.kind,status:"running"};
         }
         if (command.type==="trybatec/panel_history_job_status") {
-          const result=globalThis.__lastJobKind==="tariff_year_coverage"?
+          const accountWide=globalThis.__lastJobKind==="tariff_year_coverage";
+          if(accountWide) globalThis.__scanCompleted=true;
+          const result=accountWide?
             {status:"complete",recorder_writes:false,energy_writes:false,
-              meters:[{
-                physical_key:snapshot.accounts[0].meters[1].physical_key,
-                first_observed_at:"2021-12-21T00:00:00+01:00",
-                last_source_observed_at:"2024-12-30T00:00:00+01:00",
-              }]}:
+              meters:datedMeters,coverage:verifiedCoverage,api_requests:8,
+              cache_hit:false,source:"verified_supplier_history"}:
             {recorder_writes:false,energy_writes:false,
               proposals:{intervals:[]},review_candidates:[]};
           return {id:command.job_id,status:"complete",complete:true,
@@ -536,6 +562,8 @@ async function runCase(browser, locale, device, dark=false) {
       "trybatec/panel_history_discovery_status",
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"].includes(x)),
     "Only read-only snapshots and historical preview jobs are allowed in visual acceptance");
+  assert.ok(observed.includes("trybatec/panel_history_discovery_status"),
+    "Real panel must consult C11 status without starting supplier scans");
   assert.ok(observed.includes("trybatec/panel_history_job_start"),
     "Explicit tariff-year request must start a monitored read-only job");
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
