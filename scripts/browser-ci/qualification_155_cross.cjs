@@ -284,6 +284,9 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       assert.ok(ratio>=4.5,"Fluid text contrast below 4.5:1: "+
         shade.fluid+" ratio="+ratio.toFixed(2)+" theme="+(dark?"dark":"light"));
     }
+    // A keyboard user establishes :focus-visible before navigation.
+    // Direct locator.focus() alone does not switch Chromium to keyboard modality.
+    await page.keyboard.press("Tab");
     await locator('nav button[data-tab="history"]').focus();
     await page.keyboard.press("Enter");
     const focused=await locator('nav button[data-tab="history"]').evaluate(el=>{
