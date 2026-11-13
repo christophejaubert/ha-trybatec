@@ -11,6 +11,19 @@ from homeassistant.core import SupportsResponse
 
 from custom_components.trybatec import history_recorder_b15 as recorder
 
+@pytest.fixture(autouse=True)
+def _synthetic_recorder_metadata(monkeypatch):
+    """Synthetic metadata models the native Recorder statistics registry."""
+    async def lookup(_hass, statistic_ids):
+        return [{
+            "statistic_id": stat, "source": "trybatec",
+            "statistics_unit_of_measurement": "m³",
+            "unit_class": "volume", "has_sum": True,
+            "mean_type": recorder.StatisticMeanType.NONE,
+        } for stat in statistic_ids]
+    monkeypatch.setattr(recorder, "async_list_statistic_ids", lookup)
+
+
 
 def _plan():
     start = datetime(2026, 3, 28, 12, tzinfo=timezone.utc)
