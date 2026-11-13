@@ -59,8 +59,8 @@ function fakeResponse(kind,snapshot){
     suggested_years_basis:"observed_first_last_range_not_yearly_proof",
     periods_verified:complete?350:bounded?4:0,
     api_requests:0,cache_reused:complete,
-    verified_at:complete||bounded?"2026-11-13T10:00:00+00:00":null,
-    cache_expires_at:complete||bounded?"2026-11-13T11:00:00+00:00":null,
+    verified_at:complete||bounded?new Date().toISOString():null,
+    cache_expires_at:complete||bounded?new Date(Date.now()+3600000).toISOString():null,
     cache_invalidation_reason:kind==="invalidated"?"identity_changed":null,
     retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints",
   };
@@ -105,25 +105,32 @@ async function one(browser,snapshot,config,kind) {
               throw new Error("C11 status queried for another account");
             return structuredClone(status);
           }
-          throw new Error("Synthetic harness blocks supplier scans and every write");
+          // Only an explicit user retry may reach this synthetic job boundary.
+          if(command.type==="trybatec/panel_history_job_start")
+            return {id:"SYNTH-C11-RETRY",kind:command.kind,status:"running"};
+          if(command.type==="trybatec/panel_history_job_status")
+            return {id:"SYNTH-C11-RETRY",status:"failed",complete:false,
+              failure_category:"network",recorder_writes:false,energy_writes:false};
+          throw new Error("Synthetic harness blocks all writes and vendor calls");
         }};
     },{snapshot,status:fakeResponse(kind,snapshot),locale,dark:config.theme==="dark"});
     await page.waitForFunction(()=>Boolean(
       document.querySelector("trybatec-panel")?._data?.accounts?.length
     ),null,{timeout:12000});
+    const viewed=[];
     for(const tab of ["meters","history","tariffs"]){
       await page.locator('trybatec-panel nav button[data-tab="'+tab+'"]').click();
+      await page.waitForTimeout(25);
+      viewed.push({tab,text:await page.locator("trybatec-panel main").innerText()});
     }
-    // Allow all microtasks of the initial read-only snapshot/status handlers to settle.
-    await page.waitForTimeout(35);
+    // The captured status must be visible on each cross-module view, not
+    // merely cached in the harness or present in a source-code string.
     const collected=await page.evaluate(()=>{
       const host=document.querySelector("trybatec-panel"),root=host.shadowRoot;
-      return {text:root.querySelector("main")?.innerText||"",
-        allText:root.querySelector("main")?.textContent||"",
+      return {allText:root.querySelector("main")?.textContent||"",
         calls:globalThis.__c11Calls,
         editableYear:root.querySelector("#tariff-year")?.disabled===false,
         editableRate:root.querySelector("#tariff-rate")?.disabled===false,
-        html:root.querySelector("main")?.innerHTML||"",
         active:host._tariffCoverage?.get(host._current.entry_id)||null};
     });
     const statusCalls=collected.calls.filter(c=>c.type==="trybatec/panel_history_discovery_status");
@@ -138,7 +145,7 @@ async function one(browser,snapshot,config,kind) {
     assert.equal(collected.editableRate,true,"Tariff rate must remain editable");
     assert.doesNotMatch(collected.allText,/SYNTH_PRIVATE_NEVER_RENDER_C11/,
       "A private supplier diagnostic was rendered to the administrator");
-    const text=collected.text;
+    const text=viewed.map(x=>x.text).join(" | ");
     const matches={
       not_started:/non lancée|not started/i,
       running:/en cours|running|progress/i,
@@ -148,7 +155,9 @@ async function one(browser,snapshot,config,kind) {
       interrupted:/interrompue|annulée|interrupted|cancelled/i,
       invalidated:/invalidé|changement d.identité|identity changed|invalidated|cache invalid/i,
     };
-    assert.match(text,matches[kind],"C11 discovery state is not accessible in the panel");
+    for(const view of viewed)
+      assert.match(view.text,matches[kind],
+        "C11 state not visible in "+view.tab+" ("+kind+")");
     if(kind==="running"){
       assert.match(text,/3/,"Verified-period counter must be visible");
       assert.match(text,/5/,"Read-only HTTP request count must be visible");
@@ -171,6 +180,25 @@ async function one(browser,snapshot,config,kind) {
       assert.match(text,/zéro|zero|début|beginning|recommenc/i);
     if(kind==="invalidated")
       assert.doesNotMatch(text,/couverture historique complète du compte|full account coverage/i);
+    if(kind==="error"||kind==="interrupted"){
+      const retry=page.locator("trybatec-panel button").filter({
+        hasText:/réessayer|relancer|rechercher les exercices|retry|restart|search historical/i
+      }).first();
+      assert.ok(await retry.count()===1,"Manual restart must remain available");
+      await retry.click();
+      await page.waitForFunction(()=>
+        globalThis.__c11Calls.some(c=>c.type==="trybatec/panel_history_job_start"),
+        null,{timeout:4000});
+      const after=await page.evaluate(()=>globalThis.__c11Calls);
+      const started=after.filter(c=>c.type==="trybatec/panel_history_job_start");
+      assert.equal(started.length,1,"Exactly one explicit restart is permitted");
+      assert.equal(started[0].entry_id,snapshot.accounts[0].entry_id);
+      assert.equal(started[0].kind,"tariff_year_coverage");
+      assert.ok(after.every(c=>[
+        "trybatec/panel_snapshot","trybatec/panel_history_discovery_status",
+        "trybatec/panel_history_job_start","trybatec/panel_history_job_status"
+      ].includes(c.type)),"No implicit Recorder/Energy/other write on retry");
+    }
     return {kind,locale,device:config.device,theme:config.theme,readCalls:statusCalls.length};
   }finally{await context.close();}
 }
