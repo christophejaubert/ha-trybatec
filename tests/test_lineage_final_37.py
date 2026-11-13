@@ -96,8 +96,12 @@ class FinalLineage37Tests(unittest.TestCase):
         a = physical("A", 0, retired=True)
         b = physical("B", 5, retired=True, value=2)
         c = physical("C", 10, value=3)
-        evidence = make([a, b, c], current={"C": snapshot(c)},
-                        links=[link(a, b), link(b, c)])
+        evidence = make(
+            [a, b, c],
+            selections=[variant(a, 0, 1), variant(b, 5, 2), variant(c, 10, 3)],
+            current={"C": snapshot(c)},
+            links=[link(a, b), link(b, c)],
+        )
         group = evidence["groups"][0]
         self.assertEqual(group["total"], "6")
         self.assertEqual([x["relation"] for x in group["lineage"]],
