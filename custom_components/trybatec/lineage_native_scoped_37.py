@@ -226,9 +226,17 @@ def prepare_native_scoped_lineage_37(
             or len(serials) != len(set(serials))
             or any(not isinstance(s, str) or not s for s in serials)):
         raise ValueError("Unqualified selected physical serials")
-    ids = [generation_id_37(account, lot, fluid, s) for s in serials]
-    if selection.get("generation_ids") != ids:
-        raise ValueError("Physical generation IDs differ from selected serials")
+    opaque = [generation_id_37(account, lot, fluid, s) for s in serials]
+    chosen_ids = selection.get("generation_ids")
+    if chosen_ids == serials:
+        # #88's native B15 source stores the original scoped serial.
+        ids = list(serials)
+    elif chosen_ids == opaque:
+        # A standalone scoped candidate may carry opaque technical IDs.
+        ids = opaque
+    else:
+        raise ValueError("Physical generation IDs differ from native selected serials")
+    id_by_serial = dict(zip(serials, ids))
     snapshot = selected_snapshot_37(
         account, preview_37, lot=lot, fluid=fluid,
         start=first.isoformat(), end=last.isoformat(), serials=serials,
@@ -310,6 +318,9 @@ def prepare_native_scoped_lineage_37(
         uncertain[gen_id] = uncertain_days
         generations.append({
             "generation_id": gen_id, "unit": unit,
+            "physical_identity_digest": generation_id_37(
+                account, lot, fluid, serial,
+            ),
             "identity_verified": True,
             "supplier_observation_attested": False,
             "status": "retired" if status == "depose" else "active",
@@ -403,7 +414,7 @@ def prepare_native_scoped_lineage_37(
             if serial not in serials:
                 reasons.add("foreign_physical_generation_contribution")
                 continue
-            gen_id = generation_id_37(account, lot, fluid, serial)
+            gen_id = id_by_serial[serial]
             if gen_id in used:
                 reasons.add("duplicate_physical_generation_on_day")
                 continue
