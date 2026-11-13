@@ -1161,6 +1161,7 @@ class TrybatecPanel extends HTMLElement {
     // established an administrator identity for this panel session.
     if (this._hass?.user?.is_admin!==true) {
       this._historyDiscovery.set(entryId,{discovery_status:"unverified",coverage:null});
+      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
       return;
     }
     this._historyDiscoveryInflight.add(entryId);
