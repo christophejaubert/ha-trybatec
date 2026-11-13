@@ -152,3 +152,43 @@ async def test_native_barrier_uses_running_recorder_instance(hass, monkeypatch):
                         lambda _h: SimpleNamespace(async_block_till_done=broken))
     with pytest.raises(ValueError, match="writer-quiescence"):
         await recorder._recorder_writer_barrier(hass)
+
+
+@pytest.mark.asyncio
+async def test_native_unit_mismatch_never_marks_version_verified(hass, monkeypatch):
+    """REC-15: matching sums cannot override a conflicting Recorder unit."""
+    plan = _plan()
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _hass, _metadata, _rows: None,
+    )
+    await recorder.queue_b15_plan(
+        hass, "synthetic-36-wrong-unit", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+
+    async def persisted(call):
+        statistic_id = call.data["statistic_ids"][0]
+        item = next(s for s in plan["series"]
+                    if s["logical_id"] + "_v1" == statistic_id)
+        return {"statistics": {statistic_id: [
+            {"start": row["start"].isoformat(), "sum": row["sum"]}
+            for row in item["rows"]
+        ]}}
+    hass.services.async_register(
+        "recorder", "get_statistics", persisted,
+        supports_response=SupportsResponse.ONLY,
+    )
+    async def incompatible(_hass, ids):
+        return [{
+            "statistic_id": stat, "source": "trybatec",
+            "statistics_unit_of_measurement": "kWh",
+            "unit_class": "energy", "has_sum": True,
+            "mean_type": recorder.StatisticMeanType.NONE,
+        } for stat in ids]
+    monkeypatch.setattr(recorder, "async_list_statistic_ids", incompatible)
+    store = recorder.ledger_store(hass, "synthetic-36-wrong-unit")
+    before = await store.async_load()
+    with pytest.raises(ValueError, match="metadata conflicts"):
+        await recorder.verify_b15_recorder(hass, "synthetic-36-wrong-unit")
+    assert await store.async_load() == before
