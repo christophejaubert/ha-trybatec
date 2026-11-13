@@ -1,0 +1,55 @@
+# 🤖 #36 — Journal natif versionné et quarantaine / Native versioned attempt journal and quarantine
+
+**Mandat / Scope:** PR #159 only; targeted L6 handoff to #37/#88 and reconciliation #164. No real HA instance, Recorder DB, Energy preference or supplier portal was accessed. All runtime tests use synthetic data and an isolated HA test configuration. This file describes implementation **not an installed capability**.
+
+## FR — Ce qui est effectivement développé
+
+### Registre et transactions
+
+\`history_recorder_native_attempt_36.py\` est un **module natif dormant**, non enregistré comme service, websocket, migration ou action au démarrage. Il utilise le \`Store\` Home Assistant (\`private=True, atomic_writes=True\`) et une **relecture du fichier réel \`.storage\`** pour garantir que le journal réservé est retrouvable avant tout envoi Recorder. L'écriture d'une intention \`enqueue_intent\` précède obligatoirement \`async_add_external_statistics\`, qui n'est jamais rappelé pour le même ID après incident.
+
+\`async_reserve_native_attempt_36\` crée une série \`trybatec:logical_…_vN_aK_<nonce128>\`, avec révision métier Vn et tentative technique Ak. L'ID est distinct des \`_vN\` B15 historiques et des IDs des tentatives déjà inscrites, y compris quarantaines ; collision visible dans les métadonnées Recorder ⇒ refus ; présence d'un ID de tentative sans tombstone dans le journal ⇒ restauration suspecte ⇒ refus. Le nonce aléatoire atténue les collisions non coopérantes, mais **n'est pas un verrou global atomique**.
+
+Les journaux sont append-only au niveau de l'API : \`attempts\` contient des enregistrements immuables (portée physique, lot, fluide, source et plan, snapshot des sommes horaires, unité et approbations par journée) ; \`events\` conserve les transitions \`reserved → enqueue_intent → verified\` ou \`reserved/enqueue_intent → quarantined\`, séquencées et chaînées par empreinte. Les quarantaines sont terminales, avec motif sauvegardé. Une nouvelle tentative peut être réservée après quarantaine, **jamais avec l'ancien ID**. Le journal est borné ; dépassement ⇒ refus sans purge silencieuse.
+
+Un crash entre le stockage du journal et la mise en file produit une tentative \`reserved\` ou \`enqueue_intent\`, non automatiquement rejouée. Une réponse d'import ambiguë ne provoque aucun retry du même \`statistic_id\`. La suppression/corruption du journal, les événements hors ordre, une divergence d'empreinte, une tentative orpheline ou l'absence d'approbation bloquent les mutations.
+
+### Preuve native de persistance ciblée
+
+\`async_native_attempt_proof_36\` accepte uniquement une tentative \`enqueue_intent\` ou \`verified\`, puis :
+
+1. Relit et valide l'**enveloppe physique de stockage du journal** depuis \`.storage\`, sans se fier à son cache.
+2. Vérifie la chaîne et le contenu de chaque tentative ; compare le snapshot et l'empreinte de plan/source/journées.
+3. Revalide **auprès des stores natifs de décisions** les intervalles ayant motivé une estimation : \`interval_key\`, date \`updated_at\`, motif \`manual_periodic | telemetry_failure | other | undetermined_confirmed\`, indicateur distinct de confirmation pour l'origine inconnue et hash exact de la décision. Pour un index initial estimé, la décision est distincte du relevé fournisseur.
+4. Attend la barrière native Recorder comme précondition d'observation (pas un fencing).
+5. Consulte les **vraies statistiques persistées** via le service \`recorder/get_statistics\` sur les fenêtres horaires sélectionnées ; compare tous les timestamps et sommes, sans doublon ni ligne manquante, puis calcule une **empreinte du contenu relu**.
+6. Contrôle la source/l'unité/classe/has_sum/mean_type et consulte \`recorder.statistics.get_metadata\` dans une session SQL en lecture seule via exécuteur, pour éviter de n'utiliser qu'un cache de métadonnées.
+7. Relit le journal sur disque, écrit l'événement \`verified\` seulement si le contenu est encore cohérent et fournit une attestation **limitée à l'ID, à la version, à la tentative et à la période vérifiés**.
+
+**Contrat pour #88 :** \`history_36_native_attempt_proof_v1\` propose \`status=observed_persisted_exactly\`, \`statistic_id\`, \`revision\`, \`attempt\`, \`scope\` (lot/fluide/type/serial/variant), \`unit\` (EF/ECS m³, CET kWh), \`period_start_utc\`, \`period_end_utc\`, \`plan_fingerprint\`, \`source_fingerprint\`, \`coverage_fingerprint\`, \`snapshot_hash\`, \`native_buckets_verified\`, \`day_approval_fingerprint\`, \`daily_approval_refs\` (date, measured, estimated, provenance, serial, reference de décision et révision UTC), \`journal_disk_verified\`, \`recorder_sql_metadata_readback_verified\`, \`recorder_sql_snapshot_hash_verified\`, \`native_decision_store_crosscheck_verified\` et la liste des \`other_known_same_logical_statistic_ids\` / \`quarantined_or_uncertain_attempt_ids\`.
+
+**Les drapeaux de veto restent explicites :** \`independent_future_writer_exclusion_verified=false\`, \`energy_exclusivity_verified=false\`, \`no_double_counting_across_energy_sources_attested=false\`, \`energy_activation_authorized=false\`, \`global_history_exhaustiveness_claimed=false\`. Une preuve ciblée positive n'autorise donc **ni un import supplémentaire**, ni l'inscription Énergie. #88 doit analyser lui-même les références natives actives, les autres sources, les anciennes versions et l'opération de remplacement, la sauvegarde, la concurrence et le rollback. #37 qualifie les membres physiques et les journées retenues. Aucune preuve d'exhaustivité absolue de toute l'histoire fournisseur n'est exigée.
+
+### Origines et calculs préservés
+
+Les index d'origine ne sont pas altérés. Un relevé absent n'est pas un index zéro. Les seuils zéro/sparse et les plages validées restent dans les modules existants. Les journées de lissage reçoivent seulement le résiduel linéaire explicitement confirmé ; un index initial estimé, prérempli à 0 et modifiable, est toujours distingué des observations fournisseur. \`history_variants_b15\`, \`history_coverage_l2\` et \`history_plan_b15\` conservent désormais pour chaque journée estimée les références à la **décision exacte**, mais la forme et l'empreinte des journées strictement mesurées restent compatibles avec la version antérieure.
+
+### Qualification et limitations
+
+- Tests : \`integration_tests/test_history_recorder_native_attempt_36.py\` utilise un \`hass\` isolé dont le \`Store\` écrit réellement sur **un répertoire temporaire**, et des réponses **Recorder/SQL synthétiques**. La CI Recorder E2E de référence est indépendante de ces tests. Elle ne prouve pas qu'un ancien writer extérieur est bloqué sur la vraie instance utilisateur.
+- La preuve de contenu positive est un **constat au moment de la lecture**, pas une propriété de type « écriture future impossible ». \`statistic_id\` n'est pas un verrou physique de Home Assistant et \`get_metadata\` ne réserve pas le nom contre d'autres intégrations.
+- Le journal SHA-256 détecte une corruption ou divergence accidentelle, mais n'est pas une signature inviolable contre un acteur disposant du droit d'écrire les fichiers et de recalculer leurs empreintes. Une restauration complète et cohérente d'un état antérieur peut être indétectable : **absence de garantie globale de monotonie après restauration**.
+- Il n'existe pas de transaction HA atomique entre \`.storage\`, Recorder SQL et les préférences Energy. L'absence de preuve universelle est traitée comme un refus des opérations qui la nécessitent, **pas comme une exigence d'exhaustivité fournisseur**.
+- Ce module n'est **pas raccordé** au chemin d'import B15 historique ; ce dernier conserve son refus de replay. Pas de service activé, pas d'installation, fusion, publication ni écriture sur l'instance utilisateur.
+
+**Décision :** composants natifs développés, critères ciblés testables, admission L6 limitée et vérifiable en lecture seule ; **pas de garantie d'immutabilité Recorder contre tous les writers**. Fusion, installation et activation native restent soumises à de nouvelles autorisations explicites.
+
+## EN — Native attempt journal, scoped persistence evidence, retained gates
+
+The new **dormant, unregistered** \`history_recorder_native_attempt_36.py\` uses a Home Assistant private atomic Store and independently reopens its actual \`.storage\` file before any Recorder enqueue. Each attempt receives a random 128-bit suffixed \`_vN_aK_<nonce>\` ID with a permanent append-only reservation, source/day/version snapshot and hash-chained transition journal. \`enqueue_intent\` is persisted **before** invoking the native \`async_add_external_statistics\` callback; a crash, cancellation, failed enqueue, ambiguous metadata or partial import never requeues that ID. Quarantine retains immutable tombstones. A later approved attempt receives an entirely new identifier.
+
+The native evidence function verifies all selected time buckets and sums via Home Assistant's statistics service, independently re-reads SQL metadata using \`get_metadata\`, recalculates the stored snapshot hash, checks actual persisted administrator approvals for each estimated day and reopens the journal on disk. Its positive output is precisely scoped to the selected revision/attempt/statistic/period and includes source/unit, daily provenance, approval timestamps/fingerprints and competing known IDs. **Absolute supplier-history completeness is explicitly not required.**
+
+This evidence does **not** guarantee future Recorder immutability, external-writer exclusion, a cross-process atomic statistic-ID reservation, or unique Energy source selection. All Energy write/activation gates remain false; #37 must independently establish physical generation/day validity and #88 must independently verify an exclusive replacement with live/durable preference rechecks, unrelated-source preservation, backups, rollback and no double counting.
+
+Synthetic CI tests use a real Home Assistant Store on a **temporary test directory** but mock Recorder service/SQL contents; they are not claims of a live Recorder database crash-restart or a production Home Assistant acceptance test. The existing B15 import/retry path is untouched and its fail-closed behavior is preserved. No merge, release, installation, backup/restore or HA change was triggered.
