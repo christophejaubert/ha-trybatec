@@ -382,7 +382,7 @@ async function runCase(browser, locale, device, dark=false) {
       assert.doesNotMatch(content,/data-technical-delete/);
     }
     if(tab==="tariffs"){
-      await page.locator("trybatec-panel button[data-tariff-years-retry]").click();
+      await page.locator("trybatec-panel button[data-historical-scan]").first().click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
         return root?.querySelector('datalist#tariff-year-options option[value="2020"]');
