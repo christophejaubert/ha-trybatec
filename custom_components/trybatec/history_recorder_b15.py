@@ -93,6 +93,25 @@ def _match_pending(existing: dict, plan: dict) -> None:
             raise ValueError("Pending b15 version ledger invalid")
 
 
+async def _independent_writer_quiescence_proof(
+    hass: Any, entry_id: str, statistic_ids: set[str],
+) -> None:
+    """Require an authoritative no-late-writer attestation before selective retry.
+
+    As of HA Recorder 2026.11, native SynchronizeTask confirms earlier queue
+    work was processed, but an ImportStatisticsTask may reschedule itself
+    after a failed import. Recorder exposes no stable public per-statistic
+    generation token preventing that later task from writing. The native
+    barrier alone is therefore insufficient. Remain fail-closed by default.
+
+    Isolated synthetic tests inject an independently-proven fixture here.
+    Do NOT replace this gate with a sleep, browser flag or queue.empty().
+    """
+    raise ValueError(
+        "Recorder has no verified exclusive no-late-writer proof for selective retry"
+    )
+
+
 async def queue_b15_plan(
     hass: Any, entry_id: str, plan: dict,
     *,
@@ -150,11 +169,16 @@ async def queue_b15_plan(
                 "Pending Recorder import has partial, conflicting or "
                 "unattested buckets; selective retry denied"
             )
+        # Native SynchronizeTask is necessary but insufficient: a failed
+        # ImportStatisticsTask can requeue itself after that barrier. The
+        # second, independent proof has no production implementation yet.
+        # Until such a durable per-statistic writer fence exists, deny retry.
+        allowed_ids = set(recovery["retry_only_these_statistic_ids"])
+        await _independent_writer_quiescence_proof(hass, entry_id, allowed_ids)
         stage = await store.async_load()
         _match_pending(stage, plan)
         selected = [item for item in plan["series"]
                     if item["logical_id"] in stage["pending"]]
-        allowed_ids = set(recovery["retry_only_these_statistic_ids"])
         if not selected or {
             stage["pending"][item["logical_id"]]["statistic_id"]
             for item in selected
