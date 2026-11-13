@@ -289,6 +289,53 @@ class FinalLineage37Tests(unittest.TestCase):
         self.assertEqual(first["fingerprint"], second["fingerprint"])
         self.assertFalse(first["writes"])
 
+    def test_nonadjacent_generations_overlap_even_on_distinct_days(self):
+        def meter(serial, first, last):
+            return {
+                "lot": "LOT-FICTIF", "fluid": "EF", "serial": serial,
+                "status": "depose" if serial != "C" else "en_service",
+                "first_observed_at": f"2026-01-{first:02d}T12:00:00+00:00",
+                "last_observed_at": f"2026-01-{last:02d}T12:00:00+00:00",
+                "service_start": None, "service_end": None,
+                "unit": "m³", "source_fingerprint": serial * 64,
+            }
+
+        meters = [meter("A", 1, 15), meter("B", 5, 10), meter("C", 11, 13)]
+        selected = {(m["lot"], m["fluid"], m["serial"]): "raw" for m in meters}
+
+        def daily(m, day):
+            return {
+                "kind": "consumption", "lot": m["lot"], "fluid": m["fluid"],
+                "serial": m["serial"], "unit": "m³", "variant": "raw",
+                "source_fingerprint": m["source_fingerprint"],
+                "daily": {f"2026-01-{day:02d}": {
+                    "amount": "1", "provenance": "measured"
+                }},
+            }
+
+        sources = [daily(meters[0], 2), daily(meters[1], 6), daily(meters[2], 12)]
+        key_a = ("LOT-FICTIF", "EF", "A")
+        key_b = ("LOT-FICTIF", "EF", "B")
+        key_c = ("LOT-FICTIF", "EF", "C")
+        a_b = frozenset((key_a, key_b))
+        preview = meter_mod.preview_lineage(
+            "ACCOUNT-FICTIF", meters, sources, selected,
+            approved_parallel={a_b},
+        )
+        self.assertIn("unverified_physical_period_overlap",
+                      preview["groups"][0]["blockers"])
+        self.assertEqual(preview["groups"][0]["rows"], [])
+        fully_reviewed = meter_mod.preview_lineage(
+            "ACCOUNT-FICTIF", meters, sources, selected,
+            approved_parallel={a_b, frozenset((key_a, key_c))},
+        )
+        self.assertEqual(fully_reviewed["groups"][0]["total"], "3")
+        self.assertFalse(fully_reviewed["energy_activation_authorized"])
+
+    def test_nul_delimiter_cannot_alias_another_logical_scope(self):
+        with self.assertRaisesRegex(ValueError, "Invalid physical identity"):
+            meter_mod.preview_lineage("ACCOUNT\\x00FICTIF", [], [], {})
+
     def test_handoff_never_accepts_claimed_authority(self):
         a = physical("A")
         value = make([a])
