@@ -39,6 +39,6 @@ def test_gitleaks_incremental_and_full_history_scan_remain_enforced():
     assert job.index("gitleaks/gitleaks-action@") < job.index("Recheck reachable Git history")
     assert "continue-on-error:" not in job
     assert "Assert synthetic Git credentials are rejected" in job
-    assert "scan_code" not in job  # Do not silently change the historical scan outcome.
+    assert "finding_report" not in job  # Diagnostic-only reporting has been removed.
     assert "gitleaks detect --source" in job
     assert 'if [[ "$synthetic_scan_code" -ne 2 ]]' in job
