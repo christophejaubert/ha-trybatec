@@ -36,8 +36,12 @@ from .history_recorder_b15 import (
     _recorder_writer_barrier, ledger_store as b15_store,
 )
 from .history_v4 import _snapshot
-from .history_smoothing_store import load_choices
-from .history_origin_store import load_origin_choices
+from .history_smoothing_store import (
+    _store as smoothing_store, load_choices,
+    validate_store as validate_smoothing_store,
+)
+from .history_origin_store import load_origin_choices, origin_store
+from .history_origin_decisions import validate_store as validate_origin_store
 from .recorder_guard import verified_snapshot
 
 _SCHEMA = "history_36_native_attempt_journal_v1"
@@ -406,6 +410,22 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
     return item, snapshot, approved
 
 
+async def _read_approval_file(hass: Any, store: Store, validator: Any) -> dict:
+    """Read the actual .storage file, not HA's shared Store memory cache."""
+    try:
+        envelope = await hass.async_add_executor_job(_file_read, store.path)
+    except FileNotFoundError:
+        return validator(None)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("Exact approval Store cannot be read from disk") from exc
+    if (not isinstance(envelope, dict)
+            or envelope.get("key") != store.key
+            or envelope.get("version") != 1
+            or not isinstance(envelope.get("data"), dict)):
+        raise ValueError("Persisted administrator approval envelope does not match")
+    return validator(envelope["data"])
+
+
 async def _verify_stored_day_approvals(
     hass: Any, entry_id: str, days: list[dict[str, Any]],
 ) -> None:
@@ -419,6 +439,22 @@ async def _verify_stored_day_approvals(
     origins = await load_origin_choices(hass, entry_id)
     if not isinstance(choices, dict) or not isinstance(origins, dict):
         raise ValueError("Approved source decisions unavailable")
+    refs = [
+        ref for day in days for contribution in day["contributions"]
+        for ref in contribution["decision_refs"]
+    ]
+    if any(ref.get("kind") == "sparse_residual" for ref in refs):
+        on_disk = await _read_approval_file(
+            hass, smoothing_store(hass, entry_id), validate_smoothing_store,
+        )
+        if on_disk != choices:
+            raise ValueError("Sparse day approval is not independently persisted on disk")
+    if any(ref.get("kind") == "estimated_origin" for ref in refs):
+        on_disk = await _read_approval_file(
+            hass, origin_store(hass, entry_id), validate_origin_store,
+        )
+        if on_disk != origins:
+            raise ValueError("Initial-origin approval is not independently persisted on disk")
     for day in days:
         for contribution in day["contributions"]:
             for ref in contribution["decision_refs"]:
