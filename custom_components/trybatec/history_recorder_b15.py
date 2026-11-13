@@ -250,12 +250,17 @@ async def _read_recorder_rows(
                 "types": ["sum"],
             }, blocking=True, return_response=True,
         )
-        if (not isinstance(response, dict)
-                or not isinstance(response.get("statistics"), dict)
-                or statistic_id not in response["statistics"]
-                or not isinstance(response["statistics"][statistic_id], list)):
+        if not isinstance(response, dict) or not isinstance(
+            response.get("statistics"), dict
+        ):
             raise ValueError("Recorder readback missing complete statistics response")
-        observed.extend(response["statistics"][statistic_id])
+        # HA 2026.11 omits an identifier entirely when no rows exist.
+        # The trusted, completed in-process service response is not partial
+        # just because that identifier has no persisted observations.
+        returned = response["statistics"].get(statistic_id, [])
+        if not isinstance(returned, list):
+            raise ValueError("Invalid Recorder statistics rows")
+        observed.extend(returned)
     return observed
 
 
