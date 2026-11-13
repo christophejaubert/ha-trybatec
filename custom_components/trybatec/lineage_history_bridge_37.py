@@ -300,8 +300,17 @@ def prepare_physical_continuity_37(
                 ),
             })
         if missing:
+            contradictory = {
+                "unresolved_physical_source_anomaly", "source_status_conflict",
+                "archive_source_fingerprint_changed", "variant_source_fingerprint_changed",
+                "unverified_normalized_unit",
+            }
+            missing_reasons = {reason for item in missing for reason in item["reasons"]}
             all_previews.append({
                 "lot": scope[0], "fluid": scope[1], "status": "blocked_incomplete_physical_series",
+                "historical_evidence_qualification": (
+                    "contradictoire" if missing_reasons & contradictory else "inconnu"
+                ),
                 "blockers": sorted({reason for item in missing for reason in item["reasons"]}),
                 "unresolved_meters": missing,
                 "rows": [], "total": None, "energy_activation_authorized": False,
