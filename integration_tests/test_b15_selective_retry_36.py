@@ -306,3 +306,107 @@ async def test_late_commit_during_independent_fence_is_not_requeued(
         record["versions"][0]["state"] == "verified"
         for record in ledger["series"].values()
     )
+
+
+@pytest.mark.asyncio
+async def test_partial_write_appears_after_synthetic_fence_and_blocks_retry(
+    hass, monkeypatch,
+):
+    """REC-04/05/07/16: newly visible partial data blocks all re-enqueues."""
+    plan = _plan()
+    queued = []
+    observed = set()
+    ids = {s["serial"]: s["logical_id"] + "_v1" for s in plan["series"]}
+
+    def enqueue(_hass, metadata, _rows):
+        queued.append(metadata["statistic_id"])
+    monkeypatch.setattr(recorder, "async_add_external_statistics", enqueue)
+
+    async def readback(call):
+        stat = call.data["statistic_ids"][0]
+        series = next(s for s in plan["series"]
+                      if s["logical_id"] + "_v1" == stat)
+        all_rows = [
+            {"start": row["start"].isoformat(), "sum": row["sum"]}
+            for row in series["rows"]
+        ]
+        if stat == ids["A"]:
+            rows = all_rows
+        elif stat in observed:
+            rows = all_rows[:1]  # synthetic incomplete transaction
+        else:
+            rows = []
+        return {"statistics": {stat: rows} if rows else {}}
+
+    hass.services.async_register(
+        "recorder", "get_statistics", readback,
+        supports_response=SupportsResponse.ONLY,
+    )
+    await recorder.queue_b15_plan(
+        hass, "synthetic-36-fence-partial", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+    assert queued == [ids["A"], ids["B"]]
+
+    async def native_barrier(_hass):
+        return None
+    monkeypatch.setattr(recorder, "_recorder_writer_barrier", native_barrier)
+
+    async def synthetic_proof(_hass, _entry_id, stat_ids):
+        assert stat_ids == {ids["B"]}
+        observed.add(ids["B"])
+    monkeypatch.setattr(
+        recorder, "_independent_writer_quiescence_proof", synthetic_proof,
+    )
+    with pytest.raises(ValueError, match="changed after writer-fence"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-36-fence-partial", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+
+    assert queued == [ids["A"], ids["B"]]
+    ledger = await recorder.ledger_store(
+        hass, "synthetic-36-fence-partial",
+    ).async_load()
+    assert ledger["pending"][plan["series"][1]["logical_id"]]["enqueue_attempts"] == 1
+    assert ledger["series"][plan["series"][1]["logical_id"]]["versions"][0]["state"] == "imported"
+
+
+@pytest.mark.asyncio
+async def test_multi_statistic_empty_readback_native_barrier_is_not_a_fence(
+    hass, monkeypatch,
+):
+    """REC-05/07/16: no isolated fixture is allowed to bypass production hook."""
+    plan = _plan()
+    queued = []
+    monkeypatch.setattr(
+        recorder, "async_add_external_statistics",
+        lambda _h, meta, _rows: queued.append(meta["statistic_id"]),
+    )
+    async def empty(_call):
+        return {"statistics": {}}
+    hass.services.async_register(
+        "recorder", "get_statistics", empty,
+        supports_response=SupportsResponse.ONLY,
+    )
+    await recorder.queue_b15_plan(
+        hass, "synthetic-36-barrier-only", plan,
+        confirm_revision=False, retry_pending=False,
+    )
+    calls = []
+    async def successful_native_barrier(_hass):
+        calls.append("native-barrier-only")
+    monkeypatch.setattr(recorder, "_recorder_writer_barrier", successful_native_barrier)
+    # Unlike positive fixture tests, do NOT replace the independent hook.
+    with pytest.raises(ValueError, match="no verified exclusive no-late-writer"):
+        await recorder.queue_b15_plan(
+            hass, "synthetic-36-barrier-only", plan,
+            confirm_revision=False, retry_pending=True,
+        )
+    assert calls == ["native-barrier-only"]
+    assert len(queued) == len(plan["series"])
+    ledger = await recorder.ledger_store(
+        hass, "synthetic-36-barrier-only",
+    ).async_load()
+    assert all(entry["enqueue_attempts"] == 1
+               for entry in ledger["pending"].values())

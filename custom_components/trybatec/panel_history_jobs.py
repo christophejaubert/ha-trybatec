@@ -21,7 +21,9 @@ from .const import DOMAIN
 from .history_guardrails import diagnostics_for
 from .panel_history import preview_history_for_panel
 from .panel_tariff_years import async_tariff_year_coverage
-from .panel_history_coverage import get_source, coverage_view
+from .panel_history_coverage import (
+    get_source, coverage_view, _scope, _today, _EARLIEST_DATE,
+)
 
 _JOB_RETENTION_SECONDS = 3600
 _KINDS = ("historical_preview", "tariff_year_coverage")
@@ -38,8 +40,9 @@ def _validate_job_arguments(kind: str, start: str | None, end: str | None) -> tu
     if not isinstance(start, str) or not isinstance(end, str):
         raise ValueError("A bounded date interval is required")
     begin, finish = date.fromisoformat(start), date.fromisoformat(end)
-    today = datetime.now(timezone.utc).date()
-    if begin >= finish or finish > today or (finish - begin).days > 365 * 12:
+    today = _today()
+    if (begin < _EARLIEST_DATE or begin >= finish or finish > today or
+            (finish - begin).days > 365 * 12):
         raise ValueError("Invalid history range")
     return kind, begin.isoformat(), finish.isoformat()
 
@@ -48,6 +51,20 @@ def _job(coordinator: Any) -> dict | None:
     existing = getattr(coordinator, "_panel_history_job", None)
     if existing is None:
         return None
+    # A retained or running job must never outlive its original account,
+    # contract or physical inventory identity.
+    original_scope = existing.get("scope_signature")
+    if original_scope is not None:
+        try:
+            same_scope = _scope(coordinator)[0] == original_scope
+        except (ValueError, TypeError, AttributeError, KeyError):
+            same_scope = False
+        if not same_scope:
+            task = existing.get("task")
+            if existing.get("state") == "running" and task is not None and not task.done():
+                task.cancel()
+            coordinator._panel_history_job = None
+            return None
     if existing["state"] == "running":
         return existing
     if monotonic() - existing["started_mono"] > _JOB_RETENTION_SECONDS:
@@ -106,6 +123,58 @@ def _job_view(coordinator: Any, job: dict, *, include_result: bool) -> dict:
     return result
 
 
+def _job_matches_source(job: dict, source: dict | None) -> bool:
+    """A completed job may be shown only for its own still-valid evidence."""
+    if not isinstance(source, dict) or job.get("state") != "complete":
+        return False
+    result = job.get("result")
+    proof = result.get("coverage") if isinstance(result, dict) else None
+    return (
+        isinstance(proof, dict)
+        and proof.get("verified_at") == source.get("verified_at")
+        and proof.get("coverage_start") == source.get("coverage_start")
+        and proof.get("coverage_end") == source.get("coverage_end")
+        and (job.get("scope_signature") is None
+             or job["scope_signature"] == source.get("scope_signature"))
+    )
+
+
+def discovery_snapshot(coordinator: Any) -> dict[str, Any]:
+    """Purely local account status. Never reads or schedules supplier data."""
+    source = get_source(coordinator)
+    verified = coverage_view(
+        source, cache_reused=source is not None,
+        invalidation_reason=getattr(
+            coordinator, "_panel_history_cache_invalidation", None,
+        ),
+    )
+    current = _job(coordinator)
+    if current is not None and (
+        current["state"] != "complete" or _job_matches_source(current, source)
+    ):
+        view = _job_view(coordinator, current, include_result=False)
+        # A running, failed or cancelled job is NOT proof that a previous
+        # independently valid full/bounded result disappeared.
+        view["verified_coverage"] = verified
+        if current["state"] != "complete":
+            view["coverage"] = None
+        else:
+            view["coverage"] = verified
+            view["discovery_status"] = verified["status"]
+        return view
+    return {
+        "id": None, "kind": None, "status": verified["status"],
+        "discovery_status": verified["status"], "coverage": verified,
+        "verified_coverage": verified, "progress": None,
+        "failure_type": None, "failure_category": None,
+        "api_requests": 0, "periods_verified": verified["periods_verified"],
+        "cache_reused": source is not None,
+        "retry_mode": "restart_from_zero",
+        "retry_reason": "no_atomic_window_checkpoints",
+        "recorder_writes": False, "energy_writes": False,
+    }
+
+
 async def _run_job(
     hass: HomeAssistant, coordinator: Any, job: dict,
 ) -> None:
@@ -121,6 +190,11 @@ async def _run_job(
             raise ValueError("Unverified historical preview")
         if result.get("recorder_writes") is not False or result.get("energy_writes") is not False:
             raise ValueError("History preview exceeded read-only contract")
+        # A changed account must not receive a late successful result.
+        if job.get("scope_signature") is not None and (
+            _scope(coordinator)[0] != job["scope_signature"]
+        ):
+            raise ValueError("History job account identity changed")
         job["result"] = result
         job["state"] = "complete"
     except asyncio.CancelledError:
@@ -184,6 +258,13 @@ async def ws_panel_history_job_start(
     except (ValueError, TypeError):
         connection.send_error(msg["id"], "invalid_history_range", "Invalid history range")
         return
+    try:
+        scope_signature, _lots = _scope(coordinator)
+    except (ValueError, TypeError, AttributeError, KeyError):
+        connection.send_error(
+            msg["id"], "invalid_history_scope", "Account inventory not verified",
+        )
+        return
     existing = _job(coordinator)
     if existing and existing["state"] == "running":
         if (existing["kind"], existing["start_date"], existing["end_date"]) != (
@@ -203,6 +284,7 @@ async def ws_panel_history_job_start(
         "state": "running", "started_at": datetime.now(timezone.utc).isoformat(),
         "started_mono": monotonic(), "result": None, "failure_type": None,
         "task": None, "failure_category": None,
+        "scope_signature": scope_signature,
     }
     coordinator._panel_history_job = job
     job["task"] = hass.async_create_background_task(
@@ -224,7 +306,9 @@ async def ws_panel_history_job_status(
     coordinator = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
     job = _job(coordinator) if coordinator is not None else None
     if (job is None or job["id"] != msg["job_id"] or (
-        job["state"] == "complete" and get_source(coordinator) is None
+        job["state"] == "complete" and not _job_matches_source(
+            job, get_source(coordinator),
+        )
     )):
         # A retained job result must never survive a contract, scope or TTL
         # invalidation, even for the same HA entry id.
@@ -271,26 +355,4 @@ async def ws_panel_history_discovery_status(
     if coordinator is None:
         connection.send_error(msg["id"], "trybatec_not_found", "Account not loaded")
         return
-    existing = _job(coordinator)
-    valid = get_source(coordinator)
-    if existing is not None and (
-        existing["state"] != "complete" or valid is not None
-    ):
-        connection.send_result(msg["id"], _job_view(
-            coordinator, existing, include_result=False,
-        ))
-        return
-    coverage = coverage_view(
-        valid, cache_reused=valid is not None,
-        invalidation_reason=getattr(coordinator, "_panel_history_cache_invalidation", None),
-    )
-    connection.send_result(msg["id"], {
-        "id": None, "kind": None, "status": coverage["status"],
-        "discovery_status": coverage["status"], "coverage": coverage,
-        "progress": None, "failure_type": None, "failure_category": None,
-        "api_requests": 0, "periods_verified": coverage["periods_verified"],
-        "cache_reused": valid is not None,
-        "retry_mode": "restart_from_zero",
-        "retry_reason": "no_atomic_window_checkpoints",
-        "recorder_writes": False, "energy_writes": False,
-    })
+    connection.send_result(msg["id"], discovery_snapshot(coordinator))

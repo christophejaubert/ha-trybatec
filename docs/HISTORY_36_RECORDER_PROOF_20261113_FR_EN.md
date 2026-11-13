@@ -62,3 +62,70 @@ REC-01..16 above identify existing or added **synthetic test sources**, not prov
 For UI C10, `undetermined` is an **unapproved draft sentinel**, not a persisted `reason`. Only explicitly confirmed `manual_periodic`, `telemetry_failure`, or `other` may be saved; `none` / `linear` are treatment methods, not reasons. Approved old choices must remain unchanged. The source index is never reclassified as a reconstructed measurement.
 
 **Reference source / Référence technique :** [Home Assistant Recorder core](https://github.com/home-assistant/core/blob/dev/homeassistant/components/recorder/core.py), [statistics insertion](https://github.com/home-assistant/core/blob/dev/homeassistant/components/recorder/statistics.py); review against the exact HA version before any change to the safety gate.
+
+
+---
+
+## FR — Audit source Recorder 2026.11.1 et verdict renforcé (13 novembre 2026)
+
+**Verdict précis : preuve indépendante durable impossible à démontrer avec les API actuellement exposées.** Les garanties **partiellement obtenues** concernent la sérialisation Trybatec locale, les instantanés versionnés et les relectures natives ; aucune ne verrouille le moteur Recorder ni les producteurs d'écritures tiers. « Impossible à démontrer » décrit le périmètre des API examinées, pas une impossibilité théorique si Home Assistant introduisait un contrat de fencing atomique, durable et reconnu par tous les writers.
+
+### Chaîne source examinée (tag exact, pas `dev`)
+
+| Référence HA 2026.11.1 | Comportement vérifiable | Conséquence |
+|---|---|---|
+| [`statistics.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/statistics.py#L2873-L2907) | `async_add_external_statistics` met l'import dans la file ; réponse d'appel ≠ commit | Ne jamais assimiler enqueue et durabilité |
+| [`core.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/core.py#L1366-L1385) | `async_get_commit_future` retourne parfois `None` sur conditions de file et de session ; sinon soumet `SynchronizeTask` | Ne fournit aucune identité durable de writer, ni exclusion des tâches en vol |
+| [`tasks.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/tasks.py#L204-L222) | `ImportStatisticsTask.run` remet la tâche en queue si `import_statistics` retourne `False` | Un retry peut se trouver **après** un `SynchronizeTask` déjà ordonné |
+| [`util.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/util.py#L779-L848) | Le décorateur renvoie `False` pour **certaines erreurs MySQL réessayables** (filtre de dialecte, `_is_retryable_error`) | Chaîne du réenfilage confirmée dans le code cible |
+| [`statistics.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/statistics.py#L2910-L2945) | Une ligne `(metadata_id,start_ts)` existante peut être **mise à jour** | Une écriture tardive peut altérer les sommes déjà relues |
+| [`core.py`](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/components/recorder/core.py#L467-L483) | La fermeture vide la file avant l'arrêt | Une interruption n'atteste pas qu'un batch a été importé ni qu'un producteur extérieur ne reprendra pas |
+
+**Contre-exemple de file FIFO (chemin MySQL réessayable) :** `Import(A)` (échec MySQL réessayable) → `Synchronize` → `Import(A)` (nouvelle tentative insérée en queue). Après échec d'`Import(A)`, Recorder ajoute `Import(A)` en queue **derrière** `Synchronize`. La synchronisation se termine tandis que la nouvelle tentative peut encore écrire. Cela réfute la déduction « barrière terminée ⇒ aucun ancien writer ne peut publier ». Autre contre-exemple : la file peut être vide alors qu'une opération est déjà retirée de la file et exécutée, et `async_get_commit_future` peut emprunter son chemin de retour immédiat. Aucune de ces situations n'est détectable via un jeton public de génération par `statistic_id`.
+
+### Portée réelle des verrous
+
+- **Verrou `_history_import_lock`** : sérialise uniquement les appels coopérants pour **une entrée de configuration et un processus**. Ne verrouille ni plusieurs entrées partageant potentiellement un `statistic_id`, ni les appels websocket/API Recorder, ni les écritures d'autres intégrations, ni le travail déjà en cours dans le thread Recorder.
+- **Store du journal B15** : enregistre intention, empreinte, sources physiques, unité, version, nombre de tentatives. Ce n'est pas un commit log transactionnel partagé avec Recorder ; crash entre `Store.async_save` et `async_add_external_statistics` laisse un état ambigu sans droit de rejeu.
+- **Barrière native** : fournit une observation utile et éventuellement le traitement des tâches placées avant elle, pas une preuve d'exclusivité ou d'absence de tâches réenfilées après elle.
+- **Relecture serveur** : compare sommes/heures et métadonnées au **moment de la lecture**. Elle ne prouve ni l'absence de writers futurs ni l'absence d'autres lignes situées entièrement hors des fenêtres lues.
+- **Versionnement** : les `statistic_id` V1/V2/V3 distincts réduisent les collisions entre *versions coopérantes* ; ils ne garantissent pas qu'un autre producteur ne réécrira pas un même ID.
+
+### Scénarios négatifs, état réel des preuves
+
+| Scénario | Test source synthétique | Conclusion utilisable |
+|---|---|---|
+| Import réenfilé derrière Synchronize | `test_recorder_barrier_counterexamples_36.py` | Barrière non suffisante ; modèle FIFO, **pas test natif HA** |
+| File vide, tâche déjà en vol | Idem | Le retour immédiat du chemin natif ne prouve pas zéro writer |
+| Batch A persisté, B différé | Idem et `test_b15_selective_retry_36.py` | A jamais rejoué ; B refusé sans attestation indépendante |
+| Arrêt/annulation du demandeur | Modèle FIFO | L'annulation de l'appelant n'est pas une révocation Recorder |
+| Crash entre journal et mise en queue | `test_b15_recovery_crash_l2.py` + modèle | Journal conservé, état ambigu, aucun rejeu automatique |
+| « Preuve » fictive, B devient persisté | `test_late_commit_during_independent_fence_is_not_requeued` | Seconde relecture ⇒ idempotence simulée, aucune réémission |
+| « Preuve » fictive, B devient partiel | `test_partial_write_appears_after_synthetic_fence_and_blocks_retry` | Refus de toutes nouvelles émissions ; journal conservé |
+| Plusieurs compteurs, aucune donnée, barrière réussie | `test_multi_statistic_empty_readback_native_barrier_is_not_a_fence` | Hook de production refuse toujours le rejeu |
+| Écriture extérieure, même ID | Modèle FIFO + code natif d'UPDATE | Verrou local sans effet sur producteur extérieur |
+| Redémarrage complet HA / SQLite | **Non testé** ; seulement recréation du Store et modèle | Aucune preuve de sécurité du redémarrage exploitable |
+
+### Alternatives sûres, non activées
+
+1. **Immédiatement utilisable en lecture seule :** conserver `pending`, relire les versions et métadonnées exactes, vérifier les empreintes, marquer séparément `verified` les séries effectivement persistées. Ne pas rejouer les absentes/partielles.
+2. **Écarter une version ambiguë au profit d'un nouvel ID entièrement distinct** n'est *qu'une piste d'architecture* : elle requiert une procédure explicite d'abandon/quarantaine, un audit des références et des sources concurrentes, un journal d'opération durable et une approbation utilisateur distincte. Ne jamais masquer une ancienne version susceptible d'écrire tardivement ni forcer le changement Énergie. **Aucune implémentation ni activation ici.**
+3. **Pour démontrer un vrai fencing** : requérir une interface native/contractuelle HA atomique entre enfileur et worker, un token générationnel durable par `statistic_id` consulté **au moment du commit**, le rejet de tout ancien token, un contrôle de tous les producteurs concurrents et des tests d'arrêt/redémarrage/DB sous différents backends. La simple lecture de la file, une durée d'attente, un verrou Python ou une base SQLite temporaire ne remplissent pas cette obligation.
+
+### Handoff obligatoire à #37, #88 et #164
+
+- **#37** : le contrat `history_36_recorder_handoff_v1` donne empreintes, portée physique, dates et provenance mesurée/estimée/mixte ; `qualified_bounds_no_gaps` n'établit pas une exhaustivité fournisseur ni intergénérations. La preuve de filiation indépendante doit rester séparée.
+- **#88** : `recorder_barrier_verified=true` ou `recorder_persistence_verified=true` **ne signifie pas** `recorder_writer_fence_verified=true`. Il faut conserver l'exclusion des versions concurrentes, des autres sources Energy, le contrôle des unités (EF/ECS m³, CET kWh), la sauvegarde et une transaction Energy indépendante avant la moindre activation. Aucun booléen d'admissibilité ne peut être inféré du seul handoff #36.
+- **#164** : les modules Recorder de #159 étaient déjà repris à l'identique sur la convergence au SHA `59ca822cbe8590151d32fc1db9061d4a79d19870`. Intégrer **uniquement le delta ultérieur** après vérification des SHA, sans reprendre les commits déjà copiés ni supprimer les verrous. Aucun changement de #164 n'est effectué ici.
+
+**Précision sur le moteur SQL :** dans le code exact `_is_retryable_error`, le retour `False` déclenchant le réenfilage est limité à certaines erreurs **MySQL**. La contre-démonstration correspond à ce chemin réellement présent, **pas à une reproduction du comportement SQLite** de l'installation utilisateur. Sur SQLite, l'absence de jeton de génération, la fenêtre file-vide/tâche en vol et la présence possible de writers extérieurs restent des obstacles indépendants à une preuve universelle. Aucun test destructif sur SQLite ou une installation réelle n'a été entrepris.
+
+**Statut REC-01..16 :** REC-05/07/16 demeurent bloquants pour la reprise sélective ; REC-01/06 exigent une panne/reprise sur HA totalement isolé ; REC-03/04 une interrogation exhaustive de Recorder hors fenêtres ; REC-10/11/13 dépendent de l'exclusivité Energy #88 ; REC-14 de la filiation #37 ; REC-15 du comportement exact du schéma natif cible. Tous les autres tests établissent des propriétés **synthétiques limitées**, aucune garantie de production.
+
+## EN — Exact upstream Recorder analysis and unlifted fence
+
+**Verdict: an independent durable absence-of-late-writers proof cannot be established using the exposed HA 2026.11.1 APIs.** The partial guarantees are limited to Trybatec's entry-local mutex, durable version intent, bounded server readback and a double readback in a *hypothetical* independently fenced path. For selected retryable **MySQL** errors, Home Assistant's `ImportStatisticsTask` requeues after a failed import and a `SynchronizeTask` may complete before that requeued writer; this specific requeue path does not establish SQLite behavior. `async_get_commit_future` can also return immediately based on a queue-empty/event-session condition which does not attest currently executing imports. Existing statistics sharing the same start time can be updated by a later write. None of these paths exposes a durable generation token or excludes non-cooperating writers.
+
+The source-derived FIFO counterexample suite is a **model, not a live HA Recorder test**. Newly added isolated HA fixture tests cover late partial writes after a fictitious fence and refusal after native barrier success alone. Tests do not assert native durability after process crash, cross-process fencing or safety of production retries.
+
+**Contract for #37/#88/#164:** retain `safe_to_offer_retry=false`, `retry_only_these_statistic_ids=[]`, `independent_writer_fence_verified=false`, `admissible=false`, `activation_authorized=false`. Existing per-window readback, source fingerprints, units, versions and measured/estimated provenance are necessary evidence, not writer exclusivity or Energy write permission. Alternative quarantine/new-ID approaches are future design candidates only, requiring explicit approvals and independent audits; none is active. No real Recorder access, HA mutation, merge, release or restoration is authorized.

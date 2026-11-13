@@ -140,7 +140,8 @@ def coverage_view(
             "status": "not_started", "completeness": "unknown",
             "coverage_start": None, "coverage_end": None,
             "first_observed_at": None, "last_observed_at": None,
-            "meters": [], "suggested_years": [], "cache_reused": False,
+            "meters": [], "suggested_years": [], "observed_years": [],
+            "cache_reused": False,
             "periods_verified": 0, "api_requests": 0,
             "verified_at": None, "cache_expires_at": None,
             "cache_invalidation_reason": invalidation_reason,
@@ -155,6 +156,10 @@ def coverage_view(
             "physical_key": meter["physical_key"],
             "first_observed_at": meter.get("first_observed_at"),
             "last_observed_at": meter.get("last_source_observed_at"),
+            # Explicit compatibility alias for the physical inventory panel.
+            "last_source_observed_at": meter.get("last_source_observed_at"),
+            "fluid": meter.get("fluid"),
+            "observed_years": meter.get("observed_years", []),
             "covered_start": source["coverage_start"],
             "covered_end": source["coverage_end"],
             "provenance": "verified_supplier_observation",
@@ -180,6 +185,11 @@ def coverage_view(
         "coverage_end": source["coverage_end"],
         "first_observed_at": first, "last_observed_at": last,
         "meters": meters, "suggested_years": years,
+        "observed_years": sorted({
+            year for meter in meters for year in meter["observed_years"]
+            if isinstance(year, int) and not isinstance(year, bool)
+            and 2000 <= year <= 2100
+        }),
         "suggested_years_basis": "observed_first_last_range_not_yearly_proof",
         "cache_reused": cache_reused,
         "periods_verified": source.get("periods_verified"),

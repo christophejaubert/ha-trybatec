@@ -13,26 +13,143 @@ const UNIT = {EF:"m³", ECS:"m³", CET:"kWh"};
 const FLUID_ICON = {EF:"mdi:water", ECS:"mdi:water-thermometer", CET:"mdi:fire"};
 const FLUID_CLASS = {EF:"fluid-ef", ECS:"fluid-ecs", CET:"fluid-cet"};
 
-/** Dates already observed by a given physical meter, not assumed history. */
+/** C9/C11: observed dates and whole-account coverage are different facts.
+ * Only exact physical-key matches may supply meter-level bounds.
+ */
 function trybatecHistoricalBounds(account, selectedKey, coverage) {
-  const all=Array.isArray(account?.meters)?account.meters:[];
-  const meters=selectedKey?all.filter(m=>m.physical_key===selectedKey):all;
-  if (selectedKey && meters.length!==1) return {start:"",end:"",complete:false,selected:true};
-  const scanned=coverage?.status==="complete" && Array.isArray(coverage.meters);
-  const readings=meters.map(m=>{
-    const matches=scanned?coverage.meters.filter(row=>row.physical_key===m.physical_key):[];
+  const meters=Array.isArray(account?.meters)?account.meters:[];
+  const selected=Boolean(selectedKey);
+  const scoped=selected?meters.filter(m=>m.physical_key===selectedKey):meters;
+  if (selected && scoped.length!==1) return {
+    start:"",end:"",complete:false,selected:true,basis:"unknown",range:""
+  };
+  const full=coverage?.status==="complete" &&
+    (coverage.completeness===undefined || coverage.completeness==="account_full");
+  const partial=coverage?.status==="incomplete" ||
+    coverage?.completeness==="bounded_period_only";
+  const rows=Array.isArray(coverage?.meters)?coverage.meters:[];
+  const iso=value=>{
+    if (typeof value!=="string" || !/^\d{4}-\d\d-\d\d/.test(value)) return "";
+    if (!Number.isFinite(Date.parse(value))) return "";
+    if (/^\d{4}-\d\d-\d\d$/.test(value)) return value;
+    try {return new Intl.DateTimeFormat("sv-SE",{
+      timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
+    }).format(new Date(value));} catch (_) {return "";}
+  };
+  const firstCandidates=[],lastCandidates=[];
+  const add=(list,raw,source)=>{
+    const value=iso(raw);
+    if (value) list.push({value,source});
+  };
+  const scanned=scoped.map(m=>{
+    const matches=rows.filter(row=>row?.physical_key===m.physical_key);
     const row=matches.length===1?matches[0]:null;
-    return {first:row?.first_observed_at||m.first_observed_at,
-      last:row?.last_source_observed_at||m.last_source_observed_at,
-      verified:Boolean(row)};
+    if (full && row) {
+      add(firstCandidates,row.first_observed_at,"full");
+      add(lastCandidates,row.last_observed_at||row.last_source_observed_at,"full");
+    } else {
+      add(firstCandidates,m.first_observed_at,"inventory");
+      add(lastCandidates,m.last_source_observed_at,"inventory");
+      if (row && partial) {
+        add(firstCandidates,row.first_observed_at,"bounded");
+        add(lastCandidates,row.last_observed_at||row.last_source_observed_at,"bounded");
+      }
+    }
+    return Boolean(row);
   });
-  const iso=value=>typeof value==="string" && /^\d{4}-\d\d-\d\d/.test(value) &&
-    Number.isFinite(Date.parse(value))?value.slice(0,10):"";
-  const starts=readings.map(r=>iso(r.first)).filter(Boolean).sort();
-  const ends=readings.map(r=>iso(r.last)).filter(Boolean).sort();
-  return {start:starts[0]||"",end:ends[ends.length-1]||"",
-    complete:Boolean(scanned && readings.length && readings.every(r=>r.verified)),
-    selected:Boolean(selectedKey)};
+  // Account-wide verified first/last timestamps override inventory dates.
+  if (!selected && full) {
+    const first=iso(coverage.first_observed_at),last=iso(coverage.last_observed_at);
+    if (first) {firstCandidates.length=0;add(firstCandidates,first,"full");}
+    if (last) {lastCandidates.length=0;add(lastCandidates,last,"full");}
+  }
+  const priority={full:3,bounded:2,inventory:1};
+  const first=firstCandidates.sort((a,b)=>a.value.localeCompare(b.value)||
+    priority[b.source]-priority[a.source])[0];
+  const last=lastCandidates.sort((a,b)=>b.value.localeCompare(a.value)||
+    priority[b.source]-priority[a.source])[0];
+  const start=first?.value||"",end=last?.value||"";
+  const complete=Boolean(full && scoped.length && scanned.every(Boolean));
+  const range=iso(coverage?.coverage_start) && iso(coverage?.coverage_end)?
+    iso(coverage.coverage_start)+" → "+iso(coverage.coverage_end):"";
+  return {start,end,complete,selected,
+    startSource:first?.source||"unknown",endSource:last?.source||"unknown",
+    basis:complete?"account_full":partial?"bounded_period_only":"inventory_partial",
+    range};
+}
+
+/** Whitelist the C11 backend contract; job outcome != still-valid coverage. */
+function trybatecC11Presentation(response) {
+  if (!response || response.recorder_writes!==false || response.energy_writes!==false)
+    return {discovery_status:"unverified",coverage:null,verified_coverage:null};
+  const statuses=["not_started","running","incomplete","complete","error","interrupted"];
+  const categories=["cancelled","safety_budget","timeout_or_budget","supplier_response",
+    "supplier_validation","authentication","authorization","network",
+    "invalid_scope_or_period","unexpected_error"];
+  const invalidations=["identity_changed","date_changed","cache_expired","unverified_coverage"];
+  const number=value=>Number.isInteger(value)&&value>=0?value:null;
+  const years=input=>Array.isArray(input)?[...new Set(input.filter(y=>
+    Number.isInteger(y)&&y>=2000&&y<=2100))].sort((a,b)=>a-b):[];
+  const project=input=>{
+    if (!input || !["not_started","incomplete","complete"].includes(input.status) ||
+        !["unknown","bounded_period_only","account_full"].includes(input.completeness))
+      return null;
+    return {
+      status:input.status,completeness:input.completeness,
+      coverage_start:input.coverage_start,coverage_end:input.coverage_end,
+      first_observed_at:input.first_observed_at,last_observed_at:input.last_observed_at,
+      meters:Array.isArray(input.meters)?input.meters.filter(row=>
+        typeof row?.physical_key==="string" && /^[a-f0-9]{24}$/.test(row.physical_key))
+        .map(row=>({
+          physical_key:row.physical_key,fluid:["EF","ECS","CET"].includes(row.fluid)?
+            row.fluid:null,
+          first_observed_at:row.first_observed_at,
+          last_observed_at:row.last_observed_at,
+          last_source_observed_at:row.last_source_observed_at,
+          observed_years:years(row.observed_years),
+          provenance:row.provenance
+        })):[],
+      observed_years:years(input.observed_years),
+      suggested_years:years(input.suggested_years),
+      suggested_years_basis:input.suggested_years_basis,
+      cache_reused:input.cache_reused===true,
+      verified_at:input.verified_at,cache_expires_at:input.cache_expires_at,
+      cache_invalidation_reason:invalidations.includes(input.cache_invalidation_reason)?
+        input.cache_invalidation_reason:null,
+      periods_verified:number(input.periods_verified),
+      provenance:input.provenance
+    };
+  };
+  const status=statuses.includes(response.discovery_status)?
+    response.discovery_status:"unverified";
+  const coverage=project(response.coverage);
+  const verified=project(response.verified_coverage??response.coverage);
+  // A successful bounded job never implies a complete account scan.
+  const full=coverage?.status==="complete" && coverage.completeness==="account_full";
+  const checkedStatus=status==="complete" && !full?"unverified":status;
+  const p=response.progress;
+  return {
+    discovery_status:checkedStatus,
+    id:typeof response.id==="string" && /^[a-f0-9]{24}$/.test(response.id)?
+      response.id:null,
+    kind:["tariff_year_coverage","historical_preview"].includes(response.kind)?
+      response.kind:null,
+    status:["running","complete","failed","cancelled","not_started",
+      "incomplete","error","interrupted"].includes(response.status)?
+      response.status:null,
+    progress:p&&typeof p==="object"?{
+      http_requests:number(p.http_requests),periods_verified:number(p.periods_verified)
+    }:null,
+    periods_verified:number(response.periods_verified),
+    api_requests:number(response.api_requests),
+    cache_reused:response.cache_reused===true,
+    failure_category:categories.includes(response.failure_category)?
+      response.failure_category:null,
+    retry_mode:response.retry_mode==="restart_from_zero"?"restart_from_zero":null,
+    retry_reason:response.retry_reason==="no_atomic_window_checkpoints"?
+      "no_atomic_window_checkpoints":null,
+    coverage,verified_coverage:verified
+  };
 }
 
 /** Visual meter identity does not indicate a warning or a required action. */
@@ -830,8 +947,10 @@ class TrybatecPanel extends HTMLElement {
     this._tariffError = "";
     this._tariffMessage = "";
     this._tariffCoverage = new Map();
-    this._discoveryStates = new Map();
-    this._discoveryLoading = new Set();
+    this._historyDiscovery = new Map();
+    this._historyDiscoveryInflight = new Set();
+    this._historyDiscoveryWatch = new Set();
+    this._historyDateDrafts = new Map();
     this._costPreview=null;
     this._costBusy=false;
     this._costError="";
@@ -839,6 +958,7 @@ class TrybatecPanel extends HTMLElement {
     this._historyStart="";
     this._historyEnd="";
     this._historyDateScope=null;
+    this._historyDateEntryId=null;
     this._historyDatesEdited={start:false,end:false};
     this._historyEndExtended=false;
     this._historyPreview=null;
@@ -1026,132 +1146,17 @@ class TrybatecPanel extends HTMLElement {
     } finally {
       this._loading = false;
       this._render();
-      if (this._tab==="tariffs" && this._current) this._loadTariffYearCoverage();
-      if (this._current && !this._error && this._discoveryStates instanceof Map)
-        this._refreshDiscoveryStatus?.();
+      if (["meters","history","tariffs"].includes(this._tab) && this._current)
+        this._readHistoryDiscovery();
+
     }
-  }
-  async _refreshDiscoveryStatus(entryId=this._current?.entry_id) {
-    // C11: status only, no supplier reads, decisions, Recorder or Energy writes.
-    if (!entryId || !this._hass || this._discoveryLoading.has(entryId)) return;
-    this._discoveryLoading.add(entryId);
-    try {
-      const state=await this._hass.callWS({
-        type:"trybatec/panel_history_discovery_status",entry_id:entryId,
-      });
-      if (!state || state.recorder_writes!==false || state.energy_writes!==false ||
-          !["not_started","running","complete","incomplete","interrupted","error"].includes(state.discovery_status) ||
-          (state.coverage!=null && typeof state.coverage!=="object"))
-        throw new Error("Unverified read-only discovery response");
-      this._discoveryStates.set(entryId,state);
-      const c=state.coverage;
-      const full=state.discovery_status==="complete" && c?.status==="complete" &&
-        c.completeness==="account_full" && Array.isArray(c.meters) &&
-        !c.cache_invalidation_reason;
-      // Only full, currently valid, account-scoped source evidence can
-      // hydrate physical dates. An incomplete scan never becomes exhaustive.
-      if (full) {
-        const account=(this._data?.accounts||[]).find(a=>a.entry_id===entryId);
-        const previous=this._tariffCoverage.get(entryId);
-        if (account && previous?.status!=="complete" && previous?.status!=="loading") {
-          const local=new Set((account.meters||[]).map(m=>m.physical_key));
-          const meters=c.meters.filter(m=>local.has(m.physical_key)).map(m=>({
-            physical_key:m.physical_key,first_observed_at:m.first_observed_at,
-            last_source_observed_at:m.last_observed_at,
-          }));
-          const verified={status:"complete",cache_hit:true,meters};
-          // Keep snapshot observations unchanged: invalidated C11 cache must
-          // never leave stale dates written into the in-memory panel account.
-          this._tariffCoverage.set(entryId,verified);
-        }
-      } else if (c?.cache_invalidation_reason) {
-        this._tariffCoverage.delete(entryId);
-      }
-    } catch (_) {
-      this._discoveryStates.set(entryId,{discovery_status:"unavailable"});
-    } finally {
-      this._discoveryLoading.delete(entryId);
-      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
-    }
-  }
-  _discoveryNotice() {
-    const entryId=this._current?.entry_id;
-    if (!entryId || !(this._discoveryStates instanceof Map)) return "";
-    const t=(fr,en)=>this._t(fr,en);
-    const state=this._discoveryStates.get(entryId);
-    const status=state?.discovery_status||"not_loaded", c=state?.coverage||{};
-    const full=status==="complete" && c.status==="complete" &&
-      c.completeness==="account_full" && !c.cache_invalidation_reason;
-    const labels={
-      not_loaded:t("Statut à consulter","Status not yet loaded"),
-      unavailable:t("Statut indisponible","Status unavailable"),
-      not_started:t("Aucune recherche historique vérifiée","No verified historical scan"),
-      running:t("Recherche en cours","Scan running"),
-      complete:full?t("Fenêtre historique globale vérifiée","Full historical window verified"):
-        t("Exhaustivité non établie","Completeness not established"),
-      incomplete:t("Couverture partielle","Partial coverage"),
-      interrupted:t("Recherche interrompue","Scan interrupted"),
-      error:t("Échec de recherche","Scan failed"),
-    };
-    const failure={
-      safety_budget:t("Budget de sécurité atteint","Safety budget exceeded"),
-      timeout_or_budget:t("Délai ou budget atteint","Timeout or budget exceeded"),
-      supplier_response:t("Réponse fournisseur refusée","Supplier response rejected"),
-      authentication:t("Authentification à revoir","Authentication requires review"),
-      authorization:t("Autorisation refusée","Authorization denied"),
-      network:t("Erreur de communication","Network error"),
-      supplier_validation:t("Validation fournisseur échouée","Supplier validation failed"),
-      invalid_scope_or_period:t("Périmètre non valide","Invalid scope or period"),
-      cancelled:t("Annulée","Cancelled"),
-      unexpected_error:t("Erreur non qualifiée","Unclassified error"),
-    };
-    const invalidation={
-      identity_changed:t("identité physique modifiée","physical identity changed"),
-      date_changed:t("date changée","date changed"),
-      cache_expired:t("cache expiré","cache expired"),
-      unverified_coverage:t("couverture non vérifiée","unverified coverage"),
-    };
-    const lines=[];
-    if (c.coverage_start && c.coverage_end)
-      lines.push(t("Période vérifiée : ","Verified interval: ")+
-        c.coverage_start+" → "+c.coverage_end+
-        (full?t(" ; continuité quotidienne non démontrée","; daily continuity not established"):""));
-    if (c.coverage_start && Array.isArray(c.meters)) {
-      const physical=new Set((this._current?.meters||[]).map(m=>m.physical_key));
-      lines.push(t("Compteurs avec observations : ","Meters with observations: ")+
-        c.meters.filter(m=>physical.has(m.physical_key)).length+" / "+physical.size);
-    }
-    if (status==="running" && state?.progress)
-      lines.push(t("Périodes vérifiées : ","Verified periods: ")+
-        String(state.progress.periods_verified??"—")+
-        t(" · Requêtes : "," · Requests: ")+String(state.progress.http_requests??"—"));
-    if (state?.cache_reused===true || c.cache_reused===true)
-      lines.push(t("Cache mémoire réutilisé","In-memory cache reused"));
-    if (c.cache_expires_at)
-      lines.push(t("Cache valide jusqu’au ","Cache expires at ")+this._date(c.cache_expires_at,true));
-    if (c.cache_invalidation_reason)
-      lines.push(t("Cache invalidé : ","Cache invalidated: ")+
-        (invalidation[c.cache_invalidation_reason]||t("motif à vérifier","reason requires review")));
-    if (state?.failure_category)
-      lines.push(t("Cause : ","Cause: ")+
-        (failure[state.failure_category]||t("catégorie à vérifier","category requires review")));
-    if (["error","interrupted","incomplete"].includes(status) &&
-        state?.retry_mode==="restart_from_zero")
-      lines.push(t("Nouvelle recherche complète nécessaire ; aucune reprise partielle garantie.",
-        "Full restart required; no verified partial resume."));
-    return '<section class="notice" data-discovery-status role="status" style="margin-top:10px">'+
-      '<strong>'+safe(t("Découverte C11 : ","C11 discovery: ")+
-        (labels[status]||t("État à vérifier","Status requires review")))+'</strong>'+
-      lines.map(line=>'<div class="muted">'+safe(line)+'</div>').join("")+
-      '<div class="actions"><button type="button" class="secondary" data-discovery-refresh>'+
-      safe(t("Actualiser le statut (lecture seule)","Refresh status (read-only)"))+
-      '</button></div></section>';
   }
   async _loadTariffYearCoverage(force=false) {
     // Scanning from year 2000 can be expensive. Never initiate it simply
     // because the administrator navigates to the Tariffs page.
     if (!force || !this._current || !this._hass) return;
     const id=this._current.entry_id;
+    if (this._historyDiscovery?.get(id)?.discovery_status==="running") return;
     const prior=this._tariffCoverage.get(id);
     if (prior?.status==="loading") return;
     if (!force && prior?.status==="complete" && Array.isArray(prior.meters)) {
@@ -1177,10 +1182,173 @@ class TrybatecPanel extends HTMLElement {
     } catch (_) {
       this._tariffCoverage.set(id,{status:"error"});
     } finally {
-      this._tariffJobId=null;this._tariffJobStatus=null;
-      this._refreshDiscoveryStatus?.(id);
-      if (!this._isEditingForm()) this._render();
+      if (this._current?.entry_id===id) {
+        this._tariffJobId=null;this._tariffJobStatus=null;
+      }
+      await this._readHistoryDiscovery(id);
+      if (this._current?.entry_id===id&&!this._isEditingForm())this._render();
     }
+  }
+  /** Passive C11 read: never starts supplier traffic. */
+  async _readHistoryDiscovery(entryId=this._current?.entry_id) {
+    if (!entryId || !this._hass || this._historyDiscoveryInflight?.has(entryId)) return;
+    // The command is administrator-only. Do not attempt it before HA has
+    // established an administrator identity for this panel session.
+    if (this._hass?.user?.is_admin!==true) {
+      this._historyDiscovery.set(entryId,{discovery_status:"unverified",coverage:null});
+      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
+      return;
+    }
+    this._historyDiscoveryInflight.add(entryId);
+    try {
+      const response=await this._hass.callWS({
+        type:"trybatec/panel_history_discovery_status",entry_id:entryId
+      });
+      if (!(this._data?.accounts||[]).some(a=>a.entry_id===entryId)) return;
+      const view=trybatecC11Presentation(response);
+      this._historyDiscovery.set(entryId,view);
+      // Old local projections must not outlive a backend cache invalidation.
+      if (view.verified_coverage?.completeness!=="account_full" &&
+          view.discovery_status!=="running") this._tariffCoverage?.delete(entryId);
+      if (view.discovery_status==="running" && view.id &&
+          view.kind==="tariff_year_coverage") {
+        this._watchHistoryDiscovery(entryId,view);
+      }
+    } catch (_) {
+      // Older backends may not expose C11. This is unknown, never a false success.
+      this._historyDiscovery.set(entryId,{discovery_status:"unverified",coverage:null});
+    } finally {
+      this._historyDiscoveryInflight.delete(entryId);
+      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
+    }
+  }
+  _watchHistoryDiscovery(entryId,view) {
+    const id=view.id, key=entryId+":"+id;
+    if (!id || this._historyDiscoveryWatch.has(key)) return;
+    this._historyDiscoveryWatch.add(key);
+    if (this._current?.entry_id===entryId) this._tariffJobId=id;
+    // Existing panel job only; status polling is read-only and creates no scan.
+    this._waitForHistoryJob(entryId,{id,status:"running"},"tariff_year_coverage")
+      .then(result=>{
+        if (result?.recorder_writes!==false || result?.energy_writes!==false) return;
+        if (result.status==="complete" && result.coverage?.completeness==="account_full")
+          this._tariffCoverage.set(entryId,{...result,status:"complete"});
+      })
+      .catch(()=>{})
+      .finally(()=>{
+        this._historyDiscoveryWatch.delete(key);
+        if (this._current?.entry_id===entryId) this._tariffJobId=null;
+        this._readHistoryDiscovery(entryId);
+      });
+  }
+  _historyDiscoveryView(place) {
+    const t=(fr,en)=>this._t(fr,en), id=this._current?.entry_id;
+    const view=this._historyDiscovery?.get(id);
+    const status=view?.discovery_status||"not_started";
+    const labels={
+      not_started:t("Non lancée","Not started"),
+      running:t("En cours","Running"),
+      incomplete:t("Incomplète","Incomplete"),
+      complete:t("Complète","Complete"),
+      error:t("Échec","Failed"),
+      interrupted:t("Interrompue","Interrupted"),
+      unverified:t("État non vérifié","Unverified status")
+    };
+    const latest=view?.coverage;
+    const cover=view?.verified_coverage||latest;
+    const retained=["running","error","interrupted"].includes(status) &&
+      cover && ["complete","incomplete"].includes(cover.status);
+    const rows=[];
+    if (retained) rows.push(t(
+      "Preuve historique antérieure encore valide : distincte de la tentative en cours ou échouée.",
+      "Previously verified history remains valid, independently of the running or failed attempt."));
+    if (cover && cover.status!=="not_started") {
+      if (cover.coverage_start && cover.coverage_end)
+        rows.push(t("Période source vérifiée : ","Verified source interval: ")+
+          safe(cover.coverage_start)+" → "+safe(cover.coverage_end));
+      if (cover.first_observed_at || cover.last_observed_at)
+        rows.push(t("Observations connues dans les données consultées : ",
+          "Known observations in reviewed data: ")+
+          safe(cover.first_observed_at?this._date(cover.first_observed_at):"—")+
+          " → "+safe(cover.last_observed_at?this._date(cover.last_observed_at):"—"));
+      rows.push(cover.completeness==="account_full"?
+        t("Couverture intégrale du compte sur la période prise en charge.",
+          "Full account coverage for the supported period."):
+        t("Couverture partielle : ces bornes ne prouvent pas les premières et dernières observations de toute l’histoire.",
+          "Partial coverage: these bounds do not establish the first or last observations of the entire history."));
+      if (Array.isArray(cover.observed_years) && cover.observed_years.length)
+        rows.push(t("Années avec relevés effectivement datés : ",
+          "Years with actual dated readings: ")+safe(cover.observed_years.join(", ")));
+      if (cover.cache_expires_at)
+        rows.push(t("Cache vérifié jusqu’au ","Cache valid until ")+
+          safe(this._date(cover.cache_expires_at,true)));
+    }
+    const progress=view?.progress;
+    if (status==="running" && view?.kind==="historical_preview")
+      rows.push(t("Analyse bornée en cours ; ce n’est pas une découverte exhaustive du compte.",
+        "Bounded preview running; this is not full-account discovery."));
+    if (status==="running" && progress)
+      rows.push(t("Périodes vérifiées : ","Verified periods: ")+
+        safe(progress.periods_verified??t("non communiqué","not reported"))+
+        t(" · Requêtes HTTP : "," · HTTP requests: ")+
+        safe(progress.http_requests??t("non communiqué","not reported")));
+    else if (Number.isInteger(view?.periods_verified))
+      rows.push(t("Périodes vérifiées : ","Verified periods: ")+safe(view.periods_verified));
+    if (view?.cache_reused || cover?.cache_reused)
+      rows.push(t("Statut issu du cache mémoire, sans nouvelle lecture fournisseur.",
+        "Status served from memory without a new supplier read."));
+    const invalidations={
+      identity_changed:t("identité du compte modifiée","account identity changed"),
+      date_changed:t("changement de journée","local date changed"),
+      cache_expired:t("durée de validité dépassée","cache expired"),
+      unverified_coverage:t("couverture non qualifiée","unverified coverage")
+    };
+    const invalid=cover?.cache_invalidation_reason;
+    if (invalid && invalidations[invalid])
+      rows.push(t("Cache invalidé : ","Cache invalidated: ")+invalidations[invalid]);
+    const failures={
+      cancelled:t("interruption demandée","cancellation requested"),
+      safety_budget:t("budget de sécurité atteint","safety budget exceeded"),
+      timeout_or_budget:t("délai ou budget dépassé","timeout or budget exceeded"),
+      supplier_response:t("réponse fournisseur non exploitable","unusable supplier response"),
+      supplier_validation:t("données fournisseur non validées","supplier data validation"),
+      authentication:t("authentification","authentication"),
+      authorization:t("autorisation","authorization"),
+      network:t("connexion réseau","network"),
+      invalid_scope_or_period:t("périmètre ou période non valide","invalid scope or interval"),
+      unexpected_error:t("erreur technique non classée","unclassified technical error")
+    };
+    if (["error","interrupted"].includes(status))
+      rows.push(t("Échec catégorisé : ","Failure category: ")+
+        safe(failures[view?.failure_category]||t("non communiquée","not reported")));
+    if (["error","interrupted","incomplete"].includes(status) &&
+        view?.retry_mode==="restart_from_zero" &&
+        view?.retry_reason==="no_atomic_window_checkpoints")
+      rows.push(t(
+        "Nouvelle tentative : redémarrage intégral (restart_from_zero). Aucun point de reprise atomique vérifié n’est disponible.",
+        "Retry: full restart (restart_from_zero). No verified atomic window checkpoint is available."));
+    if (status==="not_started" && !view)
+      rows.push(t("Statut à charger depuis Home Assistant ; aucune recherche automatique.",
+        "Status has not yet been loaded from Home Assistant; no automatic scan."));
+    if (status==="unverified")
+      rows.push(t("État C11 indisponible : la couverture historique n’est pas validée.",
+        "C11 status unavailable: historical coverage is unverified."));
+    const canCancel=status==="running" && view?.kind==="tariff_year_coverage" &&
+      view?.id && this._tariffJobId===view.id;
+    const action=status==="running"?
+      (canCancel?'<button type="button" class="secondary" data-tariff-years-cancel>'+
+        safe(t("Interrompre la recherche globale","Cancel account-wide scan"))+'</button>':""):
+      '<button type="button" class="secondary" data-historical-scan>'+
+        safe(t("Rechercher les relevés de tous les compteurs",
+          "Search historical readings for all meters"))+'</button>';
+    return '<div class="notice" role="region" aria-label="'+
+      safe(t("Découverte historique du compte","Account history discovery"))+'">'+
+      '<p role="status"><strong>'+safe(t("Découverte historique : ","History discovery: ")+
+        labels[status])+'</strong></p>'+
+      (rows.length?'<ul class="muted">'+rows.map(line=>'<li>'+line+'</li>').join("")+'</ul>':"")+
+      '<div class="actions">'+action+
+      '<button type="button" class="secondary" data-discovery-refresh>'+
+        safe(t("Actualiser l’état","Refresh status"))+'</button></div></div>';
   }
   _confirm(message) {
     return window.confirm(localizeTrybatecText(message,this._hass?.language));
@@ -1231,26 +1399,32 @@ class TrybatecPanel extends HTMLElement {
       } else {
         this._historyContextKey=null;this._tab="meters";
       }
-      this._render();if(this._tab==="meters")this._revealSelectedMeterDetail?.();return;
+      this._render();
+      if(this._tab==="meters")this._revealSelectedMeterDetail?.();
+      if(["meters","history"].includes(this._tab))this._readHistoryDiscovery();
+      return;
     }
     if (btn.dataset.meterContext!==undefined) {this._openMeterContext(btn.dataset.meterContext);return;}
-    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();return;}
+    if (btn.dataset.historyContextClear!==undefined) {this._historyContextKey=null;this._render();this._readHistoryDiscovery();return;}
     if (btn.dataset.historyToday!==undefined) {
       this._historyEnd=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
       this._historyDatesEdited.end=true;this._historyEndExtended=true;
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
     if (btn.dataset.historyResetDates!==undefined) {
+      this._historyDateDrafts?.delete(this._current?.entry_id);
       this._historyDatesEdited={start:false,end:false};
-      this._historyEndExtended=false;this._historyDateScope=null;
+      this._historyEndExtended=false;
+      this._historyStart="";this._historyEnd="";
       this._historyPreview=null;this._versionPlan=null;this._render();return;
     }
+    if (btn.dataset.discoveryRefresh!==undefined) {this._readHistoryDiscovery();return;}
     if (btn.dataset.historicalScan!==undefined) {this._loadTariffYearCoverage(true);return;}
-    if (btn.dataset.discoveryRefresh!==undefined) {this._refreshDiscoveryStatus?.();return;}
-    if (btn.dataset.tab) {this._tab=btn.dataset.tab;this._query="";this._render();
-      if (["meters","history","tariffs","diagnostics"].includes(this._tab))
-        this._refreshDiscoveryStatus?.();
-      return;}
+    if (btn.dataset.tab) {
+      this._tab=btn.dataset.tab;this._query="";this._render();
+      if (["meters","history","tariffs"].includes(this._tab)) this._readHistoryDiscovery();
+      return;
+    }
     if (btn.dataset.meter !== undefined) {
       this._meter=Number(btn.dataset.meter);this._historyContextKey=null;this._meterAudit=null;
       this._meterOptionDraft=null;this._meterOptionError="";this._meterOptionMessage="";
@@ -1264,7 +1438,9 @@ class TrybatecPanel extends HTMLElement {
       this._tariffHydrated=false;
       this._tariffError="";this._tariffMessage="";
       this._costPreview=null;this._costYear=null;this._costError="";
-      this._render();this._refreshDiscoveryStatus?.();return;
+      this._render();
+      if(["meters","history","tariffs"].includes(this._tab))this._readHistoryDiscovery();
+      return;
     }
     if (btn.dataset.reloadPanel !== undefined) {
       if (this._unsavedInput && !this._confirm(
@@ -1277,7 +1453,7 @@ class TrybatecPanel extends HTMLElement {
     if (btn.dataset.openOptions !== undefined) {window.location.assign("/config/integrations/integration/trybatec");return;}
     if (btn.dataset.openActions !== undefined) {window.location.assign("/developer-tools/action");return;}
     if (btn.dataset.openEnergy !== undefined) {window.location.assign("/energy");return;}
-    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();return;}
+    if (btn.dataset.openMeter !== undefined) {this._tab="meters";this._meter=Number(btn.dataset.openMeter);this._historyContextKey=null;this._render();this._revealSelectedMeterDetail?.();this._readHistoryDiscovery();return;}
     if (btn.dataset.tariffYearsRetry !== undefined) {this._loadTariffYearCoverage(true);return;}
     if (btn.dataset.tariffReset !== undefined) {
       const saved=this._existingTariff();
@@ -1955,6 +2131,15 @@ class TrybatecPanel extends HTMLElement {
       this._meterOptionDraft:{unit:option.selected_unit,device_uuid:option.device_uuid};
     const source=option.source_unit;
     const conflicting=source==="conflict"||source==="unverified";
+    const unchanged=draft.unit===option.selected_unit &&
+      (draft.device_uuid||"")===(option.device_uuid||"");
+    const disabledReason=this._meterOptionBusy?this._t(
+      "Enregistrement en cours.","Saving meter settings."):
+      conflicting && draft.unit!=="unverified"?this._t(
+        "Unité non sélectionnable : la source est conflictuelle ou non vérifiée.",
+        "Unit cannot be saved: source is conflicting or unverified."):
+      unchanged?this._t("Aucune modification à enregistrer.",
+        "No changes to save."):"";
     const origin={
       manual:"Unité enregistrée manuellement",
       api:"Unité déterminée par l’API",
@@ -1982,10 +2167,11 @@ class TrybatecPanel extends HTMLElement {
       (this._meterOptionError?'<div role="alert" class="notice warning">'+safe(this._meterOptionError)+'</div>':"")+
       (this._meterOptionMessage?'<div role="status" class="notice">'+safe(this._meterOptionMessage)+'</div>':"")+
       '<div class="actions"><button type="button" class="primary" data-meter-options-save '+
-      (this._meterOptionBusy ||
-        (draft.unit===option.selected_unit && (draft.device_uuid||"")===(option.device_uuid||"")) ||
-        (conflicting && draft.unit!=="unverified")?"disabled":"")+'>Enregistrer ce compteur</button>'+
+      (disabledReason?'disabled aria-describedby="meter-save-reason"':'')+
+      '>Enregistrer ce compteur</button>'+
       '<button type="button" class="secondary" data-meter-options-reset>Annuler les modifications</button></div>'+
+      (disabledReason?'<p id="meter-save-reason" class="muted" role="status">'+
+        safe(disabledReason)+'</p>':"")+
       '<p class="muted">Aucun index source, historique Recorder ou tableau Énergie n’est modifié. Un choix confirmé est associé uniquement à ce compteur.</p></section>';
   }
   async _saveMeterOptions() {
@@ -2049,7 +2235,7 @@ class TrybatecPanel extends HTMLElement {
       this._originMeter=meter.physical_key;
       this._historySelected="";this._readingSelected="";
       this._tab="history";this._query="";
-      this._render();
+      this._render();this._readHistoryDiscovery();
       this.shadowRoot.querySelector("[data-history-preview]")?.focus();
       return;
     }
@@ -2259,7 +2445,8 @@ class TrybatecPanel extends HTMLElement {
       (coverage?.status!=="loading"?'<div class="actions"><button type="button" class="secondary" data-historical-scan>'+
        'Rechercher les relevés de tous les compteurs</button></div>':"")+'</div>';
     return this._heading("Compteurs","Inventaire physique : en service, déposés, ou statut non confirmé.")+
-      historyHelp+(this._discoveryNotice?.()||"")+'<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
+      (this._historyDiscoveryView?.("meters")||historyHelp)+
+      '<div class="split" style="margin-top:16px"><section class="card"><input class="search" data-query placeholder="Rechercher un compteur (numéro, lot, fluide…)" value="'+safe(this._query)+'" aria-label="Rechercher un compteur">'+
       '<div class="scroll">'+indexed.map(x=>this._meterRow(x.m,x.i,"detail")).join("")+'</div>'+
       (!indexed.length?'<div class="empty">Aucun compteur correspondant. L’inventaire historique peut nécessiter une prévisualisation préalable.</div>':"")+
       '</section>'+this._meterDetail(meters[this._meter])+'</div>'+this._meterTimeline();
@@ -2271,6 +2458,10 @@ class TrybatecPanel extends HTMLElement {
         type:"trybatec/panel_history_job_status",entry_id:entryId,job_id:job.id,
       });
       if (!state || state.id!==job.id) throw new Error("Unknown history job");
+      if (state.recorder_writes!==false || state.energy_writes!==false)
+        throw new Error("Historical job exceeded read-only contract");
+      if (state.discovery_status && this._historyDiscovery)
+        this._historyDiscovery.set(entryId,trybatecC11Presentation(state));
       if (state.status==="complete") {
         if (state.complete!==true || state.recorder_writes!==false ||
             state.energy_writes!==false || !state.result)
@@ -2278,11 +2469,11 @@ class TrybatecPanel extends HTMLElement {
         return state.result;
       }
       if (state.status!=="running") throw new Error("History job interrupted");
-      if (state.recorder_writes===false && state.energy_writes===false)
-        this._discoveryStates.set(entryId,state);
-      if (kind==="historical_preview") this._historyJobStatus=state;
-      else this._tariffJobStatus=state;
-      if (!this._isEditingForm()) this._render();
+      if (this._current?.entry_id===entryId) {
+        if (kind==="historical_preview") this._historyJobStatus=state;
+        else this._tariffJobStatus=state;
+        if (!this._isEditingForm()) this._render();
+      }
       await new Promise(resolve=>window.setTimeout(resolve,1500));
     }
   }
@@ -2315,6 +2506,8 @@ class TrybatecPanel extends HTMLElement {
       this._render();return;
     }
     const entryId=this._current.entry_id;
+    const requestedStart=this._historyStart,requestedEnd=this._historyEnd;
+    const requestedContext=this._historyContextKey;
     this._historyBusy=true;
     this._historyError="";this._historyMessage="";this._historyPreview=null;
     this._historySelected="";this._historyJobStatus=null;this._render();
@@ -2329,19 +2522,22 @@ class TrybatecPanel extends HTMLElement {
       if (result.recorder_writes!==false || result.energy_writes!==false ||
           !result.proposals || !Array.isArray(result.review_candidates))
         throw new Error("Unverified historical preview");
+      if (this._current?.entry_id!==entryId ||
+          this._historyStart!==requestedStart || this._historyEnd!==requestedEnd ||
+          this._historyContextKey!==requestedContext) return;
       this._historyPreview=result;
       this._historyMessage=this._t(
-        "Aperçu complet validé. Aucune donnée Recorder modifiée.",
-        "Complete preview verified. Recorder data unchanged.");
+        "Aperçu de la période demandé validé. La couverture du compte reste distincte.",
+        "Requested-period preview verified. Account-wide coverage is a separate fact.");
       this._unsavedInput=false;
     } catch (_) {
-      this._historyError=this._t(
+      if (this._current?.entry_id===entryId) this._historyError=this._t(
         "Analyse interrompue : aucun historique partiel n’est validé. Relancer « Analyser les relevés » recommence la lecture complète depuis le début. Consultez Diagnostics.",
         "History interrupted: no partial history accepted. Selecting Analyze readings again restarts the entire read from the beginning. See Diagnostics.");
     } finally {
       this._historyBusy=false;this._historyJobId=null;this._historyJobStatus=null;
-      this._refreshDiscoveryStatus?.(entryId);
-      if (!this._isEditingForm()) this._render();
+      await this._readHistoryDiscovery(entryId);
+      if (this._current?.entry_id===entryId && !this._isEditingForm()) this._render();
     }
   }
   async _approveHistory() {
@@ -2702,12 +2898,31 @@ class TrybatecPanel extends HTMLElement {
           safe(this._number(m.conflicts))+'</td></tr>').join("")+
         '</tbody></table></div></details>':"")+'</section>';
   }
-  _syncHistoryDates() {
+  _syncHistoryDates(mode="history") {
     const account=this._current;
     if (!account) return;
-    const scope=String(account.entry_id)+":"+String(this._historyContextKey||"all");
-    const bounds=trybatecHistoricalBounds(account,this._historyContextKey,
-      this._tariffCoverage?.get?.(account.entry_id));
+    const entryId=account.entry_id;
+    const key=mode==="account"?null:this._historyContextKey;
+    const scope=String(entryId)+":"+String(key||"all");
+    if (this._historyDateEntryId!==entryId) {
+      if (this._historyDateEntryId)
+        this._historyDateDrafts?.set(this._historyDateEntryId,{
+          start:this._historyStart,end:this._historyEnd,
+          edited:{...this._historyDatesEdited},extended:this._historyEndExtended
+        });
+      const saved=this._historyDateDrafts?.get(entryId);
+      this._historyDatesEdited=saved?{...saved.edited}:{start:false,end:false};
+      this._historyEndExtended=saved?.extended===true;
+      this._historyStart=saved?.start||"";
+      this._historyEnd=saved?.end||"";
+      this._historyDateEntryId=entryId;
+    }
+    const discovery=this._historyDiscovery?.get(entryId);
+    const evidence=discovery?.verified_coverage||discovery?.coverage;
+    const verified=evidence?.completeness==="account_full" ||
+      evidence?.completeness==="bounded_period_only";
+    const bounds=trybatecHistoricalBounds(account,key,
+      verified?evidence:this._tariffCoverage?.get?.(entryId));
     this._historyDateScope=scope;
     const previousStart=this._historyStart, previousEnd=this._historyEnd;
     if (!this._historyDatesEdited?.start) this._historyStart=bounds.start;
@@ -2721,8 +2936,26 @@ class TrybatecPanel extends HTMLElement {
     const t=(fr,en)=>this._t(fr,en), bounds=this._historyDateBounds||{};
     const scope=t(bounds.selected?"du compteur physique sélectionné":"du compte Trybatec",
       bounds.selected?"of the selected physical meter":"of the Trybatec account");
-    const evidence=bounds.complete?t("couverture historique vérifiée","verified historical coverage"):
-      t("couverture partielle ou non vérifiée","partial or unverified coverage");
+    const evidence=bounds.complete?t("couverture historique complète vérifiée",
+        "verified full historical coverage"):
+      bounds.basis==="bounded_period_only"?
+        t("observations sur une période source vérifiée, non exhaustive",
+          "observations in a verified but incomplete source interval"):
+        t("couverture partielle ou non vérifiée : observations connues de l’inventaire",
+          "partial or unverified coverage: known inventory observations");
+    const provenance=(field)=>{
+      const source=bounds[field+"Source"];
+      if (source==="full") return t("observation source vérifiée sur la couverture intégrale",
+        "source observation verified across full coverage");
+      if (source==="bounded") return t("observation de la période source vérifiée, couverture partielle",
+        "source observation from verified bounded coverage");
+      if (source==="inventory") return t(
+        "couverture partielle ou non vérifiée : observation connue de l’inventaire",
+        "partial or unverified coverage: known inventory observation");
+      return evidence;
+    };
+    const covered=bounds.range?
+      t(" · Période source contrôlée : "," · Reviewed source interval: ")+bounds.range:"";
     const reason=(field)=>{
       const date=field==="start"?this._historyStart:this._historyEnd;
       const edited=this._historyDatesEdited?.[field]===true;
@@ -2736,7 +2969,7 @@ class TrybatecPanel extends HTMLElement {
       return safe(date)+" — "+safe(t(
         field==="start"?"première observation connue ":"dernière observation connue ",
         field==="start"?"earliest known observation ":"latest known observation "))+
-        safe(scope)+" ("+safe(evidence)+")";
+        safe(scope)+" ("+safe(provenance(field))+safe(covered)+")";
     };
     return '<div class="history-date-help muted" role="status">'+
       safe(t("Les dates de début et de fin de période ont été préremplies comme suit :",
@@ -2775,6 +3008,7 @@ class TrybatecPanel extends HTMLElement {
     };
     return this._heading("Historique & lissage",
       "Répartition linéaire contrôlée, sans modification des relevés bruts.")+
+      (this._historyDiscoveryView?.("history")||"")+
       (meter?'<section class="meter-history-context fluid-surface '+safe(FLUID_CLASS[meter.fluid]||"")+'"><strong>'+
         trybatecFluidTag(meter.fluid)+' · '+
         safe(this._t("Compteur sélectionné : ","Selected meter: ")+
@@ -2811,7 +3045,7 @@ class TrybatecPanel extends HTMLElement {
         '</p>':"")+
       (this._historyError?'<div class="notice warning">'+safe(this._historyError)+'</div>':"")+
       (this._historyMessage?'<div class="notice">'+safe(this._historyMessage)+'</div>':"")+
-      '</section>'+(this._discoveryNotice?.()||"")+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
+      '</section>'+this._historySummary()+'<div class="split" style="margin-top:16px"><section class="card"><h3>Intervalles entre relevés</h3>'+
       '<p class="muted"><strong>'+safe(this._t("Pourquoi cet intervalle est-il espacé ?",
         "Why are these readings spaced apart?"))+'</strong> '+
       safe(this._t("Les dates des relevés ne permettent pas toujours de déterminer la cause d’un intervalle prolongé. Si vous connaissez cette cause, sélectionnez « Relève manuelle périodique », « Panne de télérelève » ou « Autre motif ». Sinon, laissez l’origine non déterminée.",
@@ -2970,7 +3204,7 @@ class TrybatecPanel extends HTMLElement {
       }));
     const range=trybatecTariffYears(a,new Date().getFullYear());
     const coverage=this._tariffCoverage.get(a.entry_id);
-    const coverageNotice=coverage?.status==="loading" ?
+    const legacyCoverageNotice=coverage?.status==="loading" ?
       '<p class="notice" role="status">Recherche en lecture seule des années de relevés historiques… '+
       (this._tariffJobStatus?.progress?
         safe(this._tariffJobStatus.progress.http_requests)+
@@ -2986,8 +3220,19 @@ class TrybatecPanel extends HTMLElement {
       'elle peut solliciter plusieurs années de relevés fournisseur. '+
       '<button type="button" data-tariff-years-retry>'+
       'Rechercher les exercices historiques</button></p>';
-    // Historical years are suggestions, never a restriction on new exercises.
-    const yearOptions=range.years.map(year=>
+    const discovery=this._historyDiscovery?.get(a.entry_id);
+    const evidence=discovery?.verified_coverage||discovery?.coverage;
+    const suggested=evidence?.completeness==="account_full"?
+      evidence.suggested_years||[]:[];
+    const observed=evidence?.completeness==="account_full"?
+      evidence.observed_years||[]:[];
+    const registered=Object.keys(a.tariffs||{}).concat(
+      Object.keys(a.meter_tariffs||{})).filter(x=>/^[0-9]{4}$/.test(x)).map(Number);
+    const yearSet=new Set([...range.years,...suggested,...registered]);
+    const storedYears=[...new Set(registered)].sort((x,y)=>y-x);
+    // Suggested years do not establish a reading for each intermediate year.
+    const yearOptions=[...yearSet].filter(y=>Number.isInteger(y)&&y>=2000&&y<=2100)
+      .sort((x,y)=>y-x).map(year=>
       '<option value="'+year+'"></option>').join("");
     const current=a.meters.filter(m=>m.fluid===f.fluid);
     const meterOptions='<option value="">Tarif commun du fluide</option>'+
@@ -2998,8 +3243,23 @@ class TrybatecPanel extends HTMLElement {
     return this._heading("Tarifs annuels","Montants en EUR par exercice, fluide et, facultativement, compteur physique.")+
       '<div class="card"><h3>Saisir ou modifier un tarif</h3>'+
       '<p class="muted">Choisissez l’année, le fluide et éventuellement un compteur. Les tarifs déjà saisis sont conservés.</p>'+
-      coverageNotice+(this._discoveryNotice?.()||"")+
-      (range.fallback?'<p class="notice">Aucun relevé daté : exercices proposés autour de l’année courante, avec les années déjà tarifées.</p>':"")+
+      (this._historyDiscoveryView?.("tariffs")||legacyCoverageNotice)+
+      (observed.length?'<p class="muted">'+safe(this._t(
+        "Années avec des relevés effectivement datés : ",
+        "Years with actually dated readings: "))+safe(observed.join(", "))+'</p>':"")+
+      (suggested.length?'<p class="muted">'+safe(this._t(
+        "Années seulement suggérées par les bornes de la recherche globale : ",
+        "Years suggested by the full scan's outer bounds: "))+
+        safe(suggested.filter(y=>!observed.includes(y)).join(", ")||
+          this._t("aucune année supplémentaire","no additional year"))+'</p>':"")+
+      '<p class="muted">'+safe(this._t("Exercices avec tarifs enregistrés : ",
+        "Years with saved rates: "))+safe(storedYears.length?storedYears.join(", "):
+        this._t("aucun","none"))+'. '+safe(this._t(
+          "Toute année entre 2000 et 2100 reste librement saisissable, même après échec de la découverte.",
+          "Any year from 2000 to 2100 remains editable, even if discovery fails."))+'</p>'+
+      (range.fallback && !suggested.length?'<p class="notice">'+safe(this._t(
+        "Aucune borne datée actuellement connue : les années proposées par défaut ne sont pas des preuves de relevés.",
+        "No dated observation bounds currently available: default suggested years are not proof of readings."))+'</p>':"")+
       (this._tariffMessage?'<div class="notice" role="status">'+safe(localizeTrybatecText(this._tariffMessage,this._locale()))+'</div>':"")+
       (this._tariffError?'<div class="notice warning" role="alert">'+safe(localizeTrybatecText(this._tariffError,this._locale()))+'</div>':"")+
       '<form data-tariff-form><div class="form-grid" style="margin-top:16px">'+
@@ -3142,7 +3402,7 @@ class TrybatecPanel extends HTMLElement {
     } finally {this._versionBusy=false;this._render();}
   }
   _recorderVersionWorkflow() {
-    this._syncHistoryDates?.();
+    this._syncHistoryDates?.("account");
     const ledger=this._current.ledger||{series:[],status:"missing",pending:0};
     const opts=(ledger.series||[]).flatMap(row=>(row.versions||[]).filter(v=>
       ["verified","archived"].includes(v.state)).map(v=>
@@ -3346,7 +3606,7 @@ class TrybatecPanel extends HTMLElement {
       '<div class="muted">Recorder, automatisations et tableaux de bord : non vérifiés exhaustivement.</div></details>'+
       '<div class="muted">Nettoyage : interdit sans audit complet, sauvegarde et confirmation distincte.</div></div>';
       }).join(""):'<div class="empty">Aucune entité recensée.</div>')+
-      '</div></section></div>'+(this._discoveryNotice?.()||"")+this._communicationDiagnostics();
+      '</div></section></div>'+this._communicationDiagnostics();
   }
   async _saveSettings() {
     if (!this._current || this._settingsBusy) return;

@@ -44,8 +44,9 @@ Existing job `status`: `running | complete | failed | cancelled` **means the job
 | `completeness` | `unknown | bounded_period_only | account_full` |
 | `coverage_start`, `coverage_end` | ISO `YYYY-MM-DD`, verified **requested source interval**, not observed endpoints |
 | `first_observed_at`, `last_observed_at` | ISO timestamps or `null`; first/last **observations** in covered data |
-| `meters[]` | `physical_key`, `first_observed_at`, `last_observed_at`, `covered_start`, `covered_end`, `provenance` |
-| `suggested_years[]` | Local integer years within observed first/last range; may contain unobserved intermediate years |
+| `meters[]` | `physical_key` (exact 24-hex opaque key), `fluid` (EF/ECS/CET), `first_observed_at`, `last_observed_at`, **`last_source_observed_at`** (same timestamp; panel-compatible alias), `observed_years[]`, `covered_start/end`, `provenance` |
+| `observed_years[]` | Sorted union of calendar years **actually containing dated supplier observations** in the validated source; never inferred from the outer interval |
+| `suggested_years[]` | All local integer years between earliest and latest observations; can include years without readings; suggestions only |
 | `suggested_years_basis` | `observed_first_last_range_not_yearly_proof` |
 | `provenance` | `verified_supplier_history` for verified coverage, `verified_supplier_observation` per meter |
 | `cache_reused` | Boolean: no vendor request for the served response |
@@ -55,18 +56,80 @@ Existing job `status`: `running | complete | failed | cancelled` **means the job
 | `cache_invalidation_reason` | `null | identity_changed | date_changed | cache_expired | unverified_coverage` |
 | `retry_mode`, `retry_reason` | `restart_from_zero`, `no_atomic_window_checkpoints` |
 
-Job `progress` comes from the matched running task only (`http_requests`, `periods_verified`, `subdivisions`, elapsed, budgets). **Do not display individual validated windows or a resumable checkpoint**: their exact atomic boundaries are not retained.
+The discovery endpoint also returns **`verified_coverage`**: a snapshot of the **currently valid** cache, independently of the last job outcome. On a running/failed/cancelled job, `coverage=null` (that job has not produced an accepted new result) while `verified_coverage` can still be `complete` or `incomplete` from an earlier valid scan. When there is no retained job, `coverage` and `verified_coverage` are identical, including `cache_invalidation_reason`. An expired or scope-invalidated completed job is not exposed as a successful current discovery. On the discovery command, `coverage.cache_reused=true` means this **status query** did not read the supplier; the job-level `cache_reused` and `api_requests` continue to describe the original job, not the status poll. / Le statut de job et la preuve encore en cache sont **indépendants** ; une erreur ou annulation n'efface pas une preuve antérieure encore valide.
 
-Job `failure_type` remains an exception **class name only**. New `failure_category`: `cancelled | safety_budget | timeout_or_budget | supplier_response | supplier_validation | network | invalid_scope_or_period | unexpected_error`. Never surface a vendor error body, source URLs, personal identifiers, raw indexes or account credentials.
+Job `progress` comes from the matched running task only (`http_requests`, `periods_verified`, `subdivisions`, elapsed, budgets). **`periods_verified` counts supplier response windows accepted by the bounded reader, not an independently proven complete physical-meter history**. A later `combine_payloads` check can still fail the overall request. Counts are operational progress only, not resumable checkpoints; exact atomic windows are not retained. / Le compteur de périodes est une progression technique, **pas** une preuve d'exhaustivité ni un journal de reprise.
+
+Job `failure_type` remains an exception **class name only**. New `failure_category`: `cancelled | safety_budget | timeout_or_budget | supplier_response | supplier_validation | network | authentication | authorization | invalid_scope_or_period | unexpected_error`. Never surface a vendor error body, source URLs, personal identifiers, raw indexes or account credentials.
+
+## Exemples synthétiques / Synthetic status response examples
+
+**FR.** Ces exemples sont des **extraits JSON** des réponses de `trybatec/panel_history_discovery_status`. Les champs systématiques supplémentaires (`kind`, `started_at`, `elapsed_seconds`, `periods_verified`, `api_requests`, `recorder_writes=false`, `energy_writes=false`, `retry_mode=restart_from_zero`, `retry_reason=no_atomic_window_checkpoints`, etc.) sont documentés ci-dessus. Les dates, identifiants `aaaaaaaaaaaaaaaaaaaaaaaa` et compteurs sont entièrement synthétiques. **Aucun extrait ne déclenche un accès fournisseur.**
+
+**EN.** These are **JSON excerpts** from the status API, not complete wire payloads. All identifiers, dates and amounts are synthetic. Additional invariants are documented above; each example represents a read-only, zero-vendor-request status observation.
+
+### 1. Non lancé / Never started
+
+```json
+{"id":null,"status":"not_started","discovery_status":"not_started","progress":null,"failure_category":null,"coverage":{"status":"not_started","completeness":"unknown","coverage_start":null,"coverage_end":null,"meters":[],"suggested_years":[],"observed_years":[],"cache_invalidation_reason":null},"verified_coverage":{"status":"not_started","completeness":"unknown"}}
+```
+
+### 2. En cours / Running
+
+```json
+{"id":"0123456789abcdef01234567","kind":"tariff_year_coverage","status":"running","discovery_status":"running","coverage":null,"verified_coverage":{"status":"not_started","completeness":"unknown"},"progress":{"http_requests":4,"periods_verified":2,"subdivisions":1},"failure_category":null}
+```
+
+### 3. Complet / Complete account scan
+
+```json
+{"id":"0123456789abcdef01234567","kind":"tariff_year_coverage","status":"complete","discovery_status":"complete","coverage":{"status":"complete","completeness":"account_full","coverage_start":"2000-01-01","coverage_end":"2026-11-13","first_observed_at":"2022-01-01T00:00:00+01:00","last_observed_at":"2025-06-01T12:00:00+02:00","meters":[{"physical_key":"aaaaaaaaaaaaaaaaaaaaaaaa","fluid":"EF","first_observed_at":"2022-01-01T00:00:00+01:00","last_observed_at":"2025-06-01T12:00:00+02:00","last_source_observed_at":"2025-06-01T12:00:00+02:00","observed_years":[2022,2025],"covered_start":"2000-01-01","covered_end":"2026-11-13","provenance":"verified_supplier_observation"}],"observed_years":[2022,2025],"suggested_years":[2022,2023,2024,2025],"suggested_years_basis":"observed_first_last_range_not_yearly_proof"},"verified_coverage":{"status":"complete","completeness":"account_full"}}
+```
+
+**Important :** 2023 et 2024 sont des **années suggérées sans observation attestée dans cet exemple**. / The intermediate years 2023 and 2024 are suggestions, **not verified observation years**.
+
+### 4. Incomplet / Verified bounded interval only
+
+```json
+{"id":"0123456789abcdef01234567","kind":"historical_preview","status":"complete","discovery_status":"incomplete","coverage":{"status":"incomplete","completeness":"bounded_period_only","coverage_start":"2022-01-01","coverage_end":"2022-12-31","first_observed_at":"2022-04-01T10:00:00+02:00","last_observed_at":"2022-08-01T10:00:00+02:00"},"verified_coverage":{"status":"incomplete","completeness":"bounded_period_only"}}
+```
+
+### 5. Interrompu / Cancelled
+
+```json
+{"id":"0123456789abcdef01234567","status":"cancelled","discovery_status":"interrupted","coverage":null,"verified_coverage":{"status":"incomplete","completeness":"bounded_period_only"},"failure_category":"cancelled","retry_mode":"restart_from_zero","retry_reason":"no_atomic_window_checkpoints"}
+```
+
+### 6. Erreur réseau / Supplier network failure
+
+```json
+{"id":"0123456789abcdef01234567","status":"failed","discovery_status":"error","coverage":null,"verified_coverage":{"status":"not_started","completeness":"unknown"},"failure_type":"TrybatecConnectionError","failure_category":"network","retry_mode":"restart_from_zero","retry_reason":"no_atomic_window_checkpoints"}
+```
+
+### 7. Cache valide sans job / Valid cache, no retained job
+
+```json
+{"id":null,"status":"complete","discovery_status":"complete","coverage":{"status":"complete","completeness":"account_full","cache_reused":true,"verified_at":"2026-11-13T11:00:00+00:00","cache_expires_at":"2026-11-13T12:00:00+00:00"},"verified_coverage":{"status":"complete","completeness":"account_full","cache_reused":true},"api_requests":0,"failure_category":null}
+```
+
+### 8. Cache invalidé par expiration / TTL-invalidated cache
+
+```json
+{"id":null,"status":"not_started","discovery_status":"not_started","coverage":{"status":"not_started","completeness":"unknown","cache_invalidation_reason":"cache_expired","verified_at":null,"cache_expires_at":null},"verified_coverage":{"status":"not_started","completeness":"unknown","cache_invalidation_reason":"cache_expired"},"progress":null,"api_requests":0}
+```
+
+**FR — Précisions :** `running` et `error` décrivent la dernière tentative, jamais la preuve antérieure. `complete` pour un job ne signifie pas nécessairement que le **compte entier** est exhaustif : contrôler `completeness`. Le cache ne garantit pas l'actualité des index fournisseur au-delà de la période vérifiée et de sa validité locale.
+
+**EN — Caveats:** Job status and verified evidence are orthogonal. Successful bounded jobs are not account-wide scans. No response implies an observation for each intermediate year or guarantees a recoverable vendor window. There are no Recorder, Energy or supplier writes in this status pathway.
 
 ## Raccordement attendu PR #156 / Frontend integration checklist
 
 1. Call `panel_history_discovery_status` on entering Historique/Tarifs, **without launching a scan**. Show explicit global-scan button only when needed, and keep current manual tariff controls active.
 2. Use `discovery_status` independently of job `status`; do not call bounded `historical_preview` a full-account discovery. Display verified interval, inferred observation dates, provenance and completeness; unknown dates remain unset.
 3. Prefill C9 account dates only from `coverage.first_observed_at`/`last_observed_at` with `completeness=account_full`. Meter dates from matching exact `coverage.meters[].physical_key`. A partial cache can prefill only if clearly labelled as **partial**, never as the true first or last account observation.
-4. Display `progress.http_requests` and `progress.periods_verified` while running; count is not a list of committed windows. Display cached reuse, cache expiry and redacted error category.
+4. Display `progress.http_requests` and `progress.periods_verified` while running; count is not a list of committed windows. Render `verified_coverage` separately when a new job is running/failed/cancelled, never presenting it as the new job's result. Display cache expiry/invalidation and redacted error category.
 5. On interruption/error, give the user `retry_mode=restart_from_zero` with its factual reason; no claim of safe selective resume. Preserve the current UI cancel flow and ensure late results do not override a changed selection/account.
-6. Generate tariff suggestions from `coverage.suggested_years`, keeping **registered years** and **free year entry** separate, non-destructive, and never blocked by scan failure.
+6. Generate tariff suggestions from `verified_coverage.suggested_years` **only when its `completeness=account_full`**; `observed_years` means actual dated observations, while suggested intermediate years are not observed. Keep **registered years** and **free year entry** separate, non-destructive, and never blocked by scan failure.
 7. No changes to Recorder import, Energy writes or source-index units. Keep C1–C10 changes in PR #156; no `trybatec-panel.js` or translation edits in C11.
 
 **État / Status:** implementation and synthetic tests in a **draft PR** only; GitHub CI and actual production acceptance must be reported separately on an exact SHA.

@@ -73,6 +73,9 @@ def test_dated_observations_from_retired_meters_use_exact_physical_ids() -> None
     old = known[_key("LOT-A", "EF", "OLD-SERIAL")]
     assert old["first_observed_at"].startswith("2021-12-21")
     assert old["last_source_observed_at"].startswith("2024-12-30")
+    assert old["fluid"] == "EF"
+    assert old["observed_years"] == [2021, 2024]
+    assert 2022 not in old["observed_years"]  # no observation is assumed
     assert _key("LOT-A", "ECS", "NO-DATES") not in known
     assert _key("LOT-B", "EF", "OLD-SERIAL") in known
 
@@ -90,6 +93,7 @@ def test_new_year_midnight_retains_the_local_calendar_year() -> None:
     result = scope["_meter_date_bounds"](source)
     assert result[0]["first_observed_at"].startswith("2021-01-01T00:00:00+01:00")
     assert result[0]["last_source_observed_at"].startswith("2021-01-01T00:00:00+01:00")
+    assert result[0]["observed_years"] == [2021]
 
 
 def test_cached_bounds_merge_without_inventing_replacement_dates() -> None:

@@ -148,12 +148,6 @@ async function runCase(browser, locale, device, dark=false) {
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
-        if (command.type==="trybatec/panel_history_discovery_status") return {
-          status:"not_started",discovery_status:"not_started",coverage:{status:"not_started",
-            completeness:"unknown",meters:[],cache_reused:false},
-          progress:null,recorder_writes:false,energy_writes:false,
-          retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints",
-        };
         if (command.type==="trybatec/panel_history_job_start") {
           globalThis.__lastJobKind=command.kind;
           return {id:"SYNTHETIC-JOB",kind:command.kind,status:"running"};
@@ -509,11 +503,8 @@ async function runCase(browser, locale, device, dark=false) {
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
   assert.ok(observed.every(x=>["trybatec/panel_snapshot",
-      "trybatec/panel_history_discovery_status",
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"].includes(x)),
     "Only read-only snapshots and historical preview jobs are allowed in visual acceptance");
-  assert.ok(observed.includes("trybatec/panel_history_discovery_status"),
-    "C11 discovery status must be consumed without starting supplier jobs");
   assert.ok(observed.includes("trybatec/panel_history_job_start"),
     "Explicit tariff-year request must start a monitored read-only job");
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
@@ -539,8 +530,12 @@ async function runCase(browser, locale, device, dark=false) {
       cases:results,screenshots:destinations.length*tabs.length,
       productionWrites:0,vendorRequests:0,
       qualificationFailures},null,2)+"\n");
-    assert.equal(qualificationFailures,0,
-      "Independent #155 browser qualification contains "+qualificationFailures+
-      " real assertion failures across all eight FR/EN/device/theme matrices");
+    // Independent C11 contract probe: the backend WebSocket status must be
+    // consumed by the real panel. Synthetic states never trigger vendor traffic.
+    const c11=await require("./qualification_155_c11_contract.cjs")
+      .runC11Contract(browser,snapshot);
+    assert.equal(qualificationFailures+c11.failed,0,
+      "Independent #155 qualification: "+qualificationFailures+
+      " existing and "+c11.failed+" C11 contract failures (no xfail/skip)");
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

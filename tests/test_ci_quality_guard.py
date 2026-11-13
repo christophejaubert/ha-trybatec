@@ -82,3 +82,24 @@ def test_privacy_workflow_can_only_use_trusted_default_branch():
         "public-privacy-preflight.yml",
         source.replace("permissions:\n  contents: read", "permissions: write-all"),
     )
+
+
+def test_privacy_guard_rejects_stacked_branch_filter():
+    source = (
+        Path(__file__).resolve().parents[1] /
+        ".github/workflows/public-privacy-preflight.yml"
+    ).read_text(encoding="utf-8")
+    assert policy.scan_workflow("public-privacy-preflight.yml", source) == []
+    filtered = source.replace(
+        "  pull_request_target:\n",
+        "  pull_request_target:\n    branches: [main]\n",
+    )
+    assert any("must cover PRs targeting all branches" in issue for issue in
+               policy.scan_workflow("public-privacy-preflight.yml", filtered))
+    skipped = source.replace(
+        "    runs-on: ubuntu-24.04",
+        "    if: ${{ github.event.pull_request.base.ref == 'main' }}\n"
+        "    runs-on: ubuntu-24.04",
+    )
+    assert any("cannot silently skip" in issue for issue in
+               policy.scan_workflow("public-privacy-preflight.yml", skipped))

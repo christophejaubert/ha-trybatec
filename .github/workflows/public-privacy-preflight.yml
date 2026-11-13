@@ -2,9 +2,11 @@ name: "🤖 Privacy preflight / Confidentialité des contributions"
 
 # FR/EN: This workflow MUST be loaded from main, never from a candidate PR.
 # PR Git objects are fetched as data; the PR tree is never checked out or run.
+# The workflow handles PRs targeting main AND intermediate branches; the trusted
+# scanner always comes from main, with read-only contents access.
 on:
   pull_request_target:
-    branches: [main]
+    # FR/EN: no base-branch filter: review stacked PRs too, from trusted main.
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
