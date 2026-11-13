@@ -223,8 +223,9 @@ async function one(browser,snapshot,config,kind) {
     }
     if(kind==="error"||kind==="interrupted"){
       const retry=page.locator("trybatec-panel main button[data-tariff-years-retry]").first();
-      assert.equal(await retry.count(),1,"One explicit tariff restart is required");
-      assert.equal(await retry.isEnabled(),true,"Explicit retry must remain available");
+      assert.equal(await retry.count(),1,"One explicit tariff scan action is required");
+      assert.equal(await retry.isEnabled(),true,
+        "Explicit restart must remain available after failure/interruption");
       assert.match(await retry.innerText(),locale.startsWith("fr")?
         /Rechercher les relevés de tous les compteurs/i:
         /Search historical readings for all meters/i,
@@ -251,8 +252,15 @@ async function runC11Contract(browser,snapshot){
   let source;
   try{source=checkSourceContract();results.push({id:"backend-schema",result:"PASS",
     detail:"Admin status command, coverage semantics, retry and cache fields exist"});}
-  catch(e){source={backendContract:false,frontendStatusCommand:false};
-    results.push({id:"backend-schema",result:"FAIL",detail:String(e.message).slice(0,240)});}
+  catch(e){
+    // The backend contract and the frontend status command are independent gates.
+    let frontendStatusCommand=false;
+    try{frontendStatusCommand=fs.readFileSync(frontend,"utf8")
+      .includes("trybatec/panel_history_discovery_status");}
+    catch(_){/* Missing frontend fails its dedicated gate. */}
+    source={backendContract:false,frontendStatusCommand};
+    results.push({id:"backend-schema",result:"FAIL",detail:String(e.message).slice(0,240)});
+  }
   if(!source.frontendStatusCommand)
     results.push({id:"frontend-wiring",result:"FAIL",
       detail:"Panel source has no call to trybatec/panel_history_discovery_status"});
