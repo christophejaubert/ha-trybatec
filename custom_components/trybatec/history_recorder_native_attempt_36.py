@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
 from hashlib import sha256
 import json
@@ -1023,9 +1023,13 @@ async def async_read_native_scoped_selection_v2_36(
                     "statistic_id": stat, "ref": ref["reference"],
                     "revision_hash": ref["decision_fingerprint"],
                     "amount": str(Decimal(str(part["estimated"])).quantize(
-                        Decimal("0.000001")
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP,
                     )),
-                    "provenance": "linear_user_approved",
+                    "provenance": (
+                        "portal_unattested_user_approved"
+                        if ref.get("kind") == "estimated_origin"
+                        else "linear_user_approved"
+                    ),
                     "approved": True,
                 })
         # Positive source/row/approval observations are deliberately separate
@@ -1036,7 +1040,9 @@ async def async_read_native_scoped_selection_v2_36(
             "account": account, "lot": lot, "fluid": fluid,
             "start": first, "end": last, "unit": record["unit"],
             "statistic_id": stat, "selection_digest": selection_hash,
-            "selected_total": str(selected_total.quantize(Decimal("0.000001"))),
+            "selected_total": str(selected_total.quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP,
+            )),
             "selected_series_persisted": True,
             "selected_statistic_id_owned_by_one_scope": False,
             "post_restart_readback_verified": False,
