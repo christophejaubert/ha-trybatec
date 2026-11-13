@@ -8,6 +8,7 @@ No browser-provided serial, evidence, ID, date or approval enters this path.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date
 from hashlib import sha256
 from typing import Any
 
@@ -90,9 +91,10 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
         else:
             consolidated[fluid].append((logical, record, scope))
     for fluid, row in result.items():
-        row["meter_generations_observed"] = len([
-            k for k in physical if k[0] == fluid
-        ])
+        row["known_generation_ids"] = sorted(
+            serial for (f, serial) in physical if f == fluid
+        )
+        row["meter_generations_observed"] = len(row["known_generation_ids"])
         if any(count > 1 for (f, _), count in physical.items() if f == fluid):
             row["reasons"].append("physical_generation_scope_duplicated")
         groups = consolidated[fluid]
@@ -119,6 +121,54 @@ def _ledger_scoped_summary(ledger: Any, lot: str) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _selected_intents(
+    selections: Any, groups: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Validate browser *intent* only against already observed server IDs.
+
+    This must not interpret a selected scope, date or user flag as approval,
+    physical coverage, Recorder persistence or global history completeness.
+    """
+    if selections is None:
+        return {}
+    if not isinstance(selections, list) or len(selections) > len(_FLUIDS):
+        raise EnergyTransactionRefused("Invalid bounded Energy scope selection")
+    output = {}
+    for item in selections:
+        if not isinstance(item, dict) or set(item) != {
+            "fluid", "start", "end", "statistic_id", "generation_ids",
+        }:
+            raise EnergyTransactionRefused("Malformed Energy selection intent")
+        fluid = item["fluid"]
+        if fluid not in _FLUIDS or fluid in output:
+            raise EnergyTransactionRefused("Duplicate or unknown selected fluid")
+        row = groups[fluid]
+        try:
+            first, last = date.fromisoformat(item["start"]), date.fromisoformat(item["end"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise EnergyTransactionRefused("Invalid selected calendar range") from exc
+        if (first.isoformat() != item["start"] or last.isoformat() != item["end"]
+                or not 1 <= (last - first).days + 1 <= 3660):
+            raise EnergyTransactionRefused("Selected historical window is unbounded")
+        ids = item["generation_ids"]
+        known = row["known_generation_ids"]
+        if (not isinstance(ids, list) or not 1 <= len(ids) <= 300
+                or any(not isinstance(v, str) or v not in known for v in ids)
+                or len(set(ids)) != len(ids)
+                or item["statistic_id"] != row["selected_statistic_id"]
+                or row["selected_statistic_id"] is None):
+            raise EnergyTransactionRefused(
+                "Selected statistic or physical generation is not in native ledger"
+            )
+        output[fluid] = {
+            "start": first.isoformat(), "end": last.isoformat(),
+            "selected_generation_count": len(ids),
+            "native_ledger_ids_match": True,
+            "approval_and_daily_readback_verified": False,
+        }
+    return output
+
+
 async def async_read_recorder_metadata_88(
     hass: Any, statistic_id: str, *, fluid: str, unit: str,
 ) -> None:
@@ -132,6 +182,7 @@ async def async_read_recorder_metadata_88(
 
 async def async_collect_native_scopes_88(
     hass: Any, coordinator: Any, *, actor: Any, lot: str,
+    selections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Verify HA administrator, native account/lot, B15, Recorder and Energy.
 
@@ -237,6 +288,12 @@ async def async_collect_native_scopes_88(
         # Metadata and an old ledger never certify approved selected days,
         # independent #37 selected generations or owner-unique immutable IDs.
         group["independent_36_37_v2_attested"] = False
+    intents = _selected_intents(selections, groups)
+    # Do not expose physical serials or private ledger IDs in a compact UI
+    # status response; only count and verified-match indicators.
+    for fluid, group in groups.items():
+        group["selection_intent"] = intents.get(fluid)
+        group["known_generation_ids"] = []
     return {
         "schema": "energy_bulk_native_scopes_88_v1",
         "mode": "authenticated_native_read_only",
