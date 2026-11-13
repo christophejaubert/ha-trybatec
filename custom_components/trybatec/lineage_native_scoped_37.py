@@ -16,6 +16,8 @@ import json
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
+from .lineage_selected_scope_37 import selected_snapshot_37
+
 _UNITS = {"EF": "m³", "ECS": "m³", "CET": "kWh"}
 _MAX_DAYS = 3660
 _MAX_METERS = 300
@@ -86,7 +88,7 @@ def generation_id_37(account: str, lot: str, fluid: str, serial: str) -> str:
 def _measured_from_raw(
     physical: Mapping[str, Any], source_hash: str,
     first: date, last: date,
-) -> tuple[dict[str, Decimal], dict[str, str], list[str]]:
+) -> tuple[dict[str, Decimal], dict[str, str], list[str], set[str]]:
     """Recalculate eligible deltas exclusively within one physical serial.
 
     Hourly/daily pairs may be summed by the END reading's Paris local day.
@@ -99,6 +101,7 @@ def _measured_from_raw(
     amounts: dict[str, Decimal] = {}
     links: dict[str, list[list[str]]] = {}
     problems: list[str] = []
+    uncertain_days: set[str] = set()
     previous = None
     for record in readings:
         if not isinstance(record, (tuple, list)) or len(record) != 2:
@@ -119,7 +122,7 @@ def _measured_from_raw(
                         # Unknown source interval: never make a daily measured
                         # contribution. Explicitly reviewed #36 allocations
                         # may still qualify individual days in this gap.
-                        pass
+                        uncertain_days.add(day.isoformat())
                     else:
                         delta = amount - old
                         key = day.isoformat()
@@ -132,7 +135,7 @@ def _measured_from_raw(
         day: _hash({"source_fingerprint": source_hash, "index_pairs": pairs})
         for day, pairs in links.items()
     }
-    return amounts, hashes, sorted(set(problems))
+    return amounts, hashes, sorted(set(problems)), uncertain_days
 
 
 def prepare_native_scoped_lineage_37(
@@ -171,6 +174,12 @@ def prepare_native_scoped_lineage_37(
     ids = [generation_id_37(account, lot, fluid, s) for s in serials]
     if selection.get("generation_ids") != ids:
         raise ValueError("Physical generation IDs differ from selected serials")
+    snapshot = selected_snapshot_37(
+        account, preview_37, lot=lot, fluid=fluid,
+        start=first.isoformat(), end=last.isoformat(), serials=serials,
+    ) if isinstance(preview_37, Mapping) else None
+    if selection.get("physical_snapshot_digest") != snapshot:
+        raise ValueError("Selected physical snapshot changed or missing")
     accepted = selection.get("accepted_missing_days", [])
     if (not isinstance(accepted, list) or len(accepted) > _MAX_DAYS
             or len(set(accepted)) != len(accepted)):
@@ -204,6 +213,7 @@ def prepare_native_scoped_lineage_37(
     generations = []
     expected = {}
     hashes = {}
+    uncertain = {}
     source_hashes = {}
     for serial, gen_id in zip(serials, ids):
         key = (lot, fluid, serial)
@@ -224,12 +234,13 @@ def prepare_native_scoped_lineage_37(
         if physical.get("fatal_conflicts") is True:
             reasons.add("selected_physical_source_has_conflicts")
         source_hashes[gen_id] = fingerprint
-        computed, pair_hashes, warnings = _measured_from_raw(
+        computed, pair_hashes, warnings, uncertain_days = _measured_from_raw(
             physical, fingerprint, first, last,
         )
         reasons.update(warnings)
         expected[gen_id] = computed
         hashes[gen_id] = pair_hashes
+        uncertain[gen_id] = uncertain_days
         generations.append({
             "generation_id": gen_id, "unit": unit,
             "identity_verified": True,
@@ -311,6 +322,8 @@ def prepare_native_scoped_lineage_37(
             total += amount
             provenance = contributor.get("provenance")
             if provenance == "measured":
+                if ds in uncertain.get(gen_id, set()):
+                    reasons.add("measured_contribution_inside_unattested_raw_gap")
                 if ds not in hashes.get(gen_id, {}):
                     reasons.add("measured_day_without_native_index_pair")
                     continue
@@ -420,12 +433,39 @@ def prepare_native_scoped_lineage_37(
         "end": last.isoformat(), "generation_ids": list(ids),
         "accepted_missing_days": sorted(missing),
         "selection_digest": _hash(dict(selection)),
+        "physical_snapshot_digest": snapshot,
+        "physical_source_fingerprints": dict(source_hashes),
     }
     if verify_user_selection is None or verify_user_selection(decision) is not True:
         reasons.add("selected_administrator_decision_not_authenticated")
     if (native.get("selection_digest") != _hash(dict(selection))
-            or native.get("selected_total") != _quantity(totals)):
+            or _decimal(native.get("selected_total", "0")) != totals.quantize(_MICRO)):
         reasons.add("native_recorder_selected_snapshot_or_total_disagrees")
+    metadata = native.get("metadata")
+    if (not isinstance(metadata, Mapping)
+            or metadata.get("persisted_readback_hash") != selection.get("rows_hash")
+            or not isinstance(selection.get("rows_hash"), str)
+            or len(selection["rows_hash"]) != 64):
+        reasons.add("native_36_recorder_rows_hash_not_matched")
+    recorded_rows = native.get("daily")
+    if not isinstance(recorded_rows, list) or len(recorded_rows) != len(proof_days):
+        reasons.add("native_36_daily_rows_missing_or_extra")
+    else:
+        for recorded, physical_row in zip(recorded_rows, proof_days):
+            if not isinstance(recorded, Mapping) or recorded.get("date") != physical_row["date"]:
+                reasons.add("native_36_daily_dates_or_order_mismatch")
+                continue
+            measured_sum = sum(
+                (_decimal(m["amount"]) for m in physical_row["contributors"]
+                 if m["provenance"] == "measured"), Decimal(0)
+            )
+            estimated_sum = sum(
+                (_decimal(m["amount"]) for m in physical_row["contributors"]
+                 if m["provenance"] != "measured"), Decimal(0)
+            )
+            if (_decimal(recorded.get("measured")) != measured_sum
+                    or _decimal(recorded.get("estimated")) != estimated_sum):
+                reasons.add("native_36_daily_measured_estimated_mismatch")
     for version in native.get("versions", []) if isinstance(native.get("versions"), list) else []:
         if not isinstance(version, Mapping) or version.get("statistic_id") == stat and (
             version.get("state") != "verified_immutable"
