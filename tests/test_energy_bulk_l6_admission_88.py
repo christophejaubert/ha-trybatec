@@ -91,10 +91,14 @@ def synthetic_complete():
         "live": prefs, "persisted": deepcopy(prefs),
         "all_energy_sources_checked": True,
         "all_alternative_statistic_ids": [STAT, "trybatec:synthetic_ef_v0"],
-        "reference_catalog": [{
-            "type": "grid", "statistic_id": "sensor.synthetic_existing_grid",
-            "relation": "independent_disjoint",
-        }],
+        "reference_catalog": [
+            {"section": "energy_sources", "index": 0,
+             "field": "stat_energy_from", "statistic_id": "sensor.synthetic_existing_grid",
+             "relation": "independent_disjoint"},
+            {"section": "device_consumption", "index": 0,
+             "field": "stat_consumption", "statistic_id": "sensor.synthetic_unrelated_device",
+             "relation": "independent_disjoint"},
+        ],
     }
     return recorder, lineage, audit
 
@@ -169,7 +173,8 @@ def test_independent_negative_evidence_never_grants_permission(mutation, blocker
         })
         a["persisted"] = deepcopy(a["live"])
         a["reference_catalog"].append({
-            "type": "water", "statistic_id": STAT,
+            "section": "energy_sources", "index": 1,
+            "field": "stat_energy_from", "statistic_id": STAT,
             "relation": "independent_disjoint",
         })
     elif mutation == "other_source_not_checked":
