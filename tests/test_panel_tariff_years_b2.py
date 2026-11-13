@@ -15,6 +15,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
+from custom_components.trybatec.panel_history_coverage import (
+    get_source, store_source, coverage_view, _scope,
+)
 
 @asynccontextmanager
 async def _mock_history_tracking(*args, **kwargs):
@@ -93,6 +96,8 @@ def test_cached_bounds_merge_without_inventing_replacement_dates() -> None:
     scope = _load(["_normalize_datetime", "merge_cached_historical_bounds"], {
         "datetime": datetime, "timezone": timezone,
         "dt_util": _Clock, "ZoneInfo": ZoneInfo, "TIMEZONE": "Europe/Paris",
+        "_EARLIEST_SUPPORTED_DATE": date(2000, 1, 1),
+        "get_source": lambda *args, **kwargs: {"complete": True},
     })
     key = _key("LOT-A", "EF", "OLD-SERIAL")
     today = _Clock.now().astimezone(ZoneInfo("Europe/Paris")).date().isoformat()
@@ -138,11 +143,16 @@ def test_full_history_scan_is_lazy_account_scoped_and_cached() -> None:
             }
         }, []),
         "meter_key": _key,
+        "get_source": get_source, "store_source": store_source,
+        "coverage_view": coverage_view, "_scope": _scope,
+        "active_history_operation": lambda: None,
     })
     coordinator = SimpleNamespace(
         data={"meters": {"OLD": {"lot": "LOT-A", "fluid": "EF", "serial": "OLD"}},
               "lots": ["LOT-A"]},
-        client=object(), entry=SimpleNamespace(data={"deal_id": "TEST"}),
+        client=object(), entry=SimpleNamespace(
+            entry_id="ci-tariff-scope", data={"deal_id": "TEST"},
+        ),
     )
     async def run() -> tuple[dict, dict]:
         one = await scope["async_tariff_year_coverage"](object(), coordinator)
