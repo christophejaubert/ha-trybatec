@@ -197,9 +197,9 @@ def variants_preview(
             "normalized_unit": normalized_unit(fluid),
             "status": "preview_only",
             "selected_gap_fingerprints": chosen_keys,
-            "day_decision_refs": {
+            **({"day_decision_refs": {
                 day.isoformat(): refs for day, refs in sorted(day_decision_refs.items())
-            },
+            }} if day_decision_refs else {}),
             "raw": {day: float(value) for day, value in raw_daily.items()},
             "smoothed": {day: float(value) for day, value in smooth_daily.items()},
             "raw_total": float(sum(raw.values(), Decimal(0))),
