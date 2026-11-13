@@ -360,12 +360,6 @@ class EnergyBulkAdminService88:
                 or len(before_fingerprint) != 64 or len(plan_digest) != 64):
             raise EnergyTransactionRefused("Explicit matching confirmation required")
         # Never use a cached, browser-supplied or previously computed admission.
-        # The write gate is checked BEFORE any native proof attempt can even
-        # schedule backups or journal operations.
-        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88:
-            raise EnergyTransactionRefused(
-                "Native Energy mutation requires separate qualification"
-            )
         if selections is None:
             state = await self._port.collect(
                 actor, account=self._account, lot=self._lot,
@@ -375,8 +369,8 @@ class EnergyBulkAdminService88:
                 actor, account=self._account, lot=self._lot,
                 selections=selections,
             )
-        if _blockers(
-                state.evidence, account=self._account, lot=self._lot):
+        if (not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(
+                state.evidence, account=self._account, lot=self._lot)):
             raise EnergyTransactionRefused("Independent L6/#36/#37 admission not qualified")
         return await apply_bulk_energy_transaction(
             self._port, actor, account=self._account, lot=self._lot,
