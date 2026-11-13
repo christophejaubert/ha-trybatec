@@ -1018,10 +1018,11 @@ async def test_sync_failure_never_creates_untracked_second_reservation(
         raise OSError("synthetic filesystem sync failure")
 
     plan = _plan()
+    original = native._sync_native_journal_file_and_directory
     monkeypatch.setattr(native, "_sync_native_journal_file_and_directory", failed_fsync)
     with pytest.raises(OSError, match="synthetic filesystem sync failure"):
         await _reserve(hass, plan)
-    monkeypatch.undo()
+    monkeypatch.setattr(native, "_sync_native_journal_file_and_directory", original)
     journal = await native._read_disk(hass, "synthetic-36")
     assert journal is not None and len(journal["attempts"]) == 1
     with pytest.raises(ValueError, match="Prior attempt unresolved"):
@@ -1035,7 +1036,8 @@ async def test_scoped_v2_refuses_two_verified_generations(
 ):
     """Neither competing verified generation can masquerade as exclusive."""
     plan = _plan()
-    first = (await _reserve(hass, plan))["statistic_id"]
+    first_reservation = await _reserve(hass, plan)
+    first = first_reservation["statistic_id"]
     await _enqueue(hass, plan, first)
     _persist_rows(native_fixture, plan, first)
     assert (await native.async_native_attempt_proof_36(
@@ -1050,9 +1052,7 @@ async def test_scoped_v2_refuses_two_verified_generations(
     assert (await native.async_native_attempt_proof_36(
         hass, "synthetic-36", second,
     ))["scoped_recorder_persistence_verified"]
-    first_selection = _selected_v2(
-        first, native._digest_snapshot(native._snapshot(plan["series"][0]["rows"])),
-    )
+    first_selection = _selected_v2(first, first_reservation["snapshot_hash"])
     with pytest.raises(ValueError, match="Multiple verified physical versions"):
         await native.async_read_native_scoped_selection_v2_36(
             hass, "synthetic-36", first_selection,
