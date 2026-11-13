@@ -7,7 +7,6 @@ on pytest's isolated Home Assistant instance. No external or user HA instance.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
 import pytest
 
@@ -63,7 +62,7 @@ async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l
             "recorder", "get_statistics", reader,
             supports_response=SupportsResponse.ONLY,
         )
-    plan, statistic_id, reservation = await owner_tests._prepare(hass, entry)
+    _plan, statistic_id, reservation = await owner_tests._prepare(hass, entry)
     proof = await native36.async_native_attempt_proof_36(
         hass, entry.entry_id, statistic_id,
     )
