@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from .energy_bulk_plan import _find_reference_paths
-from .energy_switch import preferences_fingerprint
+from .energy_switch import _selected_references, preferences_fingerprint
 
 _FLUIDS = {"EF": ("m³", "water"), "ECS": ("m³", "water"), "CET": ("kWh", None)}
 _MAX_DAYS = 3660
@@ -242,8 +242,9 @@ def assess_independent_admission_l6_88(
         except (ValueError, TypeError, KeyError, OverflowError):
             issues.add("energy_preferences_invalid")
         if (not isinstance(refs, list) or not isinstance(alternatives, list)
-                or stat not in alternatives or len(set(alternatives)) != len(alternatives)
-                or any(not isinstance(s, str) for s in alternatives)):
+                or any(not isinstance(s, str) for s in alternatives)
+                or len(set(alternatives)) != len(alternatives)
+                or stat not in alternatives):
             issues.add("all_competing_statistics_not_catalogued")
         else:
             selections = _find_reference_paths(live, set(alternatives))
@@ -251,18 +252,24 @@ def assess_independent_admission_l6_88(
                 issues.add("existing_or_competing_energy_source_selected")
             # Every existing source must have an independent disjointness
             # classification, not just a matching JSON/fingerprint snapshot.
-            declared = {(r.get("type"), r.get("stat_energy_from")) for r in live.get(
-                "energy_sources", []) if isinstance(r, Mapping)}
-            if len(declared) != len(live.get("energy_sources", [])):
-                issues.add("energy_source_identity_ambiguous")
-            classifications = {}
-            if isinstance(refs, list):
+            try:
+                declared = {(section, index, field, sid) for section, index, field, sid
+                            in _selected_references(live)}
+                classifications = {}
                 for item in refs:
-                    if isinstance(item, Mapping):
-                        classifications[(item.get("type"), item.get("statistic_id"))] = item.get("relation")
-            if declared != set(classifications) or any(
-                    classifications[k] != "independent_disjoint" for k in declared):
-                issues.add("other_energy_sources_not_independently_disjoint")
+                    if not isinstance(item, Mapping):
+                        continue
+                    key = (item.get("section"), item.get("index"),
+                           item.get("field"), item.get("statistic_id"))
+                    if (any(type(x) is not str for x in (key[0], key[2], key[3]))
+                            or type(key[1]) is not int or key in classifications):
+                        raise ValueError("Ambiguous or unhashable Energy reference catalog")
+                    classifications[key] = item.get("relation")
+                if declared != set(classifications) or any(
+                        classifications[k] != "independent_disjoint" for k in declared):
+                    issues.add("other_energy_sources_not_independently_disjoint")
+            except (ValueError, TypeError, KeyError):
+                issues.add("energy_source_identity_ambiguous")
     return {
         "schema": "energy_bulk_l6_88_independent_diagnostic_v1",
         "status": "eligible_in_synthetic_contract" if not issues else "blocked",
