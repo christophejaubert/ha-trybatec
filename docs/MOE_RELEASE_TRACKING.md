@@ -1,5 +1,96 @@
 # 🤖 Pilotage MOE / MOE release tracking
 
+
+## ÉTAT COURANT — 13 novembre 2026 / CURRENT VERIFIED STATUS — 13 November 2026
+
+> **FR — Priorité de lecture :** ce relevé GitHub daté fait foi pour le statut courant constaté. Toutes les sections du 12 novembre plus bas sont **des preuves historiques conservées**, y compris lorsqu'elles disent que la bêta n'était pas publiée. Les décisions détaillées restent dans les issues fonctionnelles.
+>
+> **EN — Read first:** this dated GitHub snapshot supersedes earlier status summaries. The 12 November sections below are **preserved historical evidence**, including their now-outdated unreleased-beta statements. Functional issues remain authoritative for accepted requirements.
+
+### Publication, SHA et CI / Release, SHA and CI
+
+| Élément / Item | Fait vérifié / Verified fact |
+| --- | --- |
+| Main protégé / Protected main | [main](https://github.com/christophejaubert/ha-trybatec/tree/main) — SHA **8d621da9703b40662800b4a7c286707e8a7f895f** |
+| Tag et release / Tag and release | [0.3.4b1](https://github.com/christophejaubert/ha-trybatec/releases/tag/0.3.4b1) **publiée / published**, prerelease=true, 2026-11-13 08:53:01 UTC ; tag = main = SHA précité |
+| Notes / Notes | FR/EN présentes ; mention des limites Recorder #36, filiation #37 et Énergie #88, et de la recette réelle ultérieure |
+| Post-merge tests | [CI sur main #43396107451](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396107451) **success** ; tests Python 3.13/3.14, Ruff, HACS, Hassfest, HA isolé, Recorder, persistance et Gitleaks réussis ; préparation de brouillon de release ignorée (facultative) |
+| Contrôles liés / Other workflows | [CodeQL #43396107132](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396107132), [navigateur #43396107511](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396107511), [accessibilité #43396107561](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396107561), [supply-chain #43396107546](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396107546) : success, **même SHA** |
+| Publication automatisée contrôlée / Authorized publisher | [workflow manuel #43396699868](https://github.com/christophejaubert/ha-trybatec/actions/runs/43396699868), success, **même SHA**, publication par déclenchement explicite |
+| Total des checks visibles / Visible checks | **23 checks : 22 success, 1 skipped facultatif** en incluant l'étape de publication ; ne pas compter skipped comme un succès |
+| Installation et recette / Deployment and acceptance | L'issue #155 relate une installation servant aux retours d'interface, **mais l'état HA actuel et une recette exhaustive ne sont pas vérifiés ici**. GitHub prouve fusion/publication, pas installation ou validation production |
+
+**FR.** La version expérimentale est publiée, non pleinement opérationnelle pour reprise sélective Recorder et ajout groupé Énergie. La chronologie validée pour une prochaine bêta **testable** est : développement fonctionnel sécurisé → qualification synthétique + CI sur SHA exact → fusion autorisée → release autorisée → installation HA autorisée → recette réelle avec autorisation distincte de toute écriture ou restauration. Ne pas exiger une recette sur production avant la publication de la bêta nécessaire à cette recette.
+
+**EN.** The experimental beta is published, but selective Recorder retry and bulk Energy writes are not fully usable. Approved sequence for the next testable beta: safely complete implementation → independent synthetic tests and exact-SHA CI → separately authorized merge → release → HA installation → production acceptance with separate write/restore permissions. Live acceptance is not a prerequisite for first publishing the beta that enables it.
+
+### Décisions fonctionnelles, écarts et qualification / Decisions, functional gaps and qualification
+
+| Issue | Acquis / Approved scope | Preuve et blocages actuels / Evidence and blockers |
+| --- | --- | --- |
+| [#155](https://github.com/christophejaubert/ha-trybatec/issues/155) | **C1–C11 tous validés** ; spécifications FR/EN et tests négatifs dans l'issue / all requirements approved | [PR #156](https://github.com/christophejaubert/ha-trybatec/pull/156) brouillon : code et tests en progression, **CI non verte au SHA observé**, C11 distinct, aucune recette C1–C11 exhaustive |
+| [#36](https://github.com/christophejaubert/ha-trybatec/issues/36) | Index sources intacts, provenance, lissage résiduel linéaire, révisions Vn Recorder, sélection Énergie unique / immutable readings, traceable smoothing and versions | Contrats et protections fail-closed présents ; **preuve indépendante d'absence d'écrivain Recorder tardif ou concurrent manquante**, reprise sélective verrouillée, reprise/versions/persistance et non-doublons à qualifier |
+| [#37](https://github.com/christophejaubert/ha-trybatec/issues/37) | Identités des **compteurs physiques** distinctes des entités HA ; générations actives/déposées et continuité / physical generations and HA entities separated | Filiation partielle ; exhaustivité des générations/observations, transitions, attribution des jours et continuité historique dans Énergie non démontrées ; pas de nettoyage destructeur |
+| [#88](https://github.com/christophejaubert/ha-trybatec/issues/88) | Ajout groupé unique avec aperçu/confirmation, eau froide/chaude et chauffage compatible, conservation autres sources, coûts facultatifs / guarded bulk enrollment | Contrats de lecture seule et composants L7 présents mais **L6 ne fournit pas d'admission positive, port L7 non raccordé et UI administrateur non opérationnelle**. Pas d'ajout réel ni rollback production attesté |
+| [#39](https://github.com/christophejaubert/ha-trybatec/issues/39) | Marketplace/HACS après stabilisation / stable-version marketplace preparation | Préparation ouverte, aucun référencement soumis/autorisé ; critères officiels à revérifier lors de la candidature |
+| [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) | Mandat MOE et arbitrages validés / project decisions | Référencer les preuves sans confondre les étapes ni clôturer automatiquement les issues |
+
+**C1–C11, synthèse des décisions validées (issue #155 fait foi) :** C1 : 0 indisponible vérifié = succès, positif = alerte, inconnu = indéterminé ; C2 : une recherche historique **globale par compte**, bornée, explicitement montrée ; C3 : fiche du compteur sélectionné immédiatement visible ; C4 : messages utilisateur débarrassés des affirmations inutiles « inventé/fictif » sans perdre la provenance ; C5 : actions nécessaires mises en valeur **à l'aide des commandes existantes, sans nouvel encart redondant** ; C6 : indications pertinentes pour déposés sans faux défaut d'index courant ; C7 : supprimer les liens vers l'ancienne IHM sans supprimer les fonctions ; C8 : pictos et couleurs par fluide cohérents ; C9 : dates par premières/dernières **observations connues** du compte ou compteur, raisons dynamiques affichées, choix personnalisés préservés, jamais de borne arbitraire ; C10 : origine des intervalles **indéterminée par défaut**, texte d'aide compréhensible ; C11 : réutiliser la découverte globale entre inventaire/historique/tarifs, diagnostiquer échecs expurgés et reprises contrôlées, saisie manuelle des tarifs toujours possible. Aucun scan lourd automatique ni écriture implicite.
+
+**EN — Approved C1–C11 summary (see #155 for exact wording):** C1 verified zero/positive/unknown semantics; C2 explicit bounded account-wide history scan; C3 immediate selected-meter detail; C4 actionable user texts preserving provenance; C5 reuse existing buttons for action states; C6 meaningful retired-meter controls; C7 remove all legacy UI links; C8 consistent fluid visuals; C9 evidence-based account/meter bounds with rationale, retained custom dates; C10 unknown origin default; C11 cached shared historical discovery with safe diagnostic/retry and tariff editing even after errors. No implicit writes, expensive automatic scans or widened resource budget.
+
+### CI sur SHA exact / Exact-head qualification
+
+| Cible / Target | SHA vérifié / Verified SHA | Résultat exact / Exact result |
+| --- | --- | --- |
+| main, release 0.3.4b1 | **8d621da9703b40662800b4a7c286707e8a7f895f** | Workflows CI post-fusion et release réussis, **pas de recette réelle exhaustive** / successful automated workflows, no full live acceptance |
+| [PR #156](https://github.com/christophejaubert/ha-trybatec/pull/156) | **4e6d863e989039a3a7a45a99a94678e139556def** (instantané 13/11) | **2 échecs : pure-tests Python 3.13 et 3.14** ; navigateur/a11y synthétiques, CodeQL, Gitleaks, confidentialité, intégrité workflows réussis ; 1 préparation manuelle skipped. **Pas de CI globale verte.** |
+| [#149](https://github.com/christophejaubert/ha-trybatec/pull/149) #36 | 461a1e9c7b546c07c6989cd1a1f2c27092c42ccb | Ancienne branche brouillon, succès/échec historiques non transférables à une nouvelle composition / historic draft, no inherited qualification |
+| [#150](https://github.com/christophejaubert/ha-trybatec/pull/150) #37 | 400dab811544d561b5bc7a63fa6462d78c5fe9c7 | Idem / same |
+| [#151](https://github.com/christophejaubert/ha-trybatec/pull/151) #88 | e50e7c7c07282e34fe58d8d59bfed731fa3837d5 | Idem / same |
+| [#153](https://github.com/christophejaubert/ha-trybatec/pull/153) convergence | daab196ce4f67b1ed73f1623dc385c5d405a101f | Ancienne preuve de lecture seule, pas d'activation / historical readonly proof |
+| [#154](https://github.com/christophejaubert/ha-trybatec/pull/154) convergence CI | 2dbea9e5ad92d464123a7d8eb00781696407fed1 | **PR de preuve historique — NE PAS FUSIONNER / proof-only DO NOT MERGE** |
+
+**FR/EN :** toujours relire les têtes et checks exacts avant décision, particulièrement #156 qui évolue rapidement / recheck exact heads and checks before decisions, especially rapidly changing #156. Un test vert ne certifie ni les onze critères ni une recette réelle ; skipped ≠ passed / green automation is not full business acceptance.
+
+### Matrice des branches et fichiers communs / Branch and shared-file matrix
+
+| Chantier / Stream | PR et situation / PR and status | Fichiers à coordonner / Shared paths |
+| --- | --- | --- |
+| #36 Historique / History | #127, #128, #149, acquis déjà fusionnés dans main à comparer / compare with integrated main | history_recorder_*, history_coverage_l2.py, history_recorder_handoff_36.py, panel_history*.py, panel_api.py |
+| #37 Compteurs / Lineage | #125, #150, #153, main | meter_lineage_37.py, lineage_history_bridge_37.py, lineage_energy_handoff_37.py, meter_identity.py, sensor.py |
+| #88 Énergie / Energy | #129, #130, #151, #153, main | energy_bulk_*, panel_api.py, panel/trybatec-panel.js et contrats Recorder/lineage |
+| #155 Interface | #156 ; historiques #133/#138/#144 | panel/trybatec-panel.js, panel_history.py, panel_history_jobs.py, panel_tariff_years.py, strings.json, translations/fr.json, translations/en.json, tests de navigateur |
+| CI/CD sécurité / Security | #124, #140, #152, preuve #154 | .github/workflows/*, .github/ci/*, .gitleaksignore, scripts/public_privacy_preflight.py — **hors mandat MOE** |
+| MOE documentaire | [ancienne PR #134](https://github.com/christophejaubert/ha-trybatec/pull/134) et présente branche doc / former draft and current documentation branch | **docs/MOE_RELEASE_TRACKING.md seulement** ; aucune reprise automatique de #134 |
+
+**FR.** Les PR historiques #149–#153 ont des diffs volumineux contre main contenant potentiellement des acquis déjà fusionnés. Leurs listes de chemins **ne sont pas** un backlog résiduel. Rechercher précisément les différences de blobs, les conflits et les dépendances : ne ni fusionner ni rejouer en bloc les anciennes PR de preuve #145/#146/#154. Au point de contrôle : **31 PR ouvertes en brouillon et 13 issues ouvertes**, ce qui ne représente pas 31 chantiers distincts. La PR #134 touche également le document MOE : cette branche nouvelle est volontairement indépendante et basée sur main publié.
+
+**EN.** Historical stacked PR diffs may contain code already merged into published main; file lists alone do not identify remaining work. Compare exact blobs and conflicts, do not replay proof PRs or automatically merge the old MOE draft #134. 31 open drafts and 13 open issues were observed, not 31 distinct pending features. This branch starts from published main and owns only this MOE document.
+
+### Propriétaires, prérequis et décision candidate / Ownership, gates and candidate decision
+
+| Responsable / Owner | Livrable probant / Required evidence |
+| --- | --- |
+| Conversation UI #155 / PR #156 | C1–C10 : contrôles état/actions, fiches, dates, origine, FR/EN, mobile/bureau, clair/sombre, clavier/a11y et **CI finale verte sur dernier SHA** |
+| Conversation scan historique & tarifs C11 | Une recherche sûre et mutualisée compte entier ; cache, couverture complète/partielle, progression, reprise prouvée ou nouveau départ déclaré, erreurs catégorisées expurgées ; tarifs toujours éditables |
+| Conversation recette indépendante C1–C11 | Matrice par critère, cas négatifs, 7 vues Playwright, tests UI/Recorder/Énergie croisés ; aucune confusion avec recette réelle |
+| Conversation #36 | Relevés/provenance/versionnement, contrôles Recorder et **preuve externe indépendante contre écrivains tardifs** avant reprise sélective |
+| Conversation #37 | Exhaustivité physique/générations, index datés, continuité de consommation sans double comptage, identités #81 et statut des déposés |
+| Conversation #88 | L6 **admissibilité positive** fondée sur identité, unité, continuité, couverture, Recorder, provenance, concurrence ; L7 bouton admin et transaction de bout en bout, sauvegarde, empreinte, relecture et rollback sûrs |
+| Conversation CI/CD | Protection main et checks requis, Gitleaks nouveaux commits + historique, preflight confidentialité, intégrité, qualification synthétique sur SHA candidat ; aucun affaiblissement |
+| MOE #45 | Réconcilier liens/SHAs/risques, cadrer la décision de livraison sans prendre la décision utilisateur |
+
+**Grille préalable FR :** vérifier le périmètre complet et réellement fonctionnel de la candidate ; obtenir la **décision utilisateur sur la version et le contenu exact** (aucune date/version/amputation fixée ici) ; démontrer les garde-fous, tests de pannes et critères métiers, y compris l'opérationnalité L6/L7/Recorder ; résoudre chevauchements et conflits avec main, sans duplication de commits ; réunir **tous les checks obligatoires réussis sur le SHA final** et un contrôle confidentialité fiable ; documenter limites, risques, notes FR/EN, plan d'installation et protocole de recette. Ne pas imposer de recette HA préalable chronologiquement impossible pour la première bêta testable. Soumettre ensuite des **autorisations distinctes** : fusion, release, installation, écritures Recorder/Énergie, sauvegarde/restauration, migration. Aucun changement HA, automatisme de fusion/publication ou modification de code n'est autorisé par cette réconciliation.
+
+**EN delivery grid:** Confirm user-approved exact version and candidate scope without unilateral cuts or dates; qualify fully testable guarded features and negative incident tests; reconcile each specialist diff against published main; obtain every mandatory check and privacy proof on the **final SHA**, and prepare bilingual notes, risk/limitation matrix, installation and live acceptance plan. Live HA acceptance follows approved publication and installation of a testable beta. Merge, release, HA deployment, Recorder/Energy writes, backups, restore and migrations are **independent authorizations**.
+
+---
+
+### ARCHIVES : instantanés historiques conservés / ARCHIVED historical snapshots retained
+
+Les paragraphes suivants sont conservés pour la preuve et la chronologie. Ils ne décrivent pas la tête actuelle de main ni le statut de publication. / The following text remains as historical evidence; its prior SHA and release-state statements are not current.
+
 ## Réconciliation — 12 novembre 2026 / Reconciliation — 12 November 2026
 
 **FR.** Cible unique `0.3.4b1`, non autorisée à être fusionnée, publiée ou installée. **`main`** : `a1bd6d8558c8fe1cc13cadeb1ff4aaa20528dc53`. Dernière release : `0.3.3b1`. À cette vérification : **24 PR ouvertes en brouillon**, **12 issues ouvertes**. Les SHA ci-dessous sont ceux des branches individuelles et non d'une candidate complète. L'issue [#45](https://github.com/christophejaubert/ha-trybatec/issues/45) fait foi pour les décisions D2–D7, non pour le succès de tests non exécutés.
