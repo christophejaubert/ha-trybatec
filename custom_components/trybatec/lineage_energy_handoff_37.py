@@ -103,6 +103,22 @@ def prepare_energy_lineage_handoff_37(
     scopes = {key[:2] for key in identities}
     versions = _reference_catalog(known_statistic_versions, scopes)
     selected = _reference_catalog(selected_energy_sources, scopes)
+    catalog = preview.get("inventory_reconciliation")
+    if catalog is not None and (
+        not isinstance(catalog, Mapping)
+        or catalog.get("historical_account_exhaustiveness_verified") is not False
+        or catalog.get("writes") is not False
+        or catalog.get("status") not in ("contradictoire", "partiel", "inconnu")
+    ):
+        raise ValueError("Invalid or authoritative physical inventory comparison")
+    version_owner = {}
+    energy_owner = {}
+    for rows, ownership in ((versions, version_owner), (selected, energy_owner)):
+        for scope, ids in rows.items():
+            for statistic in ids:
+                ownership.setdefault(statistic, set()).add(scope)
+    reused_versions = {stat for stat, owners in version_owner.items() if len(owners) > 1}
+    reused_energy = {stat for stat, owners in energy_owner.items() if len(owners) > 1}
     rendered = []
     accounted = set()
     total_rows = 0
@@ -233,12 +249,27 @@ def prepare_energy_lineage_handoff_37(
             reference_blockers.append("competing_energy_sources_selected")
         if known_versions and any(item not in known_versions for item in selected_ids):
             reference_blockers.append("selected_energy_source_outside_observed_versions")
+        if any(item in reused_versions for item in known_versions):
+            reference_blockers.append("statistic_id_reused_across_logical_scopes")
+        if any(item in reused_energy for item in selected_ids):
+            reference_blockers.append("energy_selection_reused_across_logical_scopes")
+        if catalog is None:
+            reference_blockers.append("physical_catalog_comparison_unavailable")
+        elif catalog["status"] == "contradictoire":
+            reference_blockers.append("observed_physical_catalog_contradiction")
+        else:
+            reference_blockers.append("physical_catalog_scope_not_exhaustive")
+        if catalog is None or catalog.get("source_discovery_status") != "complete":
+            reference_blockers.append("account_historical_discovery_not_complete")
+        # A completed requested interval cannot attest to never-observed generations.
+        reference_blockers.append("historical_account_exhaustiveness_not_attested")
         source_inventory = [
             {name: physical[key].get(name) for name in (
                 "lot", "fluid", "serial", "status", "unit", "source_fingerprint",
                 "first_observed_at", "last_observed_at", "service_start",
                 "service_end", "source", "observation_count",
-                "historical_reading_only", "readings_origin", "blockers"
+                "historical_reading_only", "readings_origin", "blockers",
+                "unknown_observation_spans_count", "unknown_observation_spans_truncated",
             )}
             for key in sorted(scoped)
         ]
@@ -287,6 +318,12 @@ def prepare_energy_lineage_handoff_37(
                 "daily": rows, "selected_physical_meters": member_rows
             }),
             "observed_unread_intervals": len(group.get("unobserved_intervals", [])),
+            "source_observation_gap_intervals": sum(
+                physical[key].get("unknown_observation_spans_count") or 0
+                for key in scoped
+            ),
+            "physical_catalog_reconciliation": catalog.get("status") if catalog else "inconnu",
+            "supplier_discovery_status": catalog.get("source_discovery_status") if catalog else "unavailable",
             "statistic_reference_catalog_observed": (lot, fluid) in versions,
             "selected_energy_catalog_observed": (lot, fluid) in selected,
             "observed_competing_statistic_ids": known_versions,
