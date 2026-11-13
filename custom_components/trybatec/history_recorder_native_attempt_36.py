@@ -49,8 +49,9 @@ _EVENT_STATES = {
     None: {"reserved"},
     "reserved": {"enqueue_intent", "quarantined"},
     "enqueue_intent": {"verified", "quarantined"},
-    "verified": set(),
+    "verified": {"compromised"},
     "quarantined": set(),
+    "compromised": set(),
 }
 _LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
@@ -167,13 +168,13 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                     states.get(entry["statistic_id"]), set()
                 )):
             raise ValueError("Conflicting or broken append-only event ledger")
-        if (entry["state"] == "quarantined"
+        if (entry["state"] in ("quarantined", "compromised")
                 and entry["reason"] not in (
                     "cancelled", "interrupted", "partial_import", "late_writer",
                     "concurrent_version", "readback_mismatch", "administrator_review",
                 )):
-            raise ValueError("Quarantine cause missing from event")
-        if entry["state"] != "quarantined" and entry["reason"] is not None:
+            raise ValueError("Tombstone cause missing from event")
+        if entry["state"] not in ("quarantined", "compromised") and entry["reason"] is not None:
             raise ValueError("Unexpected state transition reason")
         raw = {k: v for k, v in entry.items() if k != "hash"}
         if entry["hash"] != _event_hash(raw):
@@ -499,7 +500,7 @@ async def async_reserve_native_attempt_36(
         if previous:
             latest = previous[-1]
             status = states[latest["statistic_id"]]
-            if status not in ("quarantined", "verified"):
+            if status not in ("quarantined", "verified", "compromised"):
                 raise ValueError("Prior attempt unresolved; quarantine without requeue first")
             same = (
                 latest["source_fingerprint"] == source
@@ -597,8 +598,8 @@ async def async_quarantine_native_attempt_36(
         if states[statistic_id] == "quarantined":
             return {"status": "already_quarantined", "statistic_id": statistic_id,
                     "recorder_writes": False, "energy_activation_authorized": False}
-        if states[statistic_id] == "verified":
-            raise ValueError("Verified version cannot be silently quarantined")
+        if states[statistic_id] in ("verified", "compromised"):
+            raise ValueError("Verified or compromised version cannot be silently quarantined")
         _append_event(journal, statistic_id, "quarantined", reason=reason)
         await _persist(hass, entry_id, journal)
         return {"status": "quarantined_no_requeue", "statistic_id": statistic_id,
@@ -722,30 +723,55 @@ async def async_native_attempt_proof_36(
                 "scoped_recorder_persistence_verified": False,
                 "energy_activation_authorized": False,
             }
+        integrity_failure = False
         try:
             await _verify_stored_day_approvals(hass, entry_id, record["daily"])
             await _recorder_writer_barrier(hass)
-            rows = await _read_recorder_rows(
-                hass, statistic_id, record["snapshot"],
-            )
-            match, _ = verified_snapshot(record["snapshot"], rows)
-            if not match or len(rows) != len(record["snapshot"]):
-                raise ValueError("Incomplete, changed or unexpected native Recorder buckets")
-            await _check_persisted_metadata(
-                hass, statistic_id,
-                fluid=record["scope"]["fluid"], unit=record["unit"],
-            )
-            await _read_db_metadata(
-                hass, statistic_id,
-                fluid=record["scope"]["fluid"], unit=record["unit"],
-            )
-            if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
-                raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
+            # Two independent native reads across the metadata lookup catch
+            # writes arriving between the first and last observations. This
+            # detects some delayed writers; it is NOT an inter-writer lock.
+            for _pass in range(2):
+                rows = await _read_recorder_rows(
+                    hass, statistic_id, record["snapshot"],
+                )
+                match, _ = verified_snapshot(record["snapshot"], rows)
+                if not match or len(rows) != len(record["snapshot"]):
+                    integrity_failure = True
+                    raise ValueError("Incomplete, changed or unexpected native Recorder buckets")
+                if _actual_snapshot_hash(rows) != record["snapshot_hash"]:
+                    integrity_failure = True
+                    raise ValueError("Recorder SQL bucket hash differs from approved snapshot")
+                try:
+                    await _check_persisted_metadata(
+                        hass, statistic_id,
+                        fluid=record["scope"]["fluid"], unit=record["unit"],
+                    )
+                    await _read_db_metadata(
+                        hass, statistic_id,
+                        fluid=record["scope"]["fluid"], unit=record["unit"],
+                    )
+                except ValueError:
+                    integrity_failure = True
+                    raise
         except (ValueError, TimeoutError, KeyError, TypeError, RuntimeError, OSError) as exc:
+            marked_compromised = False
+            # Evidence of actual bucket or metadata drift after a previous
+            # verified event is a permanent tombstone. A mere timeout or
+            # unavailable approval store never masquerades as integrity drift.
+            if integrity_failure and status == "verified":
+                current = await _read_disk(hass, entry_id)
+                if current != journal:
+                    raise ValueError("Journal changed during late-writer detection")
+                _append_event(journal, statistic_id, "compromised", reason="readback_mismatch")
+                await _persist(hass, entry_id, journal)
+                marked_compromised = True
             return {
                 "schema": _PROOF_SCHEMA, "status": "blocked_native_readback_incomplete",
                 "statistic_id": statistic_id,
                 "journal_disk_verified": True, "scoped_recorder_persistence_verified": False,
+                "detected_integrity_drift": integrity_failure,
+                "verified_attempt_tombstoned": marked_compromised,
+                "independent_future_writer_exclusion_verified": False,
                 "energy_activation_authorized": False, "blocker": type(exc).__name__,
             }
         # A second physical disk read ensures journal state was not based on
@@ -803,6 +829,7 @@ async def async_native_attempt_proof_36(
             "native_buckets_verified": len(record["snapshot"]),
             "recorder_sql_metadata_readback_verified": True,
             "recorder_sql_snapshot_hash_verified": True,
+            "scoped_double_readback_observed": True,
             "daily_approval_refs": deepcopy(record["daily"]),
             "day_approval_fingerprint": record["daily_hash"],
             "native_decision_store_crosscheck_verified": True,
