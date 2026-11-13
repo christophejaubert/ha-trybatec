@@ -21,7 +21,9 @@ from .const import DOMAIN
 from .history_guardrails import diagnostics_for
 from .panel_history import preview_history_for_panel
 from .panel_tariff_years import async_tariff_year_coverage
-from .panel_history_coverage import get_source, coverage_view, _scope
+from .panel_history_coverage import (
+    get_source, coverage_view, _scope, _today, _EARLIEST_DATE,
+)
 
 _JOB_RETENTION_SECONDS = 3600
 _KINDS = ("historical_preview", "tariff_year_coverage")
@@ -38,8 +40,9 @@ def _validate_job_arguments(kind: str, start: str | None, end: str | None) -> tu
     if not isinstance(start, str) or not isinstance(end, str):
         raise ValueError("A bounded date interval is required")
     begin, finish = date.fromisoformat(start), date.fromisoformat(end)
-    today = datetime.now(timezone.utc).date()
-    if begin >= finish or finish > today or (finish - begin).days > 365 * 12:
+    today = _today()
+    if (begin < _EARLIEST_DATE or begin >= finish or finish > today or
+            (finish - begin).days > 365 * 12):
         raise ValueError("Invalid history range")
     return kind, begin.isoformat(), finish.isoformat()
 
