@@ -236,6 +236,21 @@ class EnergyBulkAdminService88:
         await self._port.assert_admin(actor)
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
         preview, _ = _prepare_state(state, self._account, self._lot)
+        # Read the real HA Recorder/ledger/energy observations only from
+        # this authenticated server-side preview; not from websocket flags.
+        native_observations: dict[str, Any] = {
+            "schema": "energy_bulk_native_scopes_88_v1",
+            "status": "native_scope_reader_not_available",
+            "activation_authorized": False,
+            "writes": False,
+        }
+        read_native = getattr(self._port, "collect_native_scope_observations", None)
+        if callable(read_native):
+            try:
+                native_observations = await read_native(actor)
+            except (EnergyRecoveryRequired, EnergyTransactionRefused,
+                    ValueError, KeyError, TypeError, OSError, RuntimeError):
+                native_observations["status"] = "native_scoped_observation_failed"
         independent = _blockers(
             state.evidence, account=self._account, lot=self._lot
         )
@@ -263,6 +278,7 @@ class EnergyBulkAdminService88:
             "l6_diagnostics": _native_l6_diagnostics(
                 state.evidence, account=self._account, lot=self._lot
             ),
+            "native_scoped_observations": native_observations,
             "transaction": {
                 "journal_status": journal_status,
                 "recovery_required": recovery_required,
