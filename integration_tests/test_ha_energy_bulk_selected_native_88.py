@@ -198,7 +198,7 @@ def arrange(monkeypatch, *, reconciled=True, third_party_water=False):
     )
     monkeypatch.setattr(selected, "_energy_without_initializing", energy)
     monkeypatch.setattr(
-        port7, "HAGuardedEnergyPort.collect_native_scope_observations",
+        port7.HAGuardedEnergyPort, "collect_native_scope_observations",
         lambda self, _actor, **_kwargs: observed(
             hass, hass.coordinator, actor=actor, lot=LOT,
             selections=[CHOICE],
