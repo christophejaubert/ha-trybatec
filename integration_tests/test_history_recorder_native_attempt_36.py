@@ -953,3 +953,108 @@ async def test_cached_metadata_glitch_does_not_permanently_tombstone(
         hass, "synthetic-36", stat,
     ))["scoped_recorder_persistence_verified"]
     assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_native_rejects_duplicate_physical_day_even_with_rehashed_plan(
+    hass, native_fixture,
+):
+    """One physical generation may contribute at most once to each civil day."""
+    plan = _plan()
+    row = plan["coverage_evidence"]["groups"][0]["rows"][0]
+    row["contributions"].append(deepcopy(row["contributions"][0]))
+    _rehash_approved_group(plan)
+    with pytest.raises(ValueError, match="contribution counted twice"):
+        await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+    assert await native._read_disk(hass, "synthetic-36") is None
+
+
+@pytest.mark.asyncio
+async def test_native_rejects_shifted_days_despite_identical_final_sum(
+    hass, native_fixture,
+):
+    """A matching final volume is not enough to certify the intervening days."""
+    plan = _plan()
+    group = plan["coverage_evidence"]["groups"][0]
+    for row, amount in zip(group["rows"], [1.0, 4.0]):
+        row["consumption"] = amount
+        row["measured_consumption"] = amount
+        row["contributions"][0]["measured"] = amount
+    # Recorder buckets still sum to 2.0 on day 1 and 5.0 at end.
+    _rehash_approved_group(plan)
+    with pytest.raises(ValueError, match="daily cumulative sum differs"):
+        await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_self_consistent_rehashed_disk_day_cannot_duplicate_meter(
+    hass, native_fixture,
+):
+    """Even a recomputed unkeyed daily hash cannot bypass journal validation."""
+    plan = _plan()
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    path = Path(hass.config.path(".storage", native._journal_key("synthetic-36")))
+    with path.open(encoding="utf-8") as stream:
+        envelope = json.load(stream)
+    attempt = envelope["data"]["attempts"][0]
+    part = attempt["daily"][0]["contributions"][0]
+    attempt["daily"][0]["contributions"].append(deepcopy(part))
+    attempt["daily_hash"] = native._event_hash({"daily": attempt["daily"]})
+    with path.open("w", encoding="utf-8") as stream:
+        json.dump(envelope, stream)
+    with pytest.raises(ValueError, match="contribution counted twice"):
+        await _enqueue(hass, plan, stat)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_sync_failure_never_creates_untracked_second_reservation(
+    hass, native_fixture, monkeypatch,
+):
+    """An interrupted durability barrier leaves the first ID reserved."""
+    def failed_fsync(_path):
+        raise OSError("synthetic filesystem sync failure")
+
+    plan = _plan()
+    monkeypatch.setattr(native, "_sync_native_journal_file_and_directory", failed_fsync)
+    with pytest.raises(OSError, match="synthetic filesystem sync failure"):
+        await _reserve(hass, plan)
+    monkeypatch.undo()
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert journal is not None and len(journal["attempts"]) == 1
+    with pytest.raises(ValueError, match="Prior attempt unresolved"):
+        await _reserve(hass, plan)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_scoped_v2_refuses_two_verified_generations(
+    hass, native_fixture, scoped_entry,
+):
+    """Neither competing verified generation can masquerade as exclusive."""
+    plan = _plan()
+    first = (await _reserve(hass, plan))["statistic_id"]
+    await _enqueue(hass, plan, first)
+    _persist_rows(native_fixture, plan, first)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", first,
+    ))["scoped_recorder_persistence_verified"]
+    revised = deepcopy(plan)
+    revised["series"][0]["source_fingerprint"] = "e" * 64
+    _rehash_approved_group(revised)
+    second = (await _reserve(hass, revised))["statistic_id"]
+    await _enqueue(hass, revised, second)
+    _persist_rows(native_fixture, revised, second)
+    assert (await native.async_native_attempt_proof_36(
+        hass, "synthetic-36", second,
+    ))["scoped_recorder_persistence_verified"]
+    first_selection = _selected_v2(
+        first, native._digest_snapshot(native._snapshot(plan["series"][0]["rows"])),
+    )
+    with pytest.raises(ValueError, match="Multiple verified physical versions"):
+        await native.async_read_native_scoped_selection_v2_36(
+            hass, "synthetic-36", first_selection,
+        )
+    assert native_fixture["queued"] == [first, second]
