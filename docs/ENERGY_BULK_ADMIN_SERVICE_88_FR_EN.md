@@ -1,5 +1,21 @@
 # 🤖 #88 — Contrat de service administratif Énergie / Native admin service contract
 
+<!-- BO-DELIVERY-DOC-20261113 -->
+## 🤖 Décision BO applicable / Governing business decision — 13/11/2026
+
+**FR — Admission L6 ciblée :** remplacer l'exigence excessive d'exhaustivité historique mondiale par des **preuves indépendantes suffisantes pour l'opération sélectionnée** : compte/lot et fluide, générations, dates, consommations mesurées ou estimées avec décisions #36 authentifiées, version/empreinte, persistances Recorder, unités, séries concurrentes, sources tierces et préférences Énergie. Un intervalle non attesté peut être explicitement approuvé **sans être présenté comme mesuré**. Une lacune hors sélection ne bloque pas automatiquement ; incohérence, chevauchement, provenance impossible à vérifier et risque de double comptage dans la sélection **bloquent**. Un test positif **synthétique réellement admissible** doit être démontré, sans promotion d'une fixture en autorisation de production.
+
+**FR — Transaction L7 :** prévoir chemin positif et chemins négatifs synthétiques : authentification administrateur native, aperçu/plan/empreintes, consentement, sauvegarde vérifiable, journal durable, contrôle de concurrence, écriture bornée, lecture de vérification, reprise/rollback ou mise en quarantaine sans action destructive. Le verrou actuel **reste fermé** jusqu'à preuve et décision d'activation distincte. Ni mock réussi ni simple lecture de sauvegarde ne démontrent une restauration réelle.
+
+**FR — CET :** l'absence de recette **sur le véritable tableau Énergie de l'installation** en kWh n'est **pas un blocage de publication bêta**. Avant publication : vérifier synthétiquement schéma, données, unités, catégories, erreurs et refus sûrs ; ne pas requalifier arbitrairement du chauffage en gaz ni inventer une conversion. La compatibilité réelle, l'affichage et la sémantique sont testés **après publication et installation autorisées**, puis corrigés si nécessaire.
+
+**EN —** Scope L6 evidence to the actual selected generations, periods, decisions, source/revision and Energy consumers; never demand absolute whole-account supplier-history certification. User-approved unknown spans preserve estimation labels; in-scope contradiction, overlap, unauthenticated approvals, incompatible unit, version collision, third-party duplication and missing durable Recorder proof still deny. Provide a **genuine synthetic positive** L6 path, followed by administrator-scoped fingerprinted L7 preview/confirmation, verified backup, durable journal, readback, concurrency checks and safe recovery, while leaving production writes hard-disabled until separately qualified and authorized. Real CET kWh compatibility with the user's actual Energy dashboard is **post-release and post-install acceptance**, not a pre-release proof requirement. Pre-release synthetic native-schema/category checks still apply. No semantic mislabeling or fictitious conversion.
+
+**Ordre / Sequence:** development and synthetic tests → separately authorized merge → separately authorized beta release → separately authorized installation → real acceptance → fixes. Canonical MOE: #45, convergence #164. Les exigences anciennes ci-dessous qui semblent imposer l'exhaustivité mondiale ou la recette CET réelle *avant* la bêta sont remplacées par cet arbitrage.
+
+<!-- END-BO-DELIVERY-DOC-20261113 -->
+
+
 **Base / Base:** `0.3.4b1` + convergence #153, sans fusion.  
 **Code / Code:** `custom_components/trybatec/energy_bulk_admin_service_88.py`.  
 **Essais / Tests:** `tests/test_energy_bulk_admin_service_88.py`, `tests/test_energy_bulk_transaction_l7.py`, `tests/test_energy_bulk_native_port_l7.py`.  
