@@ -7,8 +7,10 @@ HA 2026.11.1 references:
   recorder/tasks.py: SynchronizeTask.run resolves its future
   recorder/util.py: retryable_database_job returns False on retryable SQL errors
 
-This isolated FIFO model demonstrates why neither a completed barrier, a
-cancelled requester nor Trybatec's local lock can attest global quiescence.
+The retryable error path applies to specific MySQL errors in HA 2026.11.1;
+SQLite may not reschedule through that same wrapper. This isolated FIFO model
+demonstrates why neither a completed barrier, a cancelled requester nor
+Trybatec's local lock can attest global quiescence on all supported backends.
 """
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ class RecorderFifoModel:
             return "barrier_done"
         if failures:
             # Recorder 2026.11.1 ImportStatisticsTask queues a NEW task at tail
-            # when retryable_database_job returned False.
+            # when retryable_database_job returned False (specific MySQL errors).
             self.import_stat(stat, transient_failures=failures - 1)
             return "retry_requeued"
         self.persisted.add(stat)
