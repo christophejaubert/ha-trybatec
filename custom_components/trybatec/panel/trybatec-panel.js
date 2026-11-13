@@ -1059,8 +1059,9 @@ class TrybatecPanel extends HTMLElement {
             last_source_observed_at:m.last_observed_at,
           }));
           const verified={status:"complete",cache_hit:true,meters};
+          // Keep snapshot observations unchanged: invalidated C11 cache must
+          // never leave stale dates written into the in-memory panel account.
           this._tariffCoverage.set(entryId,verified);
-          trybatecMergeHistoricalObservationDates(account,verified);
         }
       } else if (c?.cache_invalidation_reason) {
         this._tariffCoverage.delete(entryId);
