@@ -180,7 +180,7 @@ def prepare_energy_lineage_handoff_37(
                     if any(name in contributor for name in (
                         "decision_fingerprint", "decision_attribution", "measured", "estimated"
                     )):
-                        raise ValueError("Measured contribution has invented estimation decision")
+                        raise ValueError("Measured contribution cannot carry an estimation decision")
                 else:
                     decision = contributor.get("decision_fingerprint")
                     attribution = contributor.get("decision_attribution", "approval_set_unattributed")
