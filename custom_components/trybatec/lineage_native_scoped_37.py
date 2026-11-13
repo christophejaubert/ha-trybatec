@@ -398,6 +398,8 @@ def prepare_native_scoped_lineage_37(
                     "reading_pair_hash": hashes[gen_id][ds],
                 })
             elif provenance in ("estimated_linear_confirmed", "mixed"):
+                if provenance == "estimated_linear_confirmed" and ds in hashes.get(gen_id, {}):
+                    reasons.add("estimated_day_overlaps_unaltered_raw_measurement")
                 if provenance == "mixed":
                     # #88 scoped v2 currently permits one provenance per
                     # generation/day, not simultaneous measured + estimated.
