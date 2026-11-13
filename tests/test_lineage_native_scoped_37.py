@@ -622,6 +622,8 @@ class NativeScopedLineage37Tests(unittest.TestCase):
             "selected_statistic_id_owned_by_one_scope": False,
             "version_catalog_complete_for_selected_scope": False,
             "independent_future_writer_exclusion_verified": False,
+            "journal_disk_verified": True,
+            "scoped_double_readback_observed": True,
         })
         observed["metadata"]["sql_readback_verified"] = True
         observed["versions"][0]["state"] = "verified_scoped_observation_only"
