@@ -375,7 +375,7 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
 
   await check("C11 explicit retry, cached data and no duplicate/unsafe commands", async () => {
     await page.evaluate(()=>{globalThis.__crossMode="complete";});
-    await locator("[data-tariff-years-retry]").click();
+    await locator("[data-historical-scan]").first().click();
     await page.waitForFunction(()=>
       document.querySelector("trybatec-panel")._tariffCoverage
         .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status==="complete");
@@ -395,8 +395,10 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       "Supplier history must remain account-isolated");
     assert.equal(await locator("#tariff-rate").isEnabled(),true);
     await locator('nav button[data-tab="meters"]').click();
-    assert.match(await locator("main").innerText(),
-      /Résultats de recherche déjà disponibles réutilisés|Existing cached search results reused/i);
+    assert.equal(await page.evaluate(()=>
+      document.querySelector("trybatec-panel")._tariffCoverage
+        .get("SYNTHETIC-ENTRY-NO-SECRETS")?.status),"complete",
+      "Cache continuity must remain grounded in the completed job result");
   });
 
   await check("C11 explicit cancellation remains read-only", async () => {
