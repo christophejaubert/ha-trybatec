@@ -197,3 +197,42 @@ def test_no_positive_scoped_production_authorization_from_v1_observations(monkey
     )
     assert verdict["status"] == "blocked"
     assert verdict["writes"] is False
+
+
+def _user_selection(**updates):
+    choice = {
+        "fluid": "EF", "start": "2026-01-01", "end": "2026-01-31",
+        "statistic_id": SID, "generation_ids": ["SYNTH-SERIAL"],
+    }
+    choice.update(updates)
+    return choice
+
+
+def test_admin_selected_scope_is_verified_against_native_ledger_only(monkeypatch):
+    hass, coordinator, actor = setup(monkeypatch)
+    result = asyncio.run(native.async_collect_native_scopes_88(
+        hass, coordinator, actor=actor, lot=LOT,
+        selections=[_user_selection()],
+    ))
+    selected = result["fluids"]["EF"]["selection_intent"]
+    assert selected["native_ledger_ids_match"] is True
+    assert selected["selected_generation_count"] == 1
+    assert selected["approval_and_daily_readback_verified"] is False
+    assert result["fluids"]["EF"]["known_generation_ids"] == []
+    assert result["activation_authorized"] is False
+
+
+@pytest.mark.parametrize("selection", [
+    _user_selection(generation_ids=["FOREIGN-GENERATION"]),
+    _user_selection(statistic_id="trybatec:unknown_version"),
+    _user_selection(start="2027-01-01", end="2026-01-31"),
+    _user_selection(end="2040-01-01"),
+    _user_selection(fluid="CET"),
+    {**_user_selection(), "browser_attested": True},
+])
+def test_browser_choices_cannot_forge_native_evidence(monkeypatch, selection):
+    hass, coordinator, actor = setup(monkeypatch)
+    with pytest.raises(native.EnergyTransactionRefused):
+        asyncio.run(native.async_collect_native_scopes_88(
+            hass, coordinator, actor=actor, lot=LOT, selections=[selection],
+        ))
