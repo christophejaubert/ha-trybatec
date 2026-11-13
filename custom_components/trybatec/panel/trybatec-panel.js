@@ -78,59 +78,77 @@ function trybatecHistoricalBounds(account, selectedKey, coverage) {
     range};
 }
 
-/** Whitelist the backend C11 discovery contract before rendering any status. */
+/** Whitelist the C11 backend contract; job outcome != still-valid coverage. */
 function trybatecC11Presentation(response) {
   if (!response || response.recorder_writes!==false || response.energy_writes!==false)
-    return {discovery_status:"unverified",coverage:null};
-  const possible=["not_started","running","incomplete","complete","error","interrupted"];
-  const coverage=response.coverage;
-  const supportedCoverage=coverage && ["not_started","incomplete","complete"].includes(coverage.status) &&
-    ["unknown","bounded_period_only","account_full"].includes(coverage.completeness);
-  const status=possible.includes(response.discovery_status)?response.discovery_status:"unverified";
-  const full=supportedCoverage && coverage.status==="complete" &&
-    coverage.completeness==="account_full";
-  const checkedStatus=status==="complete"&&!full?"unverified":status;
+    return {discovery_status:"unverified",coverage:null,verified_coverage:null};
+  const statuses=["not_started","running","incomplete","complete","error","interrupted"];
   const categories=["cancelled","safety_budget","timeout_or_budget","supplier_response",
     "supplier_validation","authentication","authorization","network",
     "invalid_scope_or_period","unexpected_error"];
   const invalidations=["identity_changed","date_changed","cache_expired","unverified_coverage"];
   const number=value=>Number.isInteger(value)&&value>=0?value:null;
+  const years=input=>Array.isArray(input)?[...new Set(input.filter(y=>
+    Number.isInteger(y)&&y>=2000&&y<=2100))].sort((a,b)=>a-b):[];
+  const project=input=>{
+    if (!input || !["not_started","incomplete","complete"].includes(input.status) ||
+        !["unknown","bounded_period_only","account_full"].includes(input.completeness))
+      return null;
+    return {
+      status:input.status,completeness:input.completeness,
+      coverage_start:input.coverage_start,coverage_end:input.coverage_end,
+      first_observed_at:input.first_observed_at,last_observed_at:input.last_observed_at,
+      meters:Array.isArray(input.meters)?input.meters.filter(row=>
+        typeof row?.physical_key==="string" && /^[a-f0-9]{24}$/.test(row.physical_key))
+        .map(row=>({
+          physical_key:row.physical_key,fluid:["EF","ECS","CET"].includes(row.fluid)?
+            row.fluid:null,
+          first_observed_at:row.first_observed_at,
+          last_observed_at:row.last_observed_at,
+          last_source_observed_at:row.last_source_observed_at,
+          observed_years:years(row.observed_years),
+          provenance:row.provenance
+        })):[],
+      observed_years:years(input.observed_years),
+      suggested_years:years(input.suggested_years),
+      suggested_years_basis:input.suggested_years_basis,
+      cache_reused:input.cache_reused===true,
+      verified_at:input.verified_at,cache_expires_at:input.cache_expires_at,
+      cache_invalidation_reason:invalidations.includes(input.cache_invalidation_reason)?
+        input.cache_invalidation_reason:null,
+      periods_verified:number(input.periods_verified),
+      provenance:input.provenance
+    };
+  };
+  const status=statuses.includes(response.discovery_status)?
+    response.discovery_status:"unverified";
+  const coverage=project(response.coverage);
+  const verified=project(response.verified_coverage??response.coverage);
+  // A successful bounded job never implies a complete account scan.
+  const full=coverage?.status==="complete" && coverage.completeness==="account_full";
+  const checkedStatus=status==="complete" && !full?"unverified":status;
   const p=response.progress;
   return {
     discovery_status:checkedStatus,
-    id:typeof response.id==="string" && /^[a-f0-9]{24}$/.test(response.id)?response.id:null,
-    kind:["tariff_year_coverage","historical_preview"].includes(response.kind)?response.kind:null,
+    id:typeof response.id==="string" && /^[a-f0-9]{24}$/.test(response.id)?
+      response.id:null,
+    kind:["tariff_year_coverage","historical_preview"].includes(response.kind)?
+      response.kind:null,
     status:["running","complete","failed","cancelled","not_started",
-      "incomplete","error","interrupted"].includes(response.status)?response.status:null,
+      "incomplete","error","interrupted"].includes(response.status)?
+      response.status:null,
     progress:p&&typeof p==="object"?{
       http_requests:number(p.http_requests),periods_verified:number(p.periods_verified)
     }:null,
     periods_verified:number(response.periods_verified),
     api_requests:number(response.api_requests),
-    cache_reused:response.cache_reused===true || coverage?.cache_reused===true,
-    failure_category:categories.includes(response.failure_category)?response.failure_category:null,
+    cache_reused:response.cache_reused===true,
+    failure_category:categories.includes(response.failure_category)?
+      response.failure_category:null,
     retry_mode:response.retry_mode==="restart_from_zero"?"restart_from_zero":null,
     retry_reason:response.retry_reason==="no_atomic_window_checkpoints"?
       "no_atomic_window_checkpoints":null,
-    coverage:supportedCoverage?{
-      status:coverage.status,completeness:coverage.completeness,
-      coverage_start:coverage.coverage_start,coverage_end:coverage.coverage_end,
-      first_observed_at:coverage.first_observed_at,last_observed_at:coverage.last_observed_at,
-      meters:Array.isArray(coverage.meters)?coverage.meters.filter(row=>
-        typeof row?.physical_key==="string" && /^[a-f0-9]{24}$/.test(row.physical_key))
-        .map(row=>({physical_key:row.physical_key,
-          first_observed_at:row.first_observed_at,
-          last_observed_at:row.last_observed_at,
-          provenance:row.provenance})):[],
-      suggested_years:Array.isArray(coverage.suggested_years)?
-        coverage.suggested_years.filter(y=>Number.isInteger(y)&&y>=2000&&y<=2100):[],
-      suggested_years_basis:coverage.suggested_years_basis,
-      verified_at:coverage.verified_at,cache_expires_at:coverage.cache_expires_at,
-      cache_invalidation_reason:invalidations.includes(coverage.cache_invalidation_reason)?
-        coverage.cache_invalidation_reason:null,
-      periods_verified:number(coverage.periods_verified),
-      provenance:coverage.provenance
-    }:null
+    coverage,verified_coverage:verified
   };
 }
 
