@@ -361,6 +361,58 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertFalse(p["selected_scope_reconciled"])
         self.assertIn("concurrent_physical_generations_not_apportioned", p["blockers"])
 
+    def test_overlapping_physical_lifetimes_inside_selected_period_blocked(self):
+        bundle = fixtures()
+        moved = datetime(2026, 1, 2, 11, tzinfo=timezone.utc)
+        bundle[1]["__physical_meters__"][(LOT, FLUID, "NEW")][
+            "reviewed_readings"
+        ][0] = (moved, 50)
+        bundle[4][0]["lines"][1]["indexes"][0] = {
+            "date": moved.isoformat(), "value": 50,
+        }
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("selected_generations_observation_spans_overlap",
+                      p["blockers"])
+
+    def test_mixed_same_generation_day_requires_separate_l6_contract(self):
+        bundle = fixtures()
+        bundle[2]["groups"][0]["rows"][1] = {
+            "date": "2026-01-03", "consumption": "2.5",
+            "contributors": [{
+                "serial": "NEW", "provenance": "mixed",
+                "consumption": "2.5", "measured": "2",
+                "estimated": "0.5",
+                "decision_attribution": "day_revision_candidate_unverified",
+                "decision_fingerprint": "approved-interval-A",
+                "revision_fingerprint": REV,
+            }],
+        }
+        bundle[0]["physical_snapshot_digest"] = scoped.selected_snapshot_37(
+            ACCOUNT, bundle[2], lot=LOT, fluid=FLUID,
+            start="2026-01-02", end="2026-01-03", serials=["OLD", "NEW"],
+        )
+        bundle[3]["selection_digest"] = native._hash(dict(bundle[0]))
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("mixed_physical_day_not_representable_in_l6_v2",
+                      p["blockers"])
+
+    def test_foreign_recorded_statistic_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["statistic_id"] = "trybatec:other_account_series"
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("native_36_selected_revision_and_scope_unavailable",
+                      p["blockers"])
+
+    def test_duplicate_physical_inventory_is_refused(self):
+        bundle = fixtures()
+        bundle[2]["inventory"].append(deepcopy(bundle[2]["inventory"][0]))
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("duplicated_or_invalid_source_inventory", p["blockers"])
+
     def test_stale_selected_snapshot_is_rejected(self):
         bundle = fixtures()
         bundle[2]["groups"][0]["rows"][0]["consumption"] = "7"
