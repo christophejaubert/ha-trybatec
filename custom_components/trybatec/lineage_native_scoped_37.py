@@ -589,3 +589,69 @@ def prepare_native_scoped_lineage_37(
         "energy_activation_authorized": False, "writes": False,
     }
     return result
+
+
+async def async_collect_server_scoped_lineage_37(
+    hass: Any, coordinator: Any, *,
+    actor_id: str,
+    selection: Mapping[str, Any],
+    preview_37: Mapping[str, Any],
+    read_native_recorder_36: Callable[..., Any] | None = None,
+    verify_user_selection: Callable[[Mapping[str, Any]], bool] | None = None,
+    verify_36_day: Callable[[Mapping[str, Any]], bool] | None = None,
+    verify_36_absence: Callable[[Mapping[str, Any]], bool] | None = None,
+) -> dict[str, Any]:
+    """Read-only HA server adapter; no supplier scan and no mutation port.
+
+    It re-fetches a VALIDATED existing C11 source, reads #36's current
+    historical review Store, reconstructs source-bound physical fingerprints
+    and rechecks the true HA administrative actor/account. It cannot
+    manufacture the missing native #36 scoped v2 reader or user-approval
+    ledger: absent adapters produce a blocked diagnostic, not authority.
+    Never wire raw browser-supplied proof or callbacks into this function.
+    """
+    if not isinstance(actor_id, str) or not actor_id or len(actor_id) > 256:
+        raise PermissionError("Missing authenticated HA actor")
+    current = await hass.auth.async_get_user(actor_id)
+    if current is None or getattr(current, "is_admin", False) is not True:
+        raise PermissionError("Administrator authorization is required")
+    entry = coordinator.entry
+    if (not isinstance(selection, Mapping)
+            or selection.get("account") != entry.unique_id
+            or not isinstance(entry.entry_id, str) or not entry.entry_id):
+        raise ValueError("Selected account differs from native HA entry")
+
+    from .history import build_history
+    from .history_store import load_decisions
+    from .panel_history_coverage import get_source
+
+    first, last = _date(selection.get("start")), _date(selection.get("end"))
+    scoped = get_source(coordinator, start=first, end=last)
+    if (not isinstance(scoped, Mapping) or scoped.get("complete") is not True
+            or not isinstance(scoped.get("payloads"), list)):
+        raise ValueError("Validated C11 source is absent or expired")
+    start = _date(scoped.get("coverage_start"))
+    end = _date(scoped.get("coverage_end"))
+    lot = selection.get("lot")
+    if not isinstance(lot, str) or not lot:
+        raise ValueError("Invalid native logical lot")
+    decisions = await load_decisions(hass, entry.entry_id)
+    history = build_history(
+        scoped["payloads"], start, end, allowed_lots={lot},
+        decisions=decisions,
+    )
+    native36 = None
+    if read_native_recorder_36 is not None:
+        if not callable(read_native_recorder_36):
+            raise ValueError("Invalid native #36 read-only reader")
+        native36 = await read_native_recorder_36(
+            hass, entry.entry_id, dict(selection),
+        )
+    return prepare_native_scoped_lineage_37(
+        selection, source_history=history,
+        original_supplier_payloads=scoped["payloads"],
+        preview_37=preview_37, native_recorder_36=native36,
+        verify_user_selection=verify_user_selection,
+        verify_36_day=verify_36_day,
+        verify_36_absence=verify_36_absence,
+    )
