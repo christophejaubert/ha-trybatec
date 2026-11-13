@@ -171,6 +171,17 @@ def native_fixture(hass, monkeypatch):
     }
 
 
+async def _seed_sparse_choice(hass, entry="synthetic-36", *, stamp=STAMP):
+    from custom_components.trybatec.history_smoothing_store import _store
+    await _store(hass, entry).async_save({
+        "version": 1,
+        "choices": {"d" * 32: {
+            "mode": "linear", "reason": "undetermined_confirmed",
+            "confirmed_unknown_origin": True, "updated_at": stamp,
+        }},
+    })
+
+
 async def _reserve(hass, plan, entry="synthetic-36", **kwargs):
     return await native.async_reserve_native_attempt_36(
         hass, entry, plan, LOGICAL,
@@ -197,6 +208,7 @@ def _persist_rows(fixture, plan, stat):
 @pytest.mark.asyncio
 async def test_reserve_enqueue_and_native_readback_with_real_file(hass, native_fixture):
     plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
     result = await _reserve(hass, plan)
     stat = result["statistic_id"]
     assert stat.startswith(LOGICAL + "_v1_a1_")
@@ -415,6 +427,7 @@ async def test_modified_on_disk_snapshot_or_hash_chain_blocks_action(
 @pytest.mark.asyncio
 async def test_changed_day_approval_revision_denies_enqueue(hass, native_fixture):
     plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
     stat = (await _reserve(hass, plan))["statistic_id"]
     tampered = deepcopy(plan)
     tampered["coverage_evidence"]["groups"][0]["rows"][1][
@@ -490,3 +503,26 @@ async def test_synthetic_third_party_overwrite_detected_on_reverification(
     assert result["status"] == "blocked_native_readback_incomplete"
     assert not result["scoped_recorder_persistence_verified"]
     assert native_fixture["queued"] == [stat]
+
+
+@pytest.mark.asyncio
+async def test_stale_approval_store_revision_denies_enqueue(hass, native_fixture):
+    """A plan hash alone cannot replace the exact persisted user decision."""
+    plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
+    stat = (await _reserve(hass, plan))["statistic_id"]
+    await _seed_sparse_choice(
+        hass, stamp="2026-11-03T12:00:00+00:00",
+    )
+    with pytest.raises(ValueError, match="missing, stale or unconfirmed"):
+        await _enqueue(hass, plan, stat)
+    assert native_fixture["queued"] == []
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_estimation_refused_before_journal(hass, native_fixture):
+    plan = _plan(estimated=True)
+    with pytest.raises(ValueError, match="missing, stale or unconfirmed"):
+        await _reserve(hass, plan)
+    assert await native._read_disk(hass, "synthetic-36") is None
+    assert native_fixture["queued"] == []
