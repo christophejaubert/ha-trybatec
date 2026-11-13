@@ -103,6 +103,11 @@ async function one(browser, config) {
         callWS:async call=>{
           globalThis.__syntheticCalls.push(call.type);
           if(call.type==="trybatec/panel_snapshot")return structuredClone(snapshot);
+          if(call.type==="trybatec/panel_history_discovery_status")return {
+            discovery_status:"not_started",status:"not_started",
+            coverage:{status:"not_started",completeness:"unknown"},
+            recorder_writes:false,energy_writes:false,
+          };
           if(call.type==="trybatec/panel_history_job_start")
             return {id:"SYNTHETIC-JOB",kind:call.kind,status:"running"};
           if(call.type==="trybatec/panel_history_job_status")
@@ -194,7 +199,8 @@ async function one(browser, config) {
     const calls=await page.evaluate(()=>globalThis.__syntheticCalls);
     const prohibited=calls.filter(x=>![
       "trybatec/panel_snapshot","trybatec/panel_history_job_start",
-      "trybatec/panel_history_job_status"].includes(x));
+      "trybatec/panel_history_job_status",
+      "trybatec/panel_history_discovery_status"].includes(x));
     assert.deepEqual(prohibited,[],"No write call permitted in synthetic probe");
     assert.deepEqual(errors,[],"No unhandled page errors permitted");
     assert.equal(results.length,7);
