@@ -291,3 +291,26 @@ async def test_non_admin_never_reads_scope_or_energy(monkeypatch):
             actor, account=ACCOUNT, lot=LOT, selections=[deepcopy(CHOICE)],
         )
     assert hass.events == ["admin-lookup"]
+
+
+@pytest.mark.asyncio
+async def test_missing_independent_native_owner_module_is_safe_refusal(monkeypatch):
+    hass, actor = arrange(monkeypatch)
+    native_port = port7.HAGuardedEnergyPort(hass, hass.coordinator, lot=LOT)
+
+    async def missing_owner(*_args, **_kwargs):
+        raise ImportError("Synthetic #37 backend has not yet been integrated")
+
+    monkeypatch.setattr(
+        selected, "async_collect_native_selected_state_88", missing_owner,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import (
+        EnergyTransactionRefused,
+    )
+
+    with pytest.raises(EnergyTransactionRefused, match="not integrated"):
+        await native_port.collect(
+            actor, account=ACCOUNT, lot=LOT, selections=[deepcopy(CHOICE)],
+        )
+    assert hass.data["energy_manager"].data == PREFS
+    assert not any("backup" in event or "write" in event for event in hass.events)
