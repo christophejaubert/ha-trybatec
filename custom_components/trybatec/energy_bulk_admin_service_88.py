@@ -231,7 +231,9 @@ class EnergyBulkAdminService88:
         self._lot = lot
         self._port = HAGuardedEnergyPort(hass, coordinator, lot=lot)
 
-    async def preview(self, actor: Any) -> dict[str, Any]:
+    async def preview(
+        self, actor: Any, *, selections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Native admin-authenticated, read-only L6/L7 combined action contract."""
         await self._port.assert_admin(actor)
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
@@ -247,7 +249,9 @@ class EnergyBulkAdminService88:
         read_native = getattr(self._port, "collect_native_scope_observations", None)
         if callable(read_native):
             try:
-                native_observations = await read_native(actor)
+                native_observations = await read_native(
+                    actor, selections=selections,
+                )
             except (EnergyRecoveryRequired, EnergyTransactionRefused,
                     ValueError, KeyError, TypeError, OSError, RuntimeError):
                 native_observations["status"] = "native_scoped_observation_failed"
