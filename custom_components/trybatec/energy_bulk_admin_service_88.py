@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from .energy_bulk_activation_gate_88 import NATIVE_ENERGY_BULK_WRITES_ENABLED_88
 from .energy_bulk_native_port_l7 import HAGuardedEnergyPort
 from .energy_bulk_transaction import (
     EnergyRecoveryRequired,
@@ -124,6 +125,8 @@ class EnergyBulkAdminService88:
                     "no_write_observed")
         recovery_required = journal_status not in terminal
         independent = (*independent, "l7_journal_recovery_required") if recovery_required else independent
+        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88:
+            independent = (*independent, "native_transaction_activation_disabled")
         blocked = preview.status != "prepared_for_explicit_admin_review" or bool(independent)
         return {
             "schema": "energy_bulk_admin_actions_88_v1",
@@ -176,7 +179,7 @@ class EnergyBulkAdminService88:
             raise EnergyTransactionRefused("Explicit matching confirmation required")
         # Never use a cached, browser-supplied or previously computed admission.
         state = await self._port.collect(actor, account=self._account, lot=self._lot)
-        if _blockers(state.evidence):
+        if not NATIVE_ENERGY_BULK_WRITES_ENABLED_88 or _blockers(state.evidence):
             raise EnergyTransactionRefused("Independent L6/#36/#37 admission not qualified")
         return await apply_bulk_energy_transaction(
             self._port, actor, account=self._account, lot=self._lot,
