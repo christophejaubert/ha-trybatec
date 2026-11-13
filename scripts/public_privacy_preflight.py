@@ -135,7 +135,8 @@ def audit(base: str, head: str) -> tuple[list[tuple[str, Finding]], int]:
         if line.startswith("+") and not line.startswith("+++ "):
             records.extend(("added content", finding) for finding in inspect_text(line[1:]))
         if line.startswith("Binary files ") or line.startswith("GIT binary patch"):
-            records.append(("binary data", Finding("warning", "non-text-content-not-inspected")))
+            # FR/EN: uninspected binaries may contain private data; fail closed.
+            records.append(("binary data", Finding("error", "non-text-content-not-inspected")))
     return records, len(rows)
 
 
