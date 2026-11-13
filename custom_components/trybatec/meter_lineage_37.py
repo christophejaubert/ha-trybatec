@@ -21,7 +21,10 @@ MAX_ROWS = 100000
 
 
 def _identity(value: Any) -> str:
-    if not isinstance(value, str) or not 0 < len(value) <= 128:
+    if (not isinstance(value, str) or not 0 < len(value) <= 128
+            or "\x00" in value):
+        # Logical IDs use NUL-separated scope components; embedded separators
+        # could alias a different account/dwelling without this rejection.
         raise ValueError("Invalid physical identity or reference")
     return value
 
@@ -239,6 +242,24 @@ def preview_lineage(
                     "consumption": None, "service_transition_proven": False,
                 })
             edges.append({"from_serial": old[2], "to_serial": new[2], "relation": relation})
+
+        # Adjacent-generation checks are insufficient when an older physical
+        # meter overlaps a later, nonadjacent generation (A spans B and C).
+        # A sweep over known observation bounds catches such nonlocal overlaps
+        # even when their accepted daily consumption days are disjoint.
+        active_intervals: list[tuple[str, str, str]] = []
+        for key in ordered:
+            first, last = physical[key]["first"], physical[key]["last"]
+            if first is None or last is None:
+                continue
+            active_intervals = [
+                previous for previous in active_intervals
+                if physical[previous]["last"] >= first
+            ]
+            if any(frozenset((previous, key)) not in parallel
+                   for previous in active_intervals):
+                blockers.add("unverified_physical_period_overlap")
+            active_intervals.append(key)
 
         daily: dict[date, list[tuple[tuple[str, str, str], Decimal, str]]] = defaultdict(list)
         for key in group:
