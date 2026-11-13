@@ -118,14 +118,36 @@ def _native_schema(hass: Any) -> dict[str, Any]:
     if ha_version != SUPPORTED_HA:
         return {"version": ha_version, "energy_schema_checked": False}
     from homeassistant.components.energy.data import ENERGY_SOURCE_SCHEMA
+    from homeassistant.components.energy.validate import (
+        GAS_USAGE_UNITS, WATER_USAGE_UNITS,
+    )
+    from homeassistant.const import UnitOfEnergy, UnitOfVolume
     manager = hass.data.get("energy_manager")
     data = getattr(manager, "data", None)
     if not isinstance(data, dict):
         return {"version": ha_version, "energy_schema_checked": False}
     try:
-        # Schema applies to an isolated deep copy. Validation cannot mutate HA.
-        ENERGY_SOURCE_SCHEMA(deepcopy(data.get("energy_sources")))
-        return {"version": ha_version, "energy_schema_checked": True}
+        # Validate only isolated copies; this is NOT an actual statistic proof.
+        current_sources = deepcopy(data.get("energy_sources"))
+        ENERGY_SOURCE_SCHEMA(current_sources)
+        water_compatible = (
+            UnitOfVolume.CUBIC_METERS in WATER_USAGE_UNITS.get("water", ())
+        )
+        heat_kwh_compatible = (
+            UnitOfEnergy.KILO_WATT_HOUR in GAS_USAGE_UNITS.get("energy", ())
+        )
+        probes = [
+            {"type": "water", "stat_energy_from": "sensor.synthetic_schema_water"},
+            {"type": "gas", "stat_energy_from": "sensor.synthetic_schema_heat"},
+        ]
+        ENERGY_SOURCE_SCHEMA(deepcopy(current_sources) + probes)
+        return {
+            "version": ha_version,
+            "energy_schema_checked": True,
+            "water_m3_technical_schema_compatible": water_compatible,
+            "gas_kwh_technical_schema_compatible": heat_kwh_compatible,
+            "thermal_semantic_approval": False,
+        }
     except Exception:
         return {"version": ha_version, "energy_schema_checked": False}
 
@@ -133,7 +155,9 @@ def _native_schema(hass: Any) -> dict[str, Any]:
 async def _recorder_read(hass: Any, ids: list[str], *, now: datetime) -> dict[str, Any]:
     """Bounded persisted samples, never a claim about historical completeness."""
     from homeassistant.components.recorder import get_instance
-    from homeassistant.components.recorder.statistics import get_metadata
+    from homeassistant.components.recorder.statistics import (
+        get_metadata, statistics_during_period,
+    )
 
     if "recorder" not in hass.config.components or len(ids) > MAX_STAT_IDS:
         return {"complete": False, "error": "recorder_unavailable_or_unbounded"}
@@ -170,17 +194,15 @@ async def _recorder_read(hass: Any, ids: list[str], *, now: datetime) -> dict[st
     samples: dict[str, bool] = {stat_id: False for stat_id in ids}
     try:
         for first, last in sample_windows:
-            response = await hass.services.async_call(
-                "recorder", "get_statistics", {
-                    "statistic_ids": ids,
-                    "start_time": first.isoformat(),
-                    "end_time": last.isoformat(),
-                    "period": "day", "types": ["sum"],
-                }, blocking=True, return_response=True,
+            # Core 2026.11.1 exposes statistics_during_period as a native
+            # read-only Recorder function. There is no recorder.get_statistics
+            # service. Use Recorder's executor, never the service registry.
+            records = await get_instance(hass).async_add_executor_job(
+                partial(statistics_during_period, hass, first, last,
+                        set(ids), "day", None, {"sum"})
             )
-            if not isinstance(response, dict) or not isinstance(response.get("statistics"), dict):
-                raise ValueError("Malformed Recorder statistics response")
-            records = response["statistics"]
+            if not isinstance(records, dict):
+                raise ValueError("Malformed native Recorder statistics response")
             for stat_id in ids:
                 rows = records.get(stat_id)
                 if rows is None:

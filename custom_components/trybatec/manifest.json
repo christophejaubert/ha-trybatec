@@ -4,6 +4,7 @@
   "after_dependencies": [
     "energy",
     "recorder",
+    "backup",
     "http",
     "frontend",
     "websocket_api"
