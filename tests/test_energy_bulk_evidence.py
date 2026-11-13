@@ -426,13 +426,17 @@ async def test_recorder_probe_is_bounded_and_never_writes(monkeypatch):
     for m in (base, components, recorder, stats):
         monkeypatch.setitem(sys.modules, m.__name__, m)
 
+    def read_native(hass, first, last, ids, period, units, kinds):
+        assert ids == {STAT}
+        assert period == "day" and kinds == {"sum"} and units is None
+        assert first < last and last - first == timedelta(days=45)
+        calls["read"] += 1
+        return {STAT: [{"sum": 14.3}]}
+    stats.statistics_during_period = read_native
     class Services:
-        async def async_call(self, domain, service, payload, **kwargs):
-            assert domain == "recorder" and service == "get_statistics"
-            assert payload["statistic_ids"] == [STAT]
-            assert payload["period"] == "day" and payload["types"] == ["sum"]
-            calls["read"] += 1
-            return {"statistics": {STAT: [{"sum": 14.3}]}}
+        async def async_call(self, *args, **kwargs):
+            calls["write"] += 1
+            raise AssertionError("L3 must never call a service")
     hass = SimpleNamespace(services=Services(), config=SimpleNamespace(components={"recorder"}))
     value = await native._recorder_read(hass, [STAT],
                                        now=datetime(2026, 11, 12, tzinfo=timezone.utc))
