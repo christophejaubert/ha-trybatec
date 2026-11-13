@@ -43,19 +43,24 @@ function fakeResponse(kind,snapshot){
     completeness:complete?"account_full":bounded?"bounded_period_only":"unknown",
     coverage_start:complete?"2000-01-01":bounded?start92:null,
     coverage_end:complete||bounded?today:null,
-    first_observed_at:complete||bounded?"2021-12-21T00:00:00+01:00":null,
-    last_observed_at:complete||bounded?"2026-08-01T00:00:00+02:00":null,
+    first_observed_at:complete?"2021-12-21T00:00:00+01:00":bounded?start92+"T12:00:00+02:00":null,
+    last_observed_at:complete?"2026-08-01T00:00:00+02:00":bounded?today+"T00:00:00+01:00":null,
     meters:complete||bounded?[
-      {physical_key:old,first_observed_at:"2021-12-21T00:00:00+01:00",
-        last_observed_at:"2024-12-30T00:00:00+01:00",
+      {physical_key:old,fluid:"EF",first_observed_at:bounded?start92+"T12:00:00+02:00":"2021-12-21T00:00:00+01:00",
+        last_observed_at:bounded?today+"T00:00:00+01:00":"2024-12-30T00:00:00+01:00",
+        last_source_observed_at:bounded?today+"T00:00:00+01:00":"2024-12-30T00:00:00+01:00",
+        observed_years:bounded?[Number(start92.slice(0,4)),Number(today.slice(0,4))]:[2021,2024],
         covered_start:complete?"2000-01-01":start92,covered_end:today,
         provenance:"verified_supplier_observation"},
-      {physical_key:recent,first_observed_at:"2025-01-01T00:00:00+01:00",
-        last_observed_at:"2026-08-01T00:00:00+02:00",
+      {physical_key:recent,fluid:"EF",first_observed_at:bounded?start92+"T12:00:00+02:00":"2025-01-01T00:00:00+01:00",
+        last_observed_at:bounded?today+"T00:00:00+01:00":"2026-08-01T00:00:00+02:00",
+        last_source_observed_at:bounded?today+"T00:00:00+01:00":"2026-08-01T00:00:00+02:00",
+        observed_years:bounded?[Number(start92.slice(0,4)),Number(today.slice(0,4))]:[2025,2026],
         covered_start:complete?"2000-01-01":start92,covered_end:today,
         provenance:"verified_supplier_observation"},
     ]:[],
-    suggested_years:complete||bounded?[2021,2022,2023,2024,2025,2026]:[],
+    suggested_years:complete?[2021,2022,2023,2024,2025,2026]:bounded?[Number(start92.slice(0,4)),Number(today.slice(0,4))]:[],
+    observed_years:complete?[2021,2024,2025,2026]:bounded?[Number(start92.slice(0,4)),Number(today.slice(0,4))]:[],
     suggested_years_basis:"observed_first_last_range_not_yearly_proof",
     periods_verified:complete?350:bounded?4:0,
     api_requests:0,cache_reused:complete,
@@ -68,12 +73,10 @@ function fakeResponse(kind,snapshot){
     kind==="error"?"failed":complete||bounded?"complete":"not_started";
   const status=kind==="invalidated"?"not_started":kind;
   return {
-    id:kind==="not_started"||kind==="invalidated"?null:"SYNTH-C11-JOB",
-    // A bounded preview is a legitimate running discovery state; avoid
-    // an artificial never-ending global-job poll in this static fixture.
-    kind:jobStatus==="not_started"?null:
-      kind==="running"?"historical_preview":"tariff_year_coverage",
+    id:kind==="not_started"||kind==="invalidated"?null:"a".repeat(24),
+    kind:jobStatus==="not_started"?null:kind==="running"?"historical_preview":"tariff_year_coverage",
     status:jobStatus,discovery_status:status,coverage,
+    verified_coverage:coverage,
     progress:kind==="running"?{periods_verified:3,http_requests:5}:null,
     failure_type:kind==="error"?"TrybatecConnectionError":null,
     failure_category:kind==="error"?"network":null,
@@ -99,9 +102,8 @@ async function one(browser,snapshot,config,kind) {
       globalThis.__c11Calls=[];
       const host=document.createElement("trybatec-panel");
       document.querySelector("#fixture").appendChild(host);
-      // C11 status is administrator-only: model an authenticated HA admin.
-      host.hass={language:locale,user:{is_admin:true},
-        themes:{darkMode:dark},config:{time_zone:"Europe/Paris"},
+      host.hass={language:locale,themes:{darkMode:dark},config:{time_zone:"Europe/Paris"},
+        user:{is_admin:true},
         callWS:async command=>{
           globalThis.__c11Calls.push(structuredClone(command));
           if(command.type==="trybatec/panel_snapshot")return structuredClone(snapshot);
@@ -141,6 +143,8 @@ async function one(browser,snapshot,config,kind) {
     const statusCalls=collected.calls.filter(c=>c.type==="trybatec/panel_history_discovery_status");
     assert.ok(statusCalls.length>=1,
       "Frontend never requests the registered C11 discovery-status command");
+    assert.equal(collected.active?.status==="complete" && kind==="incomplete",false,
+      "A 92-day bounded scan may not hydrate a complete historical tariff projection");
     assert.ok(collected.calls.every(c=>[
       "trybatec/panel_snapshot","trybatec/panel_history_discovery_status"
     ].includes(c.type)),"Page navigation must not start an expensive scan or write");
@@ -180,19 +184,47 @@ async function one(browser,snapshot,config,kind) {
     }
     if(kind==="error"){
       assert.match(text,/réseau|network|erreur de communication|communication error/i,"Redacted error category must be visible");
-      assert.match(text,/zéro|zero|début|beginning|recommenc|nouvelle recherche complète nécessaire|full restart required/i,
+      assert.match(text,/restart_from_zero|redémarrage intégral|full restart|zéro|zero|début|beginning|recommenc/i,
         "Restart from zero must be explained when no safe checkpoints exist");
     }
     if(kind==="interrupted")
-      assert.match(text,/zéro|zero|début|beginning|recommenc|nouvelle recherche complète nécessaire|full restart required/i);
+      assert.match(text,/restart_from_zero|redémarrage intégral|full restart|zéro|zero|début|beginning|recommenc/i);
     if(kind==="invalidated")
       assert.doesNotMatch(text,/couverture historique complète du compte|full account coverage/i);
+    // A user-requested status refresh is read-only. It must query only the
+    // currently selected account, never start even a single supplier scan.
+    const refresh=page.locator("trybatec-panel main button[data-discovery-refresh]").first();
+    assert.equal(await refresh.count(),1,"Read-only status refresh control missing");
+    const statusBefore=await page.evaluate(()=>globalThis.__c11Calls.filter(
+      c=>c.type==="trybatec/panel_history_discovery_status").length);
+    await refresh.click();
+    await page.waitForFunction(count=>globalThis.__c11Calls.filter(
+      c=>c.type==="trybatec/panel_history_discovery_status").length>count,
+      statusBefore,{timeout:4000});
+    const refreshed=await page.evaluate(()=>globalThis.__c11Calls);
+    assert.equal(refreshed.filter(c=>c.type==="trybatec/panel_history_job_start").length,0,
+      "Manual C11 status refresh must never launch a supplier scan");
+    assert.ok(refreshed.every(c=>["trybatec/panel_snapshot",
+      "trybatec/panel_history_discovery_status"].includes(c.type)),
+      "Status refresh is limited to the read-only discovery endpoint");
+    if(kind==="invalidated"){
+      // Reintroduce a stale locally complete projection, then force an
+      // explicit status check. The backend invalidation must evict it.
+      const evicted=await page.evaluate(async()=>{
+        const host=document.querySelector("trybatec-panel");
+        const id=host._current.entry_id;
+        host._tariffCoverage.set(id,{status:"complete",cache_hit:true,
+          meters:[{physical_key:host._current.meters[0].physical_key}]});
+        await host._readHistoryDiscovery(id);
+        return !host._tariffCoverage.has(id);
+      });
+      assert.equal(evicted,true,
+        "An invalidated C11 source must purge stale tariff projections");
+    }
     if(kind==="error"||kind==="interrupted"){
-      // The Tariffs view deliberately uses the same explicit global-scan
-      // action as the rest of the panel, with its own stable DOM selector.
-      const retry=page.locator("trybatec-panel button[data-tariff-years-retry]");
-      assert.equal(await retry.count(),1,"One explicit tariff scan action is required");
-      assert.equal(await retry.isEnabled(),true,"Explicit restart must remain usable");
+      const retry=page.locator("trybatec-panel main button[data-tariff-years-retry]").first();
+      assert.equal(await retry.count(),1,"One explicit tariff restart is required");
+      assert.equal(await retry.isEnabled(),true,"Explicit retry must remain available");
       assert.match(await retry.innerText(),locale.startsWith("fr")?
         /Rechercher les relevés de tous les compteurs/i:
         /Search historical readings for all meters/i,
