@@ -44,7 +44,11 @@ def _scope(coordinator: Any) -> tuple[str, set[str]]:
     if not lots:
         raise ValueError("unverified_account_lots")
     physical = sorted({
-        (str(m.get("lot", "")), str(m.get("fluid", "")), str(m.get("serial", "")))
+        (
+            str(m.get("lot", "")), str(m.get("fluid", "")),
+            str(m.get("serial", "")), repr(m.get("last")),
+            m.get("deposed") is True,
+        )
         for m in meters.values() if isinstance(m, dict)
     })
     # Never send this fingerprint to the browser; it includes private data.
