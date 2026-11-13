@@ -689,7 +689,7 @@ async def _read_db_metadata(
     statistics.get_metadata opens a read-only SQL session.
     """
     rows = await hass.async_add_executor_job(partial(
-        get_metadata, hass, statistic_ids={statistic_id}, statistic_source=DOMAIN,
+        get_metadata, hass, statistic_ids={statistic_id},
     ))
     if not isinstance(rows, dict) or set(rows) != {statistic_id}:
         raise ValueError("Native Recorder database metadata missing or duplicated")
