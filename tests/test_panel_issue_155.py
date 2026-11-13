@@ -129,7 +129,7 @@ panel._revealSelectedMeterDetail.call(ui);
 assert.equal(selectedFocuses,1);
 assert.equal(scrolls,1);
 assert.match(source,/data-meter-detail tabindex="-1"/);
-assert.match(source,/this\\._revealSelectedMeterDetail\\?\\.\\(\\)/);
+assert.ok(source.includes("this._revealSelectedMeterDetail?.()"));
 """
     completed = subprocess.run(
         [node, "-e", script, str(PANEL)],
