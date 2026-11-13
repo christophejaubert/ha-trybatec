@@ -88,6 +88,7 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
         raise ValueError("Missing, restored or corrupted native attempt journal")
     seen_ids: set[str] = set()
     seen_tokens: set[str] = set()
+    last_generation: dict[str, tuple[int, int]] = {}
     for row in document["attempts"]:
         required = {
             "statistic_id", "logical_id", "revision", "attempt", "nonce",
@@ -108,6 +109,16 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                 or stat != f"{logical}_v{row['revision']}_a{row['attempt']}_{nonce}"
                 or stat in seen_ids or nonce in seen_tokens):
             raise ValueError("Reused or mismatched immutable attempt identity")
+        prior = last_generation.get(logical)
+        if prior is None:
+            if (row["revision"], row["attempt"]) != (1, 1):
+                raise ValueError("First generation must be V1/A1")
+        elif not (
+            (row["revision"], row["attempt"]) == (prior[0], prior[1] + 1)
+            or (row["revision"], row["attempt"]) == (prior[0] + 1, 1)
+        ):
+            raise ValueError("Rewound or missing attempt generation")
+        last_generation[logical] = (row["revision"], row["attempt"])
         seen_ids.add(stat)
         seen_tokens.add(nonce)
         for field in ("snapshot_hash", "source_fingerprint", "plan_fingerprint",
@@ -142,7 +153,7 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
     previous = "0" * 64
     for index, entry in enumerate(document["events"], 1):
         if (not isinstance(entry, dict)
-                or set(entry) != {"seq", "statistic_id", "state", "at", "prev", "hash"}
+                or set(entry) != {"seq", "statistic_id", "state", "at", "prev", "hash", "reason"}
                 or type(entry["seq"]) is not int or entry["seq"] != index
                 or entry["statistic_id"] not in seen_ids
                 or entry["prev"] != previous
@@ -150,6 +161,14 @@ def _validate_journal(document: Any, entry_id: str) -> dict[str, Any]:
                     states.get(entry["statistic_id"]), set()
                 )):
             raise ValueError("Conflicting or broken append-only event ledger")
+        if (entry["state"] == "quarantined"
+                and entry["reason"] not in (
+                    "cancelled", "interrupted", "partial_import", "late_writer",
+                    "concurrent_version", "readback_mismatch", "administrator_review",
+                )):
+            raise ValueError("Quarantine cause missing from event")
+        if entry["state"] != "quarantined" and entry["reason"] is not None:
+            raise ValueError("Unexpected state transition reason")
         raw = {k: v for k, v in entry.items() if k != "hash"}
         if entry["hash"] != _event_hash(raw):
             raise ValueError("Event hash chain changed")
@@ -179,13 +198,16 @@ def _digest_snapshot(snapshot: list[list]) -> str:
     ).encode()).hexdigest()
 
 
-def _append_event(journal: dict, stat: str, state: str) -> None:
+def _append_event(
+    journal: dict, stat: str, state: str, *, reason: str | None = None,
+) -> None:
     chain = journal["events"]
     event = {
         "seq": len(chain) + 1,
         "statistic_id": stat,
         "state": state,
         "at": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
         "prev": chain[-1]["hash"] if chain else "0" * 64,
     }
     chain.append({**event, "hash": _event_hash(event)})
@@ -283,6 +305,8 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
                 if (not isinstance(ref, dict) or not isinstance(ref.get("reference"), str)
                         or not isinstance(ref.get("decision_fingerprint"), str)
                         or len(ref["decision_fingerprint"]) != 64
+                        or any(ch not in "0123456789abcdef"
+                               for ch in ref["decision_fingerprint"])
                         or ref.get("reason") not in (
                             "manual_periodic", "telemetry_failure", "other", "undetermined_confirmed"
                         )):
@@ -461,7 +485,7 @@ async def async_quarantine_native_attempt_36(
                     "recorder_writes": False, "energy_activation_authorized": False}
         if states[statistic_id] == "verified":
             raise ValueError("Verified version cannot be silently quarantined")
-        _append_event(journal, statistic_id, "quarantined")
+        _append_event(journal, statistic_id, "quarantined", reason=reason)
         await _persist(hass, entry_id, journal)
         return {"status": "quarantined_no_requeue", "statistic_id": statistic_id,
                 "journal_disk_verified": True, "reason": reason,
