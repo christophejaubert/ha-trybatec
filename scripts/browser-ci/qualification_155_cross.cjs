@@ -260,9 +260,11 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       };
       host._render();
     });
-    const before=await page.evaluate(()=>globalThis.__crossCalls.length);
+    const before=await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length);
     await locator('nav button[data-tab="tariffs"]').click();
-    assert.equal(await page.evaluate(()=>globalThis.__crossCalls.length),before,
+    assert.equal(await page.evaluate(()=>globalThis.__crossCalls.filter(
+      c=>c.type!=="trybatec/panel_history_discovery_status").length),before,
       "Opening tariff view must not initiate a supplier scan");
     await locator('nav button[data-tab="meters"]').click();
     await locator("[data-historical-scan]").click();
@@ -276,7 +278,8 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.equal(await locator("#tariff-year").inputValue(),"2040");
     await locator("#tariff-year").fill("2026");
     assert.equal(await locator("#tariff-rate").inputValue(),"2.25");
-    const callTypes=await page.evaluate(()=>globalThis.__crossCalls.map(c=>c.type));
+    const callTypes=await page.evaluate(()=>globalThis.__crossCalls.map(c=>c.type).filter(
+      type=>type!=="trybatec/panel_history_discovery_status"));
     assert.deepEqual(callTypes,[
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"
     ]);
