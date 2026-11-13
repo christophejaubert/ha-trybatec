@@ -173,6 +173,20 @@ async def async_collect_native_scopes_88(
         groups = _ledger_scoped_summary(ledger, lot)
     except (OSError, ValueError, KeyError, TypeError, FileNotFoundError):
         groups = _ledger_scoped_summary(None, lot)
+    # Read #37's persisted retired-meter observations independently of
+    # today's cache. A missing archive is unknown, not an empty inventory.
+    retired: dict[str, Any] | None = None
+    try:
+        archive = await _read_store_data(
+            hass, f"trybatec.b15_retired_inventory_{digest}"
+        )
+        if (isinstance(archive, dict) and archive.get("schema") == 1
+                and isinstance(archive.get("meters"), dict)
+                and len(archive["meters"]) <= _MAX_SERIES):
+            retired = archive["meters"]
+    except (OSError, ValueError, TypeError, KeyError, FileNotFoundError):
+        pass
+
     meters = facts.get("items")
     for fluid, group in groups.items():
         if not same_preferences:
@@ -188,6 +202,22 @@ async def async_collect_native_scopes_88(
                 group["reasons"].append("native_meter_identity_collision")
             # The cache is observational; it cannot establish all-time
             # physical inventory or authenticate user-reviewed gaps.
+        if retired is None:
+            group["reasons"].append("native_retired_inventory_unavailable")
+        else:
+            known_retired = [
+                item for item in retired.values()
+                if isinstance(item, dict) and item.get("lot") == lot
+                and item.get("fluid") == fluid and item.get("retired") is True
+            ]
+            group["retired_meters_observed_in_archive"] = len(known_retired)
+            if any(not isinstance(item.get("serial"), str)
+                   or not item["serial"] for item in known_retired):
+                group["reasons"].append("native_retired_generation_identity_missing")
+            # A physical ledger's count cannot independently certify that
+            # all retired generations exist: report only observed comparisons.
+            if group["meter_generations_observed"] < len(known_retired):
+                group["reasons"].append("known_retired_generations_not_all_in_ledger")
         stat = group["selected_statistic_id"]
         if stat:
             if any(ref[3] == stat for ref in selected_references):
