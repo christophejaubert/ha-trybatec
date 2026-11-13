@@ -2008,6 +2008,17 @@ class TrybatecPanel extends HTMLElement {
        String(missing.length)+this._t(
          " compteur(s) déposé(s) sans dates historiques confirmées dans l’inventaire actuel.",
          " retired meter(s) without confirmed historical dates in the current inventory."))+
+      (coverage?.status==="loading" &&
+       Number.isInteger(this._tariffJobStatus?.progress?.periods_verified) &&
+       Number.isInteger(this._tariffJobStatus?.progress?.http_requests)?
+        '<div class="muted">'+this._t("Périodes vérifiées : ","Verified periods: ")+
+        safe(this._tariffJobStatus.progress.periods_verified)+
+        this._t(" · Requêtes : "," · Requests: ")+
+        safe(this._tariffJobStatus.progress.http_requests)+'</div>':"")+
+      (coverage?.status==="complete" && coverage.cache_hit===true?
+        '<div class="muted">'+this._t(
+          "Résultats de recherche déjà disponibles réutilisés.",
+          "Existing cached search results reused.")+'</div>':"")+
       (coverage?.status==="loading" && this._tariffJobId?
         '<div class="actions"><button type="button" class="secondary" data-tariff-years-cancel>'+
         'Interrompre la recherche globale</button></div>':"")+
