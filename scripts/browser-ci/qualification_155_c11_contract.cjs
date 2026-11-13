@@ -188,10 +188,15 @@ async function one(browser,snapshot,config,kind) {
     if(kind==="invalidated")
       assert.doesNotMatch(text,/couverture historique complète du compte|full account coverage/i);
     if(kind==="error"||kind==="interrupted"){
-      const retry=page.locator("trybatec-panel button").filter({
-        hasText:/réessayer|relancer|rechercher les exercices|retry|restart|search historical/i
-      }).first();
-      assert.ok(await retry.count()===1,"Manual restart must remain available");
+      // The Tariffs view deliberately uses the same explicit global-scan
+      // action as the rest of the panel, with its own stable DOM selector.
+      const retry=page.locator("trybatec-panel button[data-tariff-years-retry]");
+      assert.equal(await retry.count(),1,"One explicit tariff scan action is required");
+      assert.equal(await retry.isEnabled(),true,"Explicit restart must remain usable");
+      assert.match(await retry.innerText(),locale.startsWith("fr")?
+        /Rechercher les relevés de tous les compteurs/i:
+        /Search historical readings for all meters/i,
+        "Accessible retry label must describe the global supplier scan");
       await retry.click();
       await page.waitForFunction(()=>
         globalThis.__c11Calls.some(c=>c.type==="trybatec/panel_history_job_start"),
