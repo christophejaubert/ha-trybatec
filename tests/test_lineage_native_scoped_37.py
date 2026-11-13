@@ -151,7 +151,17 @@ def fixtures(*, estimate=False, gap=False):
         }] if gap else [],
     }
     proof["selection_digest"] = native._hash(dict(selection))
-    return selection, raw, preview, proof
+    original_payloads = [{
+        "lines": [{
+            "lot": LOT, "fluide": FLUID, "compteur": serial,
+            "indexes": [{
+                "date": stamp.isoformat(), "value": index,
+            } for stamp, index in raw["__physical_meters__"][
+                (LOT, FLUID, serial)
+            ]["reviewed_readings"]],
+        } for serial in ("OLD", "NEW")],
+    }]
+    return selection, raw, preview, proof, original_payloads
 
 
 def approved_user(payload):
@@ -180,9 +190,10 @@ def approved_absence(payload):
 
 
 def evaluate(bundle, **kwargs):
-    selection, raw, preview, proof = bundle
+    selection, raw, preview, proof, original_payloads = bundle
     return native.prepare_native_scoped_lineage_37(
         selection, source_history=raw, preview_37=preview,
+        original_supplier_payloads=original_payloads,
         native_recorder_36=proof,
         verify_user_selection=kwargs.get("verify_user_selection", approved_user),
         verify_36_day=kwargs.get("verify_36_day", approved_day),
@@ -271,7 +282,7 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         )
         p = evaluate(bundle)
         self.assertFalse(p["selected_scope_reconciled"])
-        self.assertIn("measured_day_raw_index_delta_mismatch", p["blockers"])
+        self.assertIn("measured_day_without_supplier_raw_pair", p["blockers"])
 
     def test_decreasing_raw_index_is_not_a_consumption(self):
         bundle = fixtures()
@@ -288,6 +299,22 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         p = evaluate(bundle)
         self.assertFalse(p["selected_scope_reconciled"])
         self.assertIn("physical_source_fingerprint_mismatch", p["blockers"])
+
+    def test_missing_original_supplier_indexes_cannot_attest_measurement(self):
+        bundle = list(fixtures())
+        bundle[4] = []
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("measured_day_without_native_index_pair", p["blockers"])
+
+    def test_reviewer_corrected_index_is_not_vendor_observation(self):
+        bundle = fixtures()
+        bundle[1]["__physical_meters__"][
+            (LOT, FLUID, "OLD")
+        ]["reviewed_readings"][1] = (T2, 14)
+        p = evaluate(bundle)
+        self.assertFalse(p["selected_scope_reconciled"])
+        self.assertIn("measured_day_without_supplier_raw_pair", p["blockers"])
 
     def test_recorder_daily_quantity_change_is_refused(self):
         bundle = fixtures()
