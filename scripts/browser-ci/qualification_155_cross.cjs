@@ -33,7 +33,13 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     host._query="";host._historyContextKey=null;
     host._historyDatesEdited={start:false,end:false};
     host._historyStart="";host._historyEnd="";
-    host._tariffCoverage=new Map();host._historyPreview=null;
+    // Cross-matrix assertions deliberately start a fresh synthetic supplier
+    // state after the preceding visual acceptance scan. Inherit neither its
+    // full C11 cache nor its physical-date projection from another fixture.
+    globalThis.__scanCompleted=false;
+    host._tariffCoverage=new Map();host._historyDiscovery=new Map();
+    host._historyDiscoveryInflight=new Set();host._historyDiscoveryWatch=new Set();
+    host._historyDateDrafts=new Map();host._historyPreview=null;
     host._historySelected="";host._historyReason="undetermined";
     host._tab="meters";host._render();
     globalThis.__crossCalls=[];
@@ -284,11 +290,11 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
       assert.ok(ratio>=4.5,"Fluid text contrast below 4.5:1: "+
         shade.fluid+" ratio="+ratio.toFixed(2)+" theme="+(dark?"dark":"light"));
     }
-    // A keyboard user establishes :focus-visible before navigation.
-    // Direct locator.focus() alone does not switch Chromium to keyboard modality.
+    // Establish keyboard modality, then inspect :focus-visible BEFORE Enter
+    // re-renders the tab and replaces the focused DOM button.
+    await locator('nav button[data-tab="meters"]').click();
     await page.keyboard.press("Tab");
     await locator('nav button[data-tab="history"]').focus();
-    await page.keyboard.press("Enter");
     const focused=await locator('nav button[data-tab="history"]').evaluate(el=>{
       const s=getComputedStyle(el);
       return {name:el.innerText.trim(),outline:s.outlineStyle,width:parseFloat(s.outlineWidth)};
@@ -296,6 +302,10 @@ async function runCrossQualification(page, {locale, device, dark, snapshot}) {
     assert.ok(focused.name.length>0);
     assert.notEqual(focused.outline,"none");
     assert.ok(focused.width>=2);
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(()=>
+      document.querySelector("trybatec-panel")._tab),"history",
+      "Enter must navigate to History from keyboard focus");
   });
 
   await check("C10 unknown origin blocks unapproved smoothing", async () => {
