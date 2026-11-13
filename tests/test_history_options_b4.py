@@ -193,19 +193,17 @@ def test_history_review_displays_clickable_action_link_placeholder(ui):
 
 def test_save_and_return_applies_settings_before_menu(ui):
     flow, _ = new_ui(ui)
+    legacy = '{"2022":{"EF":2.5}}'
+    flow.config_entry.options["annual_tariffs"] = legacy
     async def exercise():
         result = await flow.async_step_settings({
-            "poll_minutes": 180,
-            "annual_tariffs": "{}",
-            "after_submit": "menu",
+            "poll_minutes": 180, "after_submit": "menu",
         })
         assert result["type"] == "menu" and result["step_id"] == "init"
         assert flow.config_entry.options["poll_minutes"] == 180
-        assert flow.config_entry.options["annual_tariffs"] == "{}"
+        assert flow.config_entry.options["annual_tariffs"] == legacy
         bad = await flow.async_step_settings({
-            "poll_minutes": 5,
-            "annual_tariffs": "{}",
-            "after_submit": "menu",
+            "poll_minutes": 5, "after_submit": "menu",
         })
         assert bad["type"] == "form" and bad["errors"]
         assert flow.config_entry.options["poll_minutes"] == 180
@@ -656,7 +654,7 @@ def test_main_menu_keeps_six_readable_direct_destinations(ui):
     expected = [
         "settings", "diagnostics", "meter_units",
         "history_overview", "history_meters", "history_review",
-        "history_smoothing",
+        "history_smoothing", "tariffs", "legacy_tariffs",
     ]
     assert menu["type"] == "menu"
     assert list(menu["menu_options"]) == expected
@@ -930,7 +928,7 @@ def test_ui_main_menu_has_nonempty_labels_without_translation_cache(ui):
     fr = asyncio.run(flow.async_step_init())
     assert fr["type"] == "menu"
     assert isinstance(fr["menu_options"], dict)
-    assert len(fr["menu_options"]) == 7
+    assert len(fr["menu_options"]) == 9
     assert all(isinstance(value, str) and value.strip()
                for value in fr["menu_options"].values())
     assert fr["menu_options"]["history_smoothing"] == "Lissage des intervalles historiques"

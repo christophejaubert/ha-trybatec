@@ -6,12 +6,17 @@ the old series remains untouched. Verification reads back EVERY UTC bucket.
 """
 from __future__ import annotations
 
+import asyncio
+from copy import deepcopy
 from hashlib import sha256
 from typing import Any
 
 from homeassistant.components.recorder.models import StatisticMeanType
-from homeassistant.components.recorder.statistics import async_add_external_statistics
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics, async_list_statistic_ids,
+)
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.recorder import get_instance
 
 from .const import DOMAIN, FLUIDS
 from .history_v4 import _snapshot
@@ -19,8 +24,33 @@ from .history_versions_b15 import (
     prepare_version, transition_version,
 )
 from .recorder_guard import expected_windows, verified_snapshot
+from .history_recorder_recovery_l2 import preview_pending_recovery
 
 _MAX_PENDING = 100
+_MAX_ENQUEUE_ATTEMPTS = 3
+
+
+async def _recorder_writer_barrier(hass: Any) -> None:
+    """Wait for prior Recorder queue work to commit on the actual HA instance.
+
+    Called ONLY by the server-side confirmed retry route under the entry's
+    import lock. A time delay or frontend flag is never a commit barrier.
+    This does not attest writers outside this integration's lock, e.g. direct
+    SQL access or another integration writing the same statistic_id.
+    """
+    try:
+        if not hass.is_running:
+            raise ValueError("Home Assistant is not running")
+        instance = get_instance(hass)
+        flush = getattr(instance, "async_block_till_done", None)
+        if not callable(flush):
+            raise ValueError("Recorder commit barrier is unavailable")
+        async with asyncio.timeout(90):
+            await flush()
+    except (TimeoutError, ValueError, RuntimeError, KeyError, AttributeError) as exc:
+        raise ValueError("Recorder writer-quiescence proof unavailable") from exc
+
+
 
 
 def ledger_store(hass: Any, entry_id: str) -> Store:
@@ -63,6 +93,25 @@ def _match_pending(existing: dict, plan: dict) -> None:
             raise ValueError("Pending b15 version ledger invalid")
 
 
+async def _independent_writer_quiescence_proof(
+    hass: Any, entry_id: str, statistic_ids: set[str],
+) -> None:
+    """Require an authoritative no-late-writer attestation before selective retry.
+
+    As of HA Recorder 2026.11, native SynchronizeTask confirms earlier queue
+    work was processed, but an ImportStatisticsTask may reschedule itself
+    after a failed import. Recorder exposes no stable public per-statistic
+    generation token preventing that later task from writing. The native
+    barrier alone is therefore insufficient. Remain fail-closed by default.
+
+    Isolated synthetic tests inject an independently-proven fixture here.
+    Do NOT replace this gate with a sleep, browser flag or queue.empty().
+    """
+    raise ValueError(
+        "Recorder has no verified exclusive no-late-writer proof for selective retry"
+    )
+
+
 async def queue_b15_plan(
     hass: Any, entry_id: str, plan: dict,
     *,
@@ -77,12 +126,72 @@ async def queue_b15_plan(
                                  or original.get("schema") != 1):
         raise ValueError("Invalid existing b15 ledger")
     if retry_pending:
-        if original is None:
+        if original is None or not original.get("pending"):
             raise ValueError("No b15 import to retry")
         _match_pending(original, plan)
-        stage = original
+        # First readback is safe and may finish a previous batch without
+        # enqueue, independently of any commit barrier.
+        try:
+            checked = await verify_b15_recorder(hass, entry_id)
+        except Exception as exc:
+            raise ValueError(
+                "Recorder readback unavailable; pending import cannot be retried"
+            ) from exc
+        if checked["status"] == "recorder_verified":
+            return {
+                "status": "unchanged_all_series_previously_verified",
+                "queued": [], "pending": [],
+                "read_only_recovery": checked["read_only_recovery"],
+            }
+
+        # A missing series may still be in the Recorder queue. The native
+        # synchronization future (not a timer) waits for queued transactions
+        # to complete; re-read every pending series AFTER that barrier.
+        try:
+            await _recorder_writer_barrier(hass)
+            checked = await verify_b15_recorder(
+                hass, entry_id, queue_quiescent=True,
+            )
+        except Exception as exc:
+            raise ValueError(
+                "Pending Recorder import not verified; safe selective retry "
+                "requires independent writer-quiescence proof"
+            ) from exc
+        if checked["status"] == "recorder_verified":
+            return {
+                "status": "unchanged_all_series_previously_verified",
+                "queued": [], "pending": [],
+                "read_only_recovery": checked["read_only_recovery"],
+            }
+        recovery = checked["read_only_recovery"]
+        if not recovery["safe_to_offer_retry"]:
+            raise ValueError(
+                "Pending Recorder import has partial, conflicting or "
+                "unattested buckets; selective retry denied"
+            )
+        # Native SynchronizeTask is necessary but insufficient: a failed
+        # ImportStatisticsTask can requeue itself after that barrier. The
+        # second, independent proof has no production implementation yet.
+        # Until such a durable per-statistic writer fence exists, deny retry.
+        allowed_ids = set(recovery["retry_only_these_statistic_ids"])
+        await _independent_writer_quiescence_proof(hass, entry_id, allowed_ids)
+        stage = await store.async_load()
+        _match_pending(stage, plan)
         selected = [item for item in plan["series"]
                     if item["logical_id"] in stage["pending"]]
+        if not selected or {
+            stage["pending"][item["logical_id"]]["statistic_id"]
+            for item in selected
+        } != allowed_ids:
+            raise ValueError("Recorder recovery approval disagrees with durable journal")
+        # Persist bounded retry intent before placing any new queue job.
+        # A crash at any point will be reclassified by a later native barrier.
+        for item in selected:
+            pending_item = stage["pending"][item["logical_id"]]
+            attempts = pending_item.get("enqueue_attempts", 1)
+            if not isinstance(attempts, int) or isinstance(attempts, bool) or not 1 <= attempts < _MAX_ENQUEUE_ATTEMPTS:
+                raise ValueError("Recorder retry attempt budget exhausted or invalid")
+            pending_item["enqueue_attempts"] = attempts + 1
     else:
         if original and original.get("pending"):
             raise ValueError("A previous b15 Recorder batch still needs verification")
@@ -118,6 +227,7 @@ async def queue_b15_plan(
                 "statistic_id": version["statistic_id"],
                 "snapshot": _snapshot(item["rows"]),
                 "source_fingerprint": item["source_fingerprint"],
+                "enqueue_attempts": 1,
             }
             selected.append(item)
         if not selected:
@@ -151,7 +261,55 @@ async def queue_b15_plan(
     }
 
 
-async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
+async def _read_recorder_rows(
+    hass: Any, statistic_id: str, snapshot: list[list],
+) -> list[dict]:
+    """Read every native 90-day window without permitting missing responses."""
+    observed = []
+    for first, last in expected_windows(snapshot):
+        response = await hass.services.async_call(
+            "recorder", "get_statistics", {
+                "statistic_ids": [statistic_id], "start_time": first.isoformat(),
+                "end_time": last.isoformat(), "period": "hour",
+                "types": ["sum"],
+            }, blocking=True, return_response=True,
+        )
+        if not isinstance(response, dict) or not isinstance(
+            response.get("statistics"), dict
+        ):
+            raise ValueError("Recorder readback missing complete statistics response")
+        # HA 2026.11 omits an identifier entirely when no rows exist.
+        # The trusted, completed in-process service response is not partial
+        # just because that identifier has no persisted observations.
+        returned = response["statistics"].get(statistic_id, [])
+        if not isinstance(returned, list):
+            raise ValueError("Invalid Recorder statistics rows")
+        observed.extend(returned)
+    return observed
+
+
+async def _check_persisted_metadata(
+    hass: Any, statistic_id: str, *, fluid: str, unit: str,
+) -> None:
+    """Validate Recorder's independent statistic metadata, never UI claims."""
+    observed = await async_list_statistic_ids(hass, statistic_ids={statistic_id})
+    if not isinstance(observed, list) or len(observed) != 1:
+        raise ValueError("Recorder metadata missing or ambiguous")
+    meta = observed[0]
+    if not isinstance(meta, dict) or (
+        meta.get("statistic_id") != statistic_id
+        or meta.get("source") != DOMAIN
+        or meta.get("statistics_unit_of_measurement") != unit
+        or meta.get("unit_class") != _unit_class(fluid)
+        or meta.get("has_sum") is not True
+        or meta.get("mean_type") not in (StatisticMeanType.NONE, StatisticMeanType.NONE.value)
+    ):
+        raise ValueError("Recorder metadata conflicts with immutable version scope")
+
+
+async def verify_b15_recorder(
+    hass: Any, entry_id: str, *, queue_quiescent: bool = False,
+) -> dict[str, Any]:
     """Check all pending hourly buckets against *persisted* HA statistics."""
     store = ledger_store(hass, entry_id)
     ledger = await store.async_load()
@@ -160,6 +318,10 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
     if ledger.get("schema") != 1 or not isinstance(ledger.get("pending", {}), dict):
         raise ValueError("Invalid b15 verification ledger")
     pending = ledger.get("pending", {})
+    # Preserve the original imported ledger as the recovery contract's
+    # reference even when verified records are cleared later in this call.
+    original_pending_ledger = deepcopy(ledger)
+    readbacks = {}
     verified = []
     outstanding = []
     for logical, item in pending.items():
@@ -167,24 +329,31 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
         stat_id = item.get("statistic_id")
         if not isinstance(snapshot, list) or len(snapshot) < 2 or not isinstance(stat_id, str):
             raise ValueError("Invalid pending statistical snapshot")
-        observed = []
-        for first, last in expected_windows(snapshot):
-            response = await hass.services.async_call(
-                "recorder", "get_statistics", {
-                    "statistic_ids": [stat_id], "start_time": first.isoformat(),
-                    "end_time": last.isoformat(), "period": "hour",
-                    "types": ["sum"],
-                }, blocking=True, return_response=True,
-            )
-            if not isinstance(response, dict) or not isinstance(response.get("statistics"), dict):
-                raise ValueError("Recorder did not return persisted statistics")
-            observed.extend(response["statistics"].get(stat_id, []))
+        observed = await _read_recorder_rows(hass, stat_id, snapshot)
+        # Full-window readback is derived only from the trusted HA service,
+        # never from a supplied browser flag. No queue-quiescence claim.
+        readbacks[stat_id] = {"complete": True, "rows": observed}
         okay, missing = verified_snapshot(snapshot, observed)
+        # Existing buckets are necessary but insufficient: unexpected extra
+        # rows can represent an additive duplicate or a foreign revision.
+        if len(observed) != len(snapshot):
+            okay = False
+            missing = max(missing, abs(len(observed) - len(snapshot)))
         if not okay:
             outstanding.append({
                 "statistic_id": stat_id, "missing_or_mismatched_rows": missing,
             })
             continue
+        # A matching sum alone cannot prove that Recorder is storing the
+        # approved unit, fluid or source. Refuse the version transition when
+        # the independent native metadata lookup disagrees.
+        scope = ledger["series"][logical].get("scope")
+        if not isinstance(scope, dict) or scope.get("fluid") not in FLUIDS:
+            raise ValueError("Recorder scope missing from version journal")
+        await _check_persisted_metadata(
+            hass, stat_id, fluid=scope["fluid"],
+            unit=ledger["series"][logical]["unit"],
+        )
         registered = ledger["series"][logical]["versions"]
         version = next(v for v in registered if v["statistic_id"] == stat_id)
         ledger = transition_version(
@@ -193,10 +362,14 @@ async def verify_b15_recorder(hass: Any, entry_id: str) -> dict[str, Any]:
         )
         ledger["pending"].pop(logical)
         verified.append({"statistic_id": stat_id, "verified_rows": len(snapshot)})
+    recovery = preview_pending_recovery(
+        original_pending_ledger, readbacks, queue_quiescent=queue_quiescent,
+    )
     if verified:
         await store.async_save(ledger)
     return {
         "status": "pending_recorder_readback" if ledger.get("pending") else "recorder_verified",
         "verified": verified, "pending": outstanding,
+        "read_only_recovery": recovery,
         "energy_activated": False,
     }

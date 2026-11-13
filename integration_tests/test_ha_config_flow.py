@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
-from custom_components.trybatec.api import TrybatecClient, TrybatecDataError
+from custom_components.trybatec.api import TrybatecClient, TrybatecDiscoveryAmbiguousError
 from custom_components.trybatec.const import CONF_DEAL_ID, DOMAIN
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -18,7 +18,7 @@ async def test_ambiguous_housing_requires_valid_portal_url(hass, monkeypatch):
     """Never guess a deal UUID; reject arbitrary and foreign-site URLs."""
 
     async def ambiguous(self):
-        raise TrybatecDataError("Housing discovery ambiguous or unavailable")
+        raise TrybatecDiscoveryAmbiguousError("Housing discovery ambiguous or unavailable")
 
     monkeypatch.setattr(TrybatecClient, "discover_single_deal_id", ambiguous)
     flow = await hass.config_entries.flow.async_init(

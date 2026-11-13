@@ -432,8 +432,8 @@ changements de compteur avant de configurer le tableau de bord Énergie.
 Copy `custom_components/trybatec` into your HA configuration directory, restart,
 and add **Trybatec (Unofficial)** from **Settings → Devices & services**. Supply
 only your portal username and password. A single unambiguous housing is resolved
-and checked automatically. If discovery fails, use the controlled fallback to
-paste the complete HTTPS Indexes-page URL, which is validated before setup.
+and checked automatically. Only ambiguous housing discovery offers a controlled
+fallback: paste the complete HTTPS Indexes-page URL, which is checked for both format and authorization. A 403 denial, network error, or malformed response does not enable this fallback.
 Multi-coproperty accounts are not supported. Configure optional annual rates in
 the integration options. Never post credentials or account URLs to GitHub.
 

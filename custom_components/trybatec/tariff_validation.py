@@ -1,6 +1,7 @@
 """Pure historical tariff validation independent of the HA frontend runtime."""
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 from typing import Any
@@ -12,6 +13,25 @@ _HEX = frozenset("0123456789abcdef")
 _STATUSES = {"provisional", "approved"}
 _LIMIT_YEARS = 101
 _LIMIT_METERS = 3000
+
+
+
+def validate_edit_rate(value: Any) -> float:
+    """Validate an *edited* unit rate without silently rounding the amount.
+
+    Legacy stored tariffs retain their original validation/migration path.
+    Only newly submitted values have the six-decimal precision contract.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Tariff must be a finite non-negative number")
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("Invalid tariff amount") from exc
+    if (not amount.is_finite() or amount < 0 or amount > 1000000
+            or amount.as_tuple().exponent < -6):
+        raise ValueError("Tariff must be between 0 and 1000000 with at most six decimal places")
+    return float(amount)
 
 
 def validate_meter_tariffs(value: Any) -> dict[str, dict[str, dict[str, Any]]]:

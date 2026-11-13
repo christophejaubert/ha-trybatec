@@ -23,6 +23,8 @@ from .const import (
     CONF_DEAL_ID,
     CONF_HEATING_UNIT,
     CONF_TARIFFS,
+    CONF_METER_TARIFFS,
+    CONF_METER_UNITS,
     DOMAIN,
     FLUIDS,
     FLUID_RATE_UNITS,
@@ -30,7 +32,9 @@ from .const import (
 )
 from .coordinator import TrybatecCoordinator
 from .history_devices_b15 import load_historical_inventory
-from .parsing import resolve_tariff, validate_tariffs
+from .meter_identity import stable_meter_unique_id
+from .parsing import validate_tariffs
+from .tariff_ytd import preview_ytd_tariff_costs
 from .units import normalized_unit, unit_factor
 
 
@@ -49,6 +53,7 @@ async def async_setup_entry(
     coordinator: TrybatecCoordinator = hass.data[DOMAIN][entry.entry_id]
     account_key = entry.unique_id or entry.entry_id
     known_meter_versions: set[tuple[str, str | None]] = set()
+    stable_identity_mode = coordinator.stable_unit_guard is not None
     known_metrics: set[tuple[str, str]] = set()
     known_archived: set[tuple[str, str, str]] = set()
 
@@ -74,10 +79,22 @@ async def async_setup_entry(
         for serial, meter in data["meters"].items():
             if not meter["deposed"]:
                 active_fluids.add(meter["fluid"])
-            identity = (serial, meter.get("verified_unit"))
+            # Stable-mode meters retain one entity across unit verification.
+            # Legacy accounts keep b6 behavior until an explicit migration
+            # has been reviewed; this avoids breaking existing live readings.
+            identity = (serial, None if stable_identity_mode else meter.get("verified_unit"))
             if identity not in known_meter_versions:
+                if stable_identity_mode and meter.get("stable_unit_status") in (
+                    "legacy_identity_requires_review",
+                    "missing_unit_baseline_requires_review",
+                    "invalid_unit_baseline_requires_review",
+                    "foreign_stable_identity_requires_review",
+                ):
+                    continue
                 known_meter_versions.add(identity)
-                new.append(TrybatecMeterSensor(coordinator, account_key, serial))
+                new.append(TrybatecMeterSensor(
+                    coordinator, account_key, serial, stable=stable_identity_mode,
+                ))
         for fluid in active_fluids:
             allowed_metrics = ("volume", "cost", "price")
             if not data["annual"][fluid]["unit_verified"]:
@@ -120,45 +137,81 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
     """Cumulative index of a single physical meter (never merged across resets)."""
 
     def __init__(
-        self, coordinator: TrybatecCoordinator, account_key: str, serial: str
+        self, coordinator: TrybatecCoordinator, account_key: str, serial: str,
+        *, stable: bool = False,
     ) -> None:
         super().__init__(coordinator)
         self._serial = serial
         meter = coordinator.data["meters"][serial]
         physical_serial = meter["serial"]
+        self._stable_identity_mode = stable
         self._source_unit = meter.get("verified_unit")
         suffix = ("_" + sha256(json.dumps([meter["lot"], meter["fluid"], physical_serial], separators=(",", ":")).encode()).hexdigest()[:16]) if meter.get("identity_collision") else ""
         fluid = meter["fluid"]
-        # A new ID prevents old assumed-unit statistics from being silently reused.
+        # Legacy b6 identities remain untouched. Greenfield entries use a
+        # unit-independent identity and a durable source-unit baseline guard.
         tag = self._source_unit or "unverified"
-        self._attr_unique_id = f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
-        self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (" (unit unverified)" if not self._source_unit else "")
-        self._attr_native_unit_of_measurement = normalized_unit(fluid) if self._source_unit else None
+        self._attr_unique_id = (
+            stable_meter_unique_id(account_key, meter["lot"], fluid, physical_serial)
+            if stable else f"{account_key}_{physical_serial}{suffix}_b6_{tag}_index"
+        )
+        self._attr_name = f"{FLUIDS[fluid]} {physical_serial} index" + (
+            " (unit unverified)" if not stable and not self._source_unit else ""
+        )
+        self._attr_native_unit_of_measurement = normalized_unit(fluid) if self._source_unit and not stable else None
         # Preserve the historical active-meter state-class declaration.
         # The property below dynamically disables statistics for retired
         # devices, even when an active meter later becomes deposed.
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING if self._source_unit else None
-        self._attr_device_class = (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER) if self._source_unit else None
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING if self._source_unit and not stable else None
+        self._attr_device_class = (SensorDeviceClass.ENERGY if fluid == "CET" else SensorDeviceClass.WATER) if self._source_unit and not stable else None
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{account_key}_{physical_serial}{suffix}")},
+            "identifiers": {(DOMAIN, (
+                f"{account_key}_{physical_serial}{suffix}" if not stable
+                else "device_" + self._attr_unique_id
+            ))},
             "name": f"Trybatec {FLUIDS[fluid]} ({physical_serial})",
             "manufacturer": "Trybatec",
             "model": "Remote meter",
         }
 
+    def _effective_source_unit(self) -> str | None:
+        meter = self.coordinator.data["meters"].get(self._serial)
+        if meter is None:
+            return None
+        if self._stable_identity_mode:
+            return meter.get("verified_unit") if meter.get("stable_unit_approved") is True else None
+        return self._source_unit if meter.get("verified_unit") == self._source_unit else None
+
     @property
     def state_class(self) -> SensorStateClass | None:
         meter = self.coordinator.data["meters"].get(self._serial)
-        if meter is None or meter.get("deposed") or not self._source_unit:
+        if meter is None or meter.get("deposed") or not self._effective_source_unit():
             return None
         return SensorStateClass.TOTAL_INCREASING
 
     @property
+    def native_unit_of_measurement(self) -> str | None:
+        if not self._stable_identity_mode:
+            return self._attr_native_unit_of_measurement
+        meter = self.coordinator.data["meters"].get(self._serial)
+        return normalized_unit(meter["fluid"]) if meter and self._effective_source_unit() else None
+
+    @property
+    def device_class(self) -> SensorDeviceClass | None:
+        if not self._stable_identity_mode:
+            return self._attr_device_class
+        meter = self.coordinator.data["meters"].get(self._serial)
+        if meter is None or not self._effective_source_unit():
+            return None
+        return SensorDeviceClass.ENERGY if meter["fluid"] == "CET" else SensorDeviceClass.WATER
+
+    @property
     def native_value(self) -> float | None:
         meter = self.coordinator.data["meters"].get(self._serial)
-        if not meter or not meter["last"] or meter.get("verified_unit") != self._source_unit or not self._source_unit:
+        source_unit = self._effective_source_unit()
+        if not meter or not meter["last"] or not source_unit:
             return None
-        return round(meter["last"][1] * unit_factor(meter["fluid"], self._source_unit), 6)
+        return round(meter["last"][1] * unit_factor(meter["fluid"], source_unit), 6)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -172,8 +225,9 @@ class TrybatecMeterSensor(TrybatecBaseSensor):
             "source_index_unit_origin": meter.get("index_unit_origin"),
             "device_unit_source": meter.get("device_unit_source"),
             "source_index_unit_field_paths": meter.get("index_unit_field_paths", []),
-            "source_unit": self._source_unit,
-            "unit_verified": self._source_unit is not None and meter.get("verified_unit") == self._source_unit,
+            "source_unit": self._effective_source_unit(),
+            "unit_verified": self._effective_source_unit() is not None,
+            "unit_guard_status": meter.get("stable_unit_status") if self._stable_identity_mode else None,
             "location": meter["location"],
             "reading_time": meter["last"][0].isoformat() if meter["last"] else None,
             "deposed": meter["deposed"],
@@ -280,38 +334,75 @@ class TrybatecAnnualSensor(TrybatecBaseSensor):
             self._attr_native_unit_of_measurement = FLUID_RATE_UNITS[fluid]
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
+    def _ytd_tariff_estimate(self) -> dict[str, Any] | None:
+        """Calculate, but never persist, meter-aware YTD amounts.
+
+        The preexisting annual sensor identities remain unchanged. Mismatched
+        physical readings, unknown units and malformed options fail closed.
+        """
+        if self.coordinator.data is None:
+            return None
+        try:
+            return preview_ytd_tariff_costs(
+                self.coordinator.data,
+                _rates(self._entry),
+                self._entry.options.get(CONF_METER_TARIFFS),
+                self._entry.options.get(CONF_METER_UNITS, {}),
+            )[self._fluid]
+        except (ValueError, TypeError, KeyError, OverflowError, json.JSONDecodeError):
+            _LOGGER.warning("Trybatec YTD tariff data unavailable or inconsistent")
+            return None
+
     @property
     def native_value(self) -> float | None:
-        year = str(self.coordinator.data["year"])
-        annual = self.coordinator.data["annual"][self._fluid]["value"]
-        tariff = resolve_tariff(_rates(self._entry), int(year), self._fluid)
-        if not self.coordinator.data["annual"][self._fluid]["unit_verified"]:
+        if self.coordinator.data is None:
+            return None
+        summary = self.coordinator.data["annual"][self._fluid]
+        if not summary["unit_verified"]:
             return None
         if self._metric == "volume":
-            return annual  # Already converted to canonical unit in parsing.
-        if tariff is None:
+            # Keep the existing raw vendor annual volume estimate behavior.
+            return summary["value"]
+        quote = self._ytd_tariff_estimate()
+        if quote is None or quote["status"] != "estimated":
             return None
         if self._metric == "price":
-            return tariff["rate"]
-        return round(annual * tariff["rate"], 4) if annual is not None else None
+            # Multiple physical rates cannot be represented by a unit price.
+            return quote["effective_unit_price"]
+        # Cost equals the sum of validated physical meter cost estimates.
+        return quote["estimated_cost"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         summary = self.coordinator.data["annual"][self._fluid]
-        tariff = resolve_tariff(
-            _rates(self._entry), self.coordinator.data["year"], self._fluid
-        )
+        quote = self._ytd_tariff_estimate()
+        status = "tariff_data_unavailable"
+        if quote:
+            status = (
+                "fallback_from_prior_year" if quote["fallback_from_prior_year"]
+                else quote.get("price_status", quote["status"])
+            )
         return {
             "year": self.coordinator.data["year"],
             "estimate_only": True,
             "meter_count": summary["meters"],
-            "coverage_warning": summary["coverage_warning"],
-            "unit_verified": summary["unit_verified"],
-            "accounting_status": (
-                "fallback_from_prior_year"
-                if tariff and tariff["fallback"]
-                else tariff["status"] if tariff else "no_tariff"
+            "coverage_warning": summary["coverage_warning"] or (
+                quote["coverage_warning"] if quote else True
             ),
-            "price_source_year": tariff["source_year"] if tariff else None,
+            "unit_verified": summary["unit_verified"],
+            "accounting_status": status,
+            "price_source_year": quote["source_year"] if quote else None,
+            "fallback_from_prior_year": (
+                quote["fallback_from_prior_year"] if quote else False
+            ),
+            "rate_origin": (
+                "meter_aware" if quote and quote["status"] == "estimated"
+                else "unavailable"
+            ),
+            "tariff_coverage": quote["status"] if quote else "unavailable",
+            "meter_rate_count": (
+                len(quote["meter_rates"]) if quote else 0
+            ),
+            "billing_status": "estimate_not_approved_charges",
             "note": "Portal period estimates; not approved building charges",
         }

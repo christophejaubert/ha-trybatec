@@ -4,6 +4,7 @@
   "after_dependencies": [
     "energy",
     "recorder",
+    "backup",
     "http",
     "frontend",
     "websocket_api"
@@ -22,5 +23,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/christophejaubert/ha-trybatec/issues",
   "requirements": [],
-  "version": "0.3.3b1"
+  "version": "0.3.4b1"
 }
