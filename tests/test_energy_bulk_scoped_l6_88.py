@@ -257,3 +257,59 @@ def test_linear_smoothing_with_matching_user_validation_is_allowed_but_not_vendo
     assert result["approved_unattested_contributions"] == 0
     assert result["global_supplier_history_attested"] is False
     assert result["writes"] is False
+
+
+def test_scoped_admin_diagnostics_expose_positive_without_any_activation():
+    from custom_components.trybatec.energy_bulk_admin_service_88 import (
+        _blockers, _native_l6_diagnostics,
+    )
+
+    choice, rec, lineage, audit = synthetic()
+    evidence = {
+        "scoped_selections_v2": [{
+            "selection": choice, "history_36": rec,
+            "lineage_37": lineage, "energy_audit": audit,
+        }],
+        # Synthetic success does NOT prove actual restore.
+        "native_backup_restore_qualified": False,
+    }
+    diagnostics = _native_l6_diagnostics(evidence, account=choice["account"],
+                                          lot=choice["lot"])
+    assert diagnostics["EF"]["status"] == "eligible_for_scoped_review"
+    assert diagnostics["EF"]["approved_unattested_contributions"] == 1
+    assert diagnostics["EF"]["global_supplier_history_attested"] is False
+    assert diagnostics["EF"]["activation_authorized"] is False
+    blockers = _blockers(evidence)
+    assert "native_backup_restore_not_qualified" in blockers
+    assert "l7_external_writer_commit_guarantee_not_qualified" in blockers
+    assert "history_36_global_historical_lineage_attested_unverified" not in blockers
+    assert "l6_independent_historical_inventory_unverified" not in blockers
+
+
+def test_absent_or_malformed_scoped_producers_are_never_silently_accepted():
+    from custom_components.trybatec.energy_bulk_admin_service_88 import _blockers
+
+    assert "l6_selected_scopes_missing_or_ambiguous" in _blockers({
+        "scoped_selections_v2": [],
+    })
+    assert "l6_native_selection_missing" in _blockers({
+        "scoped_selections_v2": [{}],
+    })
+    data = synthetic()
+    first = {"selection": data[0], "history_36": data[1],
+             "lineage_37": data[2], "energy_audit": data[3]}
+    assert "l6_selection_fluid_duplicate_or_unknown" in _blockers({
+        "scoped_selections_v2": [first, deepcopy(first)],
+    })
+
+
+def test_legacy_global_v1_does_not_gain_trust_from_scoped_business_arbitration():
+    from custom_components.trybatec.energy_bulk_admin_service_88 import _blockers
+    blockers = _blockers({
+        "independent_contracts": {
+            "history_36": {"schema": "history_36_recorder_handoff_v1"},
+            "lineage_37": {"schema": "lineage_37_energy_handoff_v1"},
+        },
+    })
+    assert "history_36_native_attestation_missing" in blockers
+    assert "lineage_37_native_attestation_missing" in blockers
