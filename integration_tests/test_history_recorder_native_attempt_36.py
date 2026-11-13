@@ -887,3 +887,33 @@ async def test_reservation_cannot_be_enqueued_after_ha_account_changes(
     assert native._validate_journal(
         journal, "synthetic-36",
     )[reservation["statistic_id"]] == "reserved"
+
+
+
+@pytest.mark.asyncio
+async def test_disk_approval_loss_overrides_cached_choice(
+    hass, native_fixture, monkeypatch,
+):
+    """A matching HA Store cache must not prove persisted user approval."""
+    from custom_components.trybatec.history_smoothing_store import _store, load_choices
+
+    plan = _plan(estimated=True)
+    await _seed_sparse_choice(hass)
+    reserved = await _reserve(hass, plan)
+    cached = await load_choices(hass, "synthetic-36")
+    assert "d" * 32 in cached
+    file = Path(_store(hass, "synthetic-36").path)
+    assert file.is_file()
+    file.unlink()  # A missing file only in this isolated temporary fixture.
+
+    async def fake_cached_load(_hass, _entry_id):
+        return deepcopy(cached)
+
+    monkeypatch.setattr(native, "load_choices", fake_cached_load)
+    with pytest.raises(ValueError, match="not independently persisted on disk"):
+        await _enqueue(hass, plan, reserved["statistic_id"])
+    assert native_fixture["queued"] == []
+    journal = await native._read_disk(hass, "synthetic-36")
+    assert native._validate_journal(
+        journal, "synthetic-36",
+    )[reserved["statistic_id"]] == "reserved"
