@@ -550,5 +550,67 @@ class NativeScopedLineage37Tests(unittest.TestCase):
         self.assertIn("trusted_native_decision_verifiers_unavailable", p["blockers"])
 
 
+    def test_known_service_date_excludes_previous_meter_generation_day(self):
+        bundle = fixtures()
+        bundle[2]["inventory"][0]["service_end"] = "2026-01-01"
+        output = evaluate(bundle)
+        self.assertFalse(output["selected_scope_reconciled"])
+        self.assertIn("selected_day_outside_confirmed_service_period", output["blockers"])
+
+    def test_unknown_replacement_date_does_not_impose_fictitious_boundary(self):
+        output = evaluate(fixtures())
+        self.assertNotIn("selected_day_outside_confirmed_service_period",
+                         output["blockers"])
+        self.assertNotIn("selected_physical_replacement_date_invalid",
+                         output["blockers"])
+
+    def test_conflicting_replacement_dates_are_refused(self):
+        bundle = fixtures()
+        bundle[2]["inventory"][1]["service_start"] = "2026-01-04"
+        bundle[2]["inventory"][1]["service_end"] = "2026-01-02"
+        output = evaluate(bundle)
+        self.assertIn("selected_physical_replacement_dates_contradict",
+                      output["blockers"])
+
+    def test_foreign_or_orphan_day_approval_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["approved_days"].append({
+            "date": "2026-01-01", "generation_id": bundle[0]["generation_ids"][0],
+            "statistic_id": SID, "ref": "UNUSED", "revision_hash": REV,
+            "amount": "0.100000", "provenance": "linear_user_approved",
+            "approved": True,
+        })
+        output = evaluate(bundle)
+        self.assertIn("native_36_foreign_or_unused_day_approval_receipt",
+                      output["blockers"])
+
+    def test_foreign_absence_receipt_without_missing_day_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["approved_absences"].append({
+            "date": "2026-01-01", "statistic_id": SID, "approved": True,
+            "provenance": "portal_unattested_user_approved",
+            "no_statistical_row": True, "quantity": None,
+            "decision_ref": "FOREIGN", "revision_hash": REV,
+        })
+        output = evaluate(bundle)
+        self.assertIn("native_36_foreign_or_duplicate_absence_receipts",
+                      output["blockers"])
+
+    def test_competing_verified_recorder_version_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["versions"][1]["state"] = "verified_immutable"
+        output = evaluate(bundle)
+        self.assertIn("physical_selected_version_not_exclusive",
+                      output["blockers"])
+
+    def test_reused_competing_statistic_id_is_refused(self):
+        bundle = fixtures()
+        bundle[3]["versions"][1]["statistic_id"] = SID
+        output = evaluate(bundle)
+        self.assertIn("selected_statistic_version_reused_or_duplicated",
+                      output["blockers"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
