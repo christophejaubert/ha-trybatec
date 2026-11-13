@@ -124,3 +124,37 @@ def test_restart_ambiguity_cannot_turn_absence_into_requeue_authorization():
     assert result["safe_to_offer_retry"] is False
     assert result["retry_only_these_statistic_ids"] == []
     assert result["independent_writer_fence_verified"] is False
+
+
+def test_queue_empty_fast_path_does_not_attest_in_flight_import():
+    """The 2026.11.1 fast-path checks queue/event session, not in-flight imports."""
+    queue_is_empty = True
+    event_session_has_pending_writes = False
+    startup_batch_processed = True
+    import_task_in_flight = True  # independent worker-state assumption
+
+    # This mirrors only the short-circuit in core.py async_get_commit_future;
+    # the Recorder's actual worker state is deliberately not an input.
+    native_future_is_none = (
+        queue_is_empty
+        and not event_session_has_pending_writes
+        and startup_batch_processed
+    )
+    assert native_future_is_none
+    assert import_task_in_flight
+    # An empty queue with a running writer cannot be used as global fencing.
+
+
+def test_new_external_task_after_barrier_can_overwrite_same_statistic():
+    """Recorder import updates an existing statistic at the same start time."""
+    queue = RecorderFifoModel()
+    stat_id = "trybatec:logical_fixture_v2"
+    queue.import_stat(stat_id)
+    queue.synchronize()
+    assert queue.step() == "committed"
+    assert queue.step() == "barrier_done"
+    # The model tracks only IDs, not sums. The actual _import_statistics_with_session
+    # uses UPDATE for existing (metadata_id, start_ts); external writes remain possible.
+    queue.import_stat(stat_id)
+    assert queue.step() == "committed"
+    assert stat_id in queue.persisted
