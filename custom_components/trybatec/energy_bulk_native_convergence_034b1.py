@@ -97,6 +97,7 @@ def reconcile_native_handoffs_034b1(
             "global_recorder_alternatives_unverified",
             "energy_preferences_exclusivity_unverified",
             "durable_writer_quiescence_unverified",
+            "day_specific_estimation_approval_binding_unverified",
             "production_acceptance_pending",
         }
         observed_days = 0
@@ -150,13 +151,48 @@ def reconcile_native_handoffs_034b1(
                     raise ValueError("Daily provenance does not match quantities")
                 measured += m
                 estimated += e
+                date_totals[day] = m + e
             if (measured != _nonnegative(first.get("measured_total"))
                     or estimated != _nonnegative(first.get("estimated_total"))):
                 reasons.add("recorder_daily_provenance_sum_mismatch")
+            physical_days = second.get("daily_consumption")
+            daily_match = False
+            if isinstance(physical_days, list) and len(physical_days) == observed_days:
+                physical_by_date: dict[str, Decimal] = {}
+                for physical_day in physical_days:
+                    if not isinstance(physical_day, Mapping):
+                        raise ValueError("Malformed physical daily attribution")
+                    day = physical_day.get("date")
+                    if not isinstance(day, str) or day in physical_by_date:
+                        raise ValueError("Duplicate physical daily date")
+                    value = _nonnegative(physical_day.get("consumption"))
+                    contributors = physical_day.get("contributors")
+                    if not isinstance(contributors, list) or not contributors:
+                        raise ValueError("Physical daily contributors unavailable")
+                    seen_serials: set[str] = set()
+                    contributor_total = Decimal(0)
+                    for contributor in contributors:
+                        if not isinstance(contributor, Mapping):
+                            raise ValueError("Invalid physical daily contributor")
+                        serial = contributor.get("serial")
+                        if not isinstance(serial, str) or not serial or serial in seen_serials:
+                            raise ValueError("Duplicate or invalid contributing meter")
+                        seen_serials.add(serial)
+                        if contributor.get("provenance") not in (
+                                "measured", "estimated_linear_confirmed", "mixed"):
+                            raise ValueError("Unverified physical daily provenance")
+                        contributor_total += _nonnegative(contributor.get("consumption"))
+                    if contributor_total != value:
+                        reasons.add("physical_daily_contributions_do_not_conserve_total")
+                    physical_by_date[day] = value
+                daily_match = physical_by_date == date_totals
+            if not daily_match:
+                reasons.add("physical_recorder_daily_dates_or_amounts_mismatch")
             if (type(second.get("rows_observed")) is int
                     and second["rows_observed"] == observed_days
                     and second.get("total") is not None
-                    and _nonnegative(second["total"]) == measured + estimated):
+                    and _nonnegative(second["total"]) == measured + estimated
+                    and daily_match):
                 sums_match = True
             else:
                 reasons.add("physical_recorder_daily_total_or_count_mismatch")
@@ -186,6 +222,7 @@ def reconcile_native_handoffs_034b1(
             "status": "blocked_pending_independent_attestation",
             "recorder_daily_rows_observed": observed_days,
             "daily_totals_consistent": sums_match,
+            "dated_physical_contributions_consistent": daily_match if first and second else False,
             "selected_statistic_consistent": references_match,
             "blockers": sorted(reasons),
             "admissible": False,
