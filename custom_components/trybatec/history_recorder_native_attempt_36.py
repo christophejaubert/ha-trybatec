@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from hashlib import sha256
@@ -19,6 +19,7 @@ from pathlib import Path
 import secrets
 from typing import Any
 from weakref import WeakKeyDictionary
+from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics, async_list_statistic_ids, get_metadata,
@@ -315,8 +316,25 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
     days = group.get("rows")
     if not isinstance(days, list) or not 1 <= len(days) <= _MAX_DECISIONS:
         raise ValueError("Missing bounded daily provenance")
+    if len(snapshot) != len(days) + 1:
+        raise ValueError("Recorder period and selected daily observations differ")
+    selected_zone = ZoneInfo("Europe/Paris")
+    expected_days = [
+        datetime.fromisoformat(row[0]).astimezone(selected_zone).date().isoformat()
+        for row in snapshot[1:]
+    ]
+    if expected_days != [row.get("date") for row in days]:
+        raise ValueError("Selected calendar days disagree with Recorder UTC buckets")
     approved = []
+    previous_day: date | None = None
     for day in days:
+        try:
+            actual_day = date.fromisoformat(day["date"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Invalid approved civil day") from exc
+        if previous_day is not None and actual_day <= previous_day:
+            raise ValueError("Duplicate or unordered approved civil day")
+        previous_day = actual_day
         if not isinstance(day, dict) or not isinstance(day.get("contributions"), list):
             raise ValueError("Missing native day contributions")
         try:
@@ -329,6 +347,12 @@ def _approved_plan(plan: Any, logical_id: str) -> tuple[dict, list[list], list[d
                 or min(measured, estimated) < 0
                 or abs(measured + estimated - amount) > Decimal("0.000001")):
             raise ValueError("Daily source quantities do not reconcile")
+        if day.get("provenance") not in ("measured", "estimated", "mixed"):
+            raise ValueError("Unknown source observation or estimate provenance")
+        if estimated > 0 and day["provenance"] == "measured":
+            raise ValueError("Estimated volume cannot be called supplier measurement")
+        if estimated > 0 and measured > 0 and day["provenance"] != "mixed":
+            raise ValueError("Measured and estimated contributions must remain mixed")
         contributions = []
         for c in day["contributions"]:
             if not isinstance(c, dict) or not isinstance(c.get("decision_refs", []), list):
