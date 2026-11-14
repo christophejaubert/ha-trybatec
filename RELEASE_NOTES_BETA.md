@@ -1,3 +1,25 @@
+# 0.3.5b2 — Convergence ciblée / Scoped convergence beta
+
+## FR — Corrections et garanties
+
+**Préversion expérimentale non officielle**, candidate basée sur `0.3.5b1` (`049fb1bb76e6faeef2c60b8e7f4270d9eec9878b`). Périmètre : #173 (signalétique bleue des actions utilisateur réellement nécessaires, statut des contrôles indépendant, thèmes clair/sombre, textes FR/EN), #174 (espacements de l'historique, pictogramme de retour au compteur et navigation inchangée), #169 (test synthétique des refus du pont L6/L7) ; F26 (refus des index contradictoires au même instant, sans choisir arbitrairement la dernière valeur ni calculer une consommation de ce compteur) et F27 (attribution « par année de relève finale » strictement basée sur la date locale du relevé, distincte du créneau Recorder et de la consommation réellement mesurée sur une année civile).
+
+**Sans changement des droits d'écriture :** L7 reste désactivé (`NATIVE_ENERGY_BULK_WRITES_ENABLED_88=False`), aucune migration #81, aucun import Recorder, purge, restauration, modification fournisseur ni activation automatique de l'ajout groupé Énergie. Les compteurs physiques et sources tierces restent isolés. Les contrôles ajoutés utilisent exclusivement des identifiants et relevés fictifs. Le paquet ne transforme pas les périodes lacunaires en consommations journalières mesurées.
+
+**Qualification :** viser Home Assistant Core stable `2026.11.1` (version officielle vérifiée au 15/11/2026). Les CI et tests sont à mentionner comme réussis uniquement lorsqu'ils le sont effectivement sur le SHA intégré. La recette métier sur l'installation réelle reste sous la responsabilité de l'utilisateur et n'est pas une condition automatique de publication de cette bêta. Aucun autre mode d'installation ou architecture ne bénéficie d'une compatibilité générale présumée.
+
+**Distribution et retour arrière :** conserver une copie des versions et paramètres avant mise à jour ; utiliser le mécanisme de réinstallation de la version publiée précédente en cas de régression, après examen de la compatibilité des configurations et statistiques. Aucune purge ou restauration de données n'est déclenchée automatiquement. La fusion, la publication et l'installation nécessitent trois autorisations distinctes. Les PR #168/#172/#177 et le référencement officiel restent hors du périmètre de cette candidate.
+
+## EN — Fixes and safeguards
+
+**Unofficial experimental prerelease**, based on `0.3.5b1` (`049fb1bb76e6faeef2c60b8e7f4270d9eec9878b`). Scope: #173 (distinct blue for genuinely required user actions while keeping check status neutral/warning as appropriate; light/dark themes and FR/EN labels), #174 (history block spacing and accessible back-to-meter icon with unchanged navigation), #169 (synthetic L6/L7 refusal regression), F26 (reject contradictory same-instant indexes rather than arbitrarily taking the last value or deriving consumption from that meter) and F27 (assign “by ending reading year” to the actual local year of the last source observation, distinct from Recorder hourly buckets and calendar-year measured consumption).
+
+**No write authorization change:** L7 remains disabled (`NATIVE_ENERGY_BULK_WRITES_ENABLED_88=False`). No #81 migration, Recorder import, purge, restore, supplier mutation or automatic bulk Energy setup is enabled. Physical meter boundaries and third-party statistics remain protected. All new fixtures are synthetic. Sparse coverage is never represented as measured daily usage.
+
+**Qualification:** target the officially verified latest stable Home Assistant Core `2026.11.1` as of 2026-11-15. Claim successful CI or testing only for actual evidence attached to the integrated SHA. Real-installation business acceptance belongs to the user, not an automatic prerequisite for this beta. Do not claim universal architecture or installation-method compatibility.
+
+**Distribution and rollback:** preserve version/configuration information before upgrading; the previous published version can be reinstalled if regression occurs, after checking configuration and statistics compatibility. No automatic purge or recovery operation. Merge, release and HA installation each require distinct owner authorization. #168/#172/#177 and official catalog submission are outside this candidate.
+
 # 0.3.5b1 — Préversion intégrée / Integrated experimental prerelease
 
 ## FR — Changements, qualification et limites

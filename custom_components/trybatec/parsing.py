@@ -76,17 +76,25 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
         fluid = line.get("fluide")
         if not isinstance(serial, str) or not serial.strip() or fluid not in FLUIDS:
             continue
-        indexes: list[tuple[datetime, float]] = []
+        # Identical duplicates are harmless; contradictory readings at the same
+        # instant are not. Never let vendor row order choose a meter index.
+        by_time: dict[datetime, float] = {}
+        conflicting: dict[datetime, set[float]] = {}
         for point in line.get("indexes", []) if isinstance(line.get("indexes"), list) else []:
             if not isinstance(point, dict):
                 continue
             at = parse_timestamp(point.get("date"))
             reading = numeric(point.get("value"))
-            if at is not None and reading is not None:
-                indexes.append((at, reading))
-        # Repeated date entries can occur: retain the last occurrence.
-        deduped = {at: reading for at, reading in indexes}
-        indexes = sorted(deduped.items())
+            if at is None or reading is None:
+                continue
+            previous = by_time.get(at)
+            if previous is None:
+                by_time[at] = reading
+            elif previous != reading:
+                conflicting.setdefault(at, {previous}).add(reading)
+        # Fail closed for the affected physical meter. Other meters and fluids
+        # continue independently; the caller retains the raw supplier payload.
+        indexes = [] if conflicting else sorted(by_time.items())
         anomalies = [
             at.isoformat()
             for (prev_at, prev_value), (at, value) in zip(indexes, indexes[1:])
@@ -120,9 +128,14 @@ def parse_lines(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "service_status_known": isinstance(line.get("depose"), bool),
             "last": last,
             "indexes": indexes,
+            "has_conflicting_indexes": bool(conflicting),
+            "conflicting_index_details": [
+                {"date": at.isoformat(), "values": sorted(values)}
+                for at, values in sorted(conflicting.items())
+            ][:10],
             "has_decreasing_indexes": bool(anomalies),
             "decrease_dates": anomalies[:10],
-            "period_consumption": numeric(line.get("conso")),
+            "period_consumption": None if conflicting else numeric(line.get("conso")),
             "portal_unit": portal_index_unit(line),
             "device_unit_source": line.get("_device_unit_source"),
             "portal_display_unit": portal_display_unit(fluid),
@@ -153,10 +166,14 @@ def summarize_annual(
     data = {fluid: {"value": 0.0, "meters": 0, "coverage_warning": False, "unit_verified": True} for fluid in FLUIDS}
     for meter in meters.values():
         fluid = meter["fluid"]
+        entry = data[fluid]
+        if meter["has_conflicting_indexes"]:
+            entry["coverage_warning"] = True
+            entry["has_conflicting_indexes"] = True
+            continue
         value = meter["period_consumption"]
         if value is None or not meter["indexes"]:
             continue
-        entry = data[fluid]
         entry["meters"] += 1
         unit = resolve_meter_unit(meter["lot"], fluid, meter["serial"], meter["portal_unit"], overrides)
         if unit is None:
@@ -175,7 +192,7 @@ def summarize_annual(
         ):
             entry["coverage_warning"] = True
     for fluid in FLUIDS:
-        if not data[fluid]["meters"]:
+        if not data[fluid]["meters"] or data[fluid].get("has_conflicting_indexes"):
             data[fluid]["value"] = None
         elif not data[fluid]["unit_verified"]:
             data[fluid]["value"] = None  # Never sum unverified or different scales.
