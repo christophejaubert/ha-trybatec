@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from homeassistant import __version__ as ha_core_version
+from homeassistant.const import __version__ as ha_core_version
 from homeassistant.components.energy.data import async_get_manager
 
 from custom_components.trybatec.energy_bulk_native_port_l7 import HAGuardedEnergyPort
