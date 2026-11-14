@@ -48,7 +48,7 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     await hass.async_block_till_done()
 
     source_config = Path(hass.config.path())
-    assert source_config.resolve() != tmp_path.resolve()
+    assert source_config.resolve() == tmp_path.resolve()  # pytest isolates HA here
     manager = async_get_manager(hass)
     assert manager.local_backup_agents
 
@@ -92,9 +92,13 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     # the snapshot, not silently use the modified live source.
     marker.write_text("changed after backup", encoding="utf-8")
 
-    restore_dir = tmp_path / "entirely_separate_restore_destination"
+    # A sibling scratch directory prevents restoration from touching or
+    # accidentally being archived within the source Home Assistant config.
+    restore_dir = tmp_path.parent / (tmp_path.name + "_restored_disposable")
     restore_dir.mkdir()
     assert restore_dir.resolve() != source_config.resolve()
+    assert restore_dir not in source_config.parents
+    assert source_config not in restore_dir.parents
     (restore_dir / RESTORE_BACKUP_FILE).write_text(json.dumps({
         "path": backup_path.as_posix(),
         "password": None,
