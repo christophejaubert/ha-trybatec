@@ -527,7 +527,6 @@ def test_native_energy_schema_probes_kwh_and_water_without_semantic_approval(mon
     """HA 2026.11.1's gas/kWh compatibility is not proof of a heating sensor."""
     base = types.ModuleType("homeassistant")
     base.__path__ = []
-    base.__version__ = "2026.11.1"
     components = types.ModuleType("homeassistant.components")
     components.__path__ = []
     energy = types.ModuleType("homeassistant.components.energy")
@@ -535,6 +534,7 @@ def test_native_energy_schema_probes_kwh_and_water_without_semantic_approval(mon
     data = types.ModuleType("homeassistant.components.energy.data")
     validate = types.ModuleType("homeassistant.components.energy.validate")
     constants = types.ModuleType("homeassistant.const")
+    constants.__version__ = "2026.11.1"
     constants.UnitOfEnergy = SimpleNamespace(KILO_WATT_HOUR="kWh")
     constants.UnitOfVolume = SimpleNamespace(CUBIC_METERS="m³")
     validate.WATER_USAGE_UNITS = {"water": ("m³", "L")}
@@ -568,5 +568,7 @@ def test_native_energy_schema_probes_kwh_and_water_without_semantic_approval(mon
     ]
     validate.GAS_USAGE_UNITS = {"energy": ("MWh",)}
     assert native._native_schema(hass)["gas_kwh_technical_schema_compatible"] is False
-    base.__version__ = "2027.1"
+    constants.__version__ = "2026.11.0"
+    assert native._native_schema(hass)["energy_schema_checked"] is True
+    constants.__version__ = "2027.1"
     assert native._native_schema(hass)["energy_schema_checked"] is False
