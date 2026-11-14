@@ -2,7 +2,7 @@
 
 Real: Home Assistant admin identity, native BackupManager, local backup archive,
 verification, EnergyManager, .storage journal/flush and recovery inspection.
-Synthetic: bounded #36/#37/L6 *source data* supplied by the existing owner test
+Synthetic: bounded #36/#37/L6 *source data* supplied by the existing #88 test
 fixture, never browser input. This is a native L7 integration qualification, not
 a test of the complete supplier/Recorder collection or a production write route.
 """
@@ -48,15 +48,15 @@ def hass_config_dir(hass_tmp_config_dir):
 
 
 def _selected_proof():
-    """Load the actual #37/L6 owner test fixture, not a browser attestation."""
+    """Load #88 owner synthetic v2 proofs: never a real #36/#37 certificate."""
     path = Path(__file__).resolve().parents[1] / "tests" / (
-        "test_convergence_native_chain_36_37_88.py"
+        "test_energy_bulk_scoped_l6_88.py"
     )
-    spec = importlib.util.spec_from_file_location("ci_l7_owner_scoped_proof", path)
+    spec = importlib.util.spec_from_file_location("ci_l7_synthetic_scoped_proof", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module._chain()
+    return module.synthetic()
 
 
 class IsolatedNativeScopedPort(HAGuardedEnergyPort):
