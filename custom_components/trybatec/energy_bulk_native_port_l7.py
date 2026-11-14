@@ -192,9 +192,21 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
                     receipt["agent_id"] not in backup.agents or
                     backup.agents[receipt["agent_id"]].size <= 0):
                 return False
-            await manager.async_can_decrypt_on_download(
-                receipt["backup_id"], agent_id=receipt["agent_id"], password=None
-            )
+            # Core's async_can_decrypt_on_download() expects an encrypted
+            # inner tar and raises SecureTarError for an unprotected native
+            # local archive ("No password provided"). For our intentionally
+            # passwordless local-only backup use HA's archive/password validator
+            # on the exact verified agent path instead. Protected/remote
+            # archives are NOT supported without a new qualified contract.
+            if backup.protected is not False:
+                return False
+            agent = manager.local_backup_agents[receipt["agent_id"]]
+            path = agent.get_backup_path(receipt["backup_id"])
+            from homeassistant.components.backup.util import validate_password
+            if await self._hass.async_add_executor_job(
+                validate_password, path, None
+            ) is not True:
+                return False
         except Exception:
             return False
         self._verified_receipt = deepcopy(receipt)
