@@ -87,7 +87,9 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
     for fluid in ("EF", "ECS", "CET"):
         row = statuses[fluid]
         status = row.get("status") if isinstance(row, dict) else None
-        if status not in ("admissible", "already_configured"):
+        if status not in ("admissible", "already_configured") and not (
+                evidence.get("scoped_mode") == "native_server_selected_scope_v2"
+                and status == "not_selected"):
             reasons.append(fluid + ":" + str(status or "unverified"))
     if reasons:
         return EnergyPreview("blocked", None, None, None, 0, tuple(reasons)), None
@@ -125,7 +127,15 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
             previous[k] != proposed[k] for k in previous if k != "energy_sources"
         ) or proposed["energy_sources"][:len(previous["energy_sources"])] != previous["energy_sources"]:
             raise ValueError("non_additive_plan")
-        digest = _digest([account, lot, before, plan["after_fingerprint"], actions])
+        # A plan's fingerprint must bind the selected immutable series,
+        # scoped proof/version/approval references and all L6 assessment
+        # evidence. Otherwise an approval could change between preview and
+        # confirmation while the bare statistic_id remains unchanged.
+        # This is a hash only: never return raw private evidence to the UI.
+        digest = _digest([
+            account, lot, before, plan["after_fingerprint"], actions,
+            {"selected_candidates": candidates, "native_l6_evidence": evidence},
+        ])
         return EnergyPreview("prepared_for_explicit_admin_review", before,
                              plan["after_fingerprint"], digest,
                              len(actions), ()), plan
@@ -134,12 +144,28 @@ def _prepare_state(state: ServerEnergyState, account: str, lot: str) -> tuple[En
                              ("planner_refused:" + type(exc).__name__,)), None
 
 
+async def _collect_scoped_state(
+    port: EnergyTransactionPort, actor: Any, *, account: str, lot: str,
+    selections: list[dict[str, Any]] | None = None,
+) -> ServerEnergyState:
+    # No selected flags are interpreted in the transaction engine. The native
+    # port independently re-reads HA Recorder, #37 and Energy per call.
+    if selections is None:
+        return await port.collect(actor, account=account, lot=lot)
+    return await port.collect(
+        actor, account=account, lot=lot, selections=selections,
+    )
+
+
 async def preview_bulk_energy_transaction(
     port: EnergyTransactionPort, actor: Any, *, account: str, lot: str,
+    selections: list[dict[str, Any]] | None = None,
 ) -> EnergyPreview:
     """Read-only. Authentication and all inventory reads are server-side."""
     await port.assert_admin(actor)
-    state = await port.collect(actor, account=account, lot=lot)
+    state = await _collect_scoped_state(
+        port, actor, account=account, lot=lot, selections=selections,
+    )
     result, _ = _prepare_state(state, account, lot)
     return result
 
@@ -147,6 +173,7 @@ async def preview_bulk_energy_transaction(
 async def apply_bulk_energy_transaction(
     port: EnergyTransactionPort, actor: Any, *, account: str, lot: str,
     approved_before: str, approved_digest: str, confirm: bool,
+    selections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """One guarded write after native backup and journal, never at startup.
 
@@ -160,17 +187,21 @@ async def apply_bulk_energy_transaction(
         return await _apply_exclusive(
             port, actor, account=account, lot=lot, approved_before=approved_before,
             approved_digest=approved_digest, confirm=confirm,
+            selections=selections,
         )
 
 
 async def _apply_exclusive(
     port: EnergyTransactionPort, actor: Any, *, account: str, lot: str,
     approved_before: str, approved_digest: str, confirm: bool,
+    selections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """All phases including backup, write, verification and rollback are locked."""
     if confirm is not True or not isinstance(approved_before, str) or not isinstance(approved_digest, str):
         raise EnergyTransactionRefused("Explicit confirmation and preview fingerprints required")
-    state = await port.collect(actor, account=account, lot=lot)
+    state = await _collect_scoped_state(
+        port, actor, account=account, lot=lot, selections=selections,
+    )
     preview, plan = _prepare_state(state, account, lot)
     if preview.status == "already_configured":
         # Idempotence must not conceal a pending or inconsistent write from an
@@ -200,6 +231,20 @@ async def _apply_exclusive(
     receipt = await port.create_backup()
     if await port.verify_backup(receipt) is not True:
         raise EnergyTransactionRefused("Recoverable backup not verified")
+    # L6 facts and user approvals can change while a native backup is running.
+    # Recollect from the same authenticated server-side port under the lock;
+    # a matching Energy preference hash alone is NOT sufficient. Never allow
+    # the browser to supply this revalidation result.
+    fresh_state = await _collect_scoped_state(
+        port, actor, account=account, lot=lot, selections=selections,
+    )
+    fresh_preview, _ = _prepare_state(fresh_state, account, lot)
+    if (fresh_preview.status != "prepared_for_explicit_admin_review"
+            or fresh_preview.before != preview.before
+            or fresh_preview.plan_digest != preview.plan_digest):
+        raise EnergyTransactionRefused(
+            "Independent scoped L6 selection changed during native backup"
+        )
     # Backup time is a race window: always reread immediately before staging.
     if (preferences_fingerprint(await port.read_live()) != preview.before or
             preferences_fingerprint(await port.read_persisted()) != preview.before):

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .energy_bulk_evidence import (
-    MAX_STAT_IDS, SUPPORTED_HA, _hash_json, _ledger_scopes,
+    MAX_STAT_IDS, SUPPORTED_HA_VERSIONS, _hash_json, _ledger_scopes,
     assess_energy_evidence,
 )
 
@@ -114,8 +114,8 @@ async def _energy_without_initializing(hass: Any) -> dict[str, Any]:
 
 
 def _native_schema(hass: Any) -> dict[str, Any]:
-    from homeassistant import __version__ as ha_version
-    if ha_version != SUPPORTED_HA:
+    from homeassistant.const import __version__ as ha_version
+    if ha_version not in SUPPORTED_HA_VERSIONS:
         return {"version": ha_version, "energy_schema_checked": False}
     from homeassistant.components.energy.data import ENERGY_SOURCE_SCHEMA
     from homeassistant.components.energy.validate import (

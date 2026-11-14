@@ -108,6 +108,12 @@ def build_coverage_evidence(
         chosen = meter.get("selected_gap_fingerprints")
         if not isinstance(chosen, list) or any(not isinstance(x, str) or not x for x in chosen):
             raise ValueError("Invalid approved-interval evidence")
+        day_refs = meter.get("day_decision_refs", {})
+        if not isinstance(day_refs, Mapping) or len(day_refs) > _MAX_DAYS:
+            raise ValueError("Invalid day-level approval references")
+        if any(not isinstance(day, str) or not isinstance(refs, list)
+               or len(refs) > 10 for day, refs in day_refs.items()):
+            raise ValueError("Malformed day-level approval references")
         selected = "smoothed" if chosen else "raw"
         proofs[(lot, fluid)].append({
             "serial": serial, "source_fingerprint": source_fingerprint,
@@ -130,6 +136,8 @@ def build_coverage_evidence(
                 "serial": serial, "selected_variant": selected,
                 "measured": measured, "estimated": estimate,
                 "has_measurement": day in raw,
+                "decision_refs": list(day_refs.get(day.isoformat(), []))
+                if selected == "smoothed" else [],
                 "retired": meter.get("retired") is True,
             })
     if set(bounds) - seen:
@@ -167,6 +175,7 @@ def build_coverage_evidence(
                 "contributions": [{
                     "serial": x["serial"], "variant": x["selected_variant"],
                     "measured": float(x["measured"]), "estimated": float(x["estimated"]),
+                    **({"decision_refs": x["decision_refs"]} if x["decision_refs"] else {}),
                     "retired": x["retired"],
                 } for x in sorted(items, key=lambda item: item["serial"])],
             })
@@ -212,6 +221,7 @@ def build_coverage_evidence(
             "lot": lot, "fluid": fluid, "unit": _ALLOWED[fluid],
             "rows": rows, "measured_total": float(measured_total),
             "estimated_total": float(estimated_total),
+            "source_proofs": sorted(proofs[(lot, fluid)], key=lambda p: p["serial"]),
             "total": float(measured_total + estimated_total),
             "coverage": coverage, "gaps": gaps,
             "fingerprint": fingerprint,

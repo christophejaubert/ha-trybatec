@@ -145,21 +145,53 @@ async function runCase(browser, locale, device, dark=false) {
       language,
       themes:{darkMode:dark},
       config:{time_zone:"Europe/Paris"},
+      user:{is_admin:true}, // C11 backend status is administrator-only
       callWS:async command=>{
         globalThis.__calls.push(command.type);
         if (command.type==="trybatec/panel_snapshot") return structuredClone(snapshot);
+        const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+        const datedMeters=[{
+          physical_key:snapshot.accounts[0].meters[1].physical_key,fluid:"EF",
+          first_observed_at:"2021-12-21T00:00:00+01:00",
+          last_observed_at:"2024-12-30T00:00:00+01:00",
+          last_source_observed_at:"2024-12-30T00:00:00+01:00",
+          observed_years:[2021,2024],provenance:"verified_supplier_observation"
+        }];
+        const verifiedCoverage={
+          status:"complete",completeness:"account_full",
+          coverage_start:"2000-01-01",coverage_end:today,
+          first_observed_at:datedMeters[0].first_observed_at,
+          last_observed_at:datedMeters[0].last_observed_at,
+          meters:datedMeters,observed_years:[2021,2024],
+          suggested_years:[2021,2022,2023,2024],
+          suggested_years_basis:"observed_first_last_range_not_yearly_proof",
+          cache_reused:false,periods_verified:8,api_requests:8,
+          cache_invalidation_reason:null,
+          provenance:"verified_supplier_history"
+        };
+        if (command.type==="trybatec/panel_history_discovery_status") {
+          const complete=globalThis.__scanCompleted===true;
+          return {
+            status:complete?"complete":"not_started",
+            discovery_status:complete?"complete":"not_started",
+            coverage:complete?structuredClone(verifiedCoverage):
+              {status:"not_started",completeness:"unknown",meters:[]},
+            verified_coverage:complete?structuredClone(verifiedCoverage):null,
+            recorder_writes:false,energy_writes:false,
+            retry_mode:"restart_from_zero",retry_reason:"no_atomic_window_checkpoints"
+          };
+        }
         if (command.type==="trybatec/panel_history_job_start") {
           globalThis.__lastJobKind=command.kind;
           return {id:"SYNTHETIC-JOB",kind:command.kind,status:"running"};
         }
         if (command.type==="trybatec/panel_history_job_status") {
-          const result=globalThis.__lastJobKind==="tariff_year_coverage"?
+          const accountWide=globalThis.__lastJobKind==="tariff_year_coverage";
+          if(accountWide) globalThis.__scanCompleted=true;
+          const result=accountWide?
             {status:"complete",recorder_writes:false,energy_writes:false,
-              meters:[{
-                physical_key:snapshot.accounts[0].meters[1].physical_key,
-                first_observed_at:"2021-12-21T00:00:00+01:00",
-                last_source_observed_at:"2024-12-30T00:00:00+01:00",
-              }]}:
+              meters:datedMeters,coverage:verifiedCoverage,api_requests:8,
+              cache_hit:false,source:"verified_supplier_history"}:
             {recorder_writes:false,energy_writes:false,
               proposals:{intervals:[]},review_candidates:[]};
           return {id:command.job_id,status:"complete",complete:true,
@@ -376,11 +408,35 @@ async function runCase(browser, locale, device, dark=false) {
       assert.doesNotMatch(content,/data-technical-delete/);
     }
     if(tab==="tariffs"){
-      await page.locator("trybatec-panel button[data-tariff-years-retry]").click();
+      // Navigating to tariffs is passive: history supplier reads require a click.
+      const jobStartsBefore=await page.evaluate(()=>
+        globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_start").length);
+      assert.equal(jobStartsBefore,0,
+        "Entering Tariffs must never trigger an implicit supplier scan");
+      assert.equal(await page.locator("trybatec-panel input#tariff-year").isEnabled(),true,
+        "Tariff editing must remain available before historical discovery");
+      const historyAction=page.locator("trybatec-panel button[data-tariff-years-retry]");
+      assert.equal(await historyAction.count(),1,
+        "Tariffs must show one explicit C11 history retry/search action");
+      assert.equal(await historyAction.isEnabled(),true);
+      await historyAction.click();
       await page.waitForFunction(()=>{
         const root=document.querySelector("trybatec-panel")?.shadowRoot;
         return root?.querySelector('datalist#tariff-year-options option[value="2020"]');
       });
+      const scanEvidence=await page.evaluate(()=>({
+        starts:globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_start").length,
+        polls:globalThis.__calls.filter(type=>type==="trybatec/panel_history_job_status").length,
+        kind:globalThis.__lastJobKind,
+        result:document.querySelector("trybatec-panel")?._tariffCoverage
+          ?.get("SYNTHETIC-ENTRY-NO-SECRETS")?.status,
+      }));
+      assert.equal(scanEvidence.starts,jobStartsBefore+1,
+        "One explicit tariff search click must launch exactly one read-only job");
+      assert.ok(scanEvidence.polls>=1,
+        "The browser must verify the job result before using observed years");
+      assert.equal(scanEvidence.kind,"tariff_year_coverage");
+      assert.equal(scanEvidence.result,"complete");
       const year=page.locator("trybatec-panel input#tariff-year");
       assert.equal(await year.count(),1,"Annual year must be a native numeric field");
       if(await year.inputValue()==="2026") {
@@ -503,14 +559,21 @@ async function runCase(browser, locale, device, dark=false) {
   assert.deepEqual(errors,[],"Browser JavaScript errors: "+errors.join("; "));
   const observed=await page.evaluate(()=>globalThis.__calls);
   assert.ok(observed.every(x=>["trybatec/panel_snapshot",
+      "trybatec/panel_history_discovery_status",
       "trybatec/panel_history_job_start","trybatec/panel_history_job_status"].includes(x)),
     "Only read-only snapshots and historical preview jobs are allowed in visual acceptance");
+  assert.ok(observed.includes("trybatec/panel_history_discovery_status"),
+    "Real panel must consult C11 status without starting supplier scans");
   assert.ok(observed.includes("trybatec/panel_history_job_start"),
     "Explicit tariff-year request must start a monitored read-only job");
   assert.ok(observed.includes("trybatec/panel_history_job_status"),
     "The panel must verify a completed job before accepting historical bounds");
+  // FR/EN: independent cross-module acceptance (the original 56 views remain unchanged).
+  const qualification=await require("./qualification_155_cross.cjs")
+    .runCrossQualification(page,{locale,device,dark,snapshot});
   await context.close();
-  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,errors:errors.length};
+  return {locale,device,theme:dark?"dark":"light",tabs:tabs.length,
+    errors:errors.length,qualification};
 }
 
 (async()=>{
@@ -520,8 +583,18 @@ async function runCase(browser, locale, device, dark=false) {
     for(const [locale,device,dark] of destinations){
       results.push(await runCase(browser,locale,device,dark));
     }
+    const qualificationFailures=results.reduce((total,record)=>
+      total+(record.qualification?.failed||0),0);
     process.stdout.write(JSON.stringify({mode:"synthetic-browser-not-real-HA",
       cases:results,screenshots:destinations.length*tabs.length,
-      productionWrites:0,vendorRequests:0},null,2)+"\n");
+      productionWrites:0,vendorRequests:0,
+      qualificationFailures},null,2)+"\n");
+    // Independent C11 contract probe: the backend WebSocket status must be
+    // consumed by the real panel. Synthetic states never trigger vendor traffic.
+    const c11=await require("./qualification_155_c11_contract.cjs")
+      .runC11Contract(browser,snapshot);
+    assert.equal(qualificationFailures+c11.failed,0,
+      "Independent #155 qualification: "+qualificationFailures+
+      " existing and "+c11.failed+" C11 contract failures (no xfail/skip)");
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -41,6 +41,9 @@ class FakeHass:
     async def _get_user(self, user_id):
         return SimpleNamespace(id=user_id, is_admin=user_id == "synthetic-admin")
 
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
 
 class FakeEnergy:
     def __init__(self, hass):
@@ -61,6 +64,7 @@ class FakeEnergy:
 class FakeBackupItem:
     backup_id: str
     extra_metadata: dict
+    protected: bool = False
     homeassistant_included: bool = True
     database_included: bool = True
     failed_addons: tuple = ()
@@ -71,7 +75,9 @@ class FakeBackupItem:
 
 class FakeBackup:
     def __init__(self):
-        self.local_backup_agents = {"local": object()}
+        self.local_backup_agents = {"local": SimpleNamespace(
+            get_backup_path=lambda ident: "synthetic-ci-backup:" + ident,
+        )}
         self.items = {}
         self.fail_create = False
         self.fail_decrypt = False
@@ -90,7 +96,7 @@ class FakeBackup:
         assert kwargs["agent_ids"] == ["local"]
         item = FakeBackupItem("synth-backup", deepcopy(kwargs["extra_metadata"]),
                               database_included=not self.partial,
-                              agents={"local": SimpleNamespace(size=512)})
+                              agents={"local": SimpleNamespace(size=512, protected=False)})
         self.items[item.backup_id] = item
 
     async def async_get_backup(self, identifier):
@@ -107,7 +113,8 @@ class FakeBackup:
 def install_stubs(monkeypatch, hass):
     homeassistant = ModuleType("homeassistant")
     homeassistant.__path__ = []
-    homeassistant.__version__ = "2026.11.1"
+    ha_const = ModuleType("homeassistant.const")
+    ha_const.__version__ = "2026.11.1"
     components = ModuleType("homeassistant.components")
     components.__path__ = []
     energy = ModuleType("homeassistant.components.energy")
@@ -121,6 +128,15 @@ def install_stubs(monkeypatch, hass):
     energy_data.ENERGY_SOURCE_SCHEMA = check
     backup = ModuleType("homeassistant.components.backup")
     backup.async_get_manager = lambda _: hass.backups
+    backup.__path__ = []
+    backup_util = ModuleType("homeassistant.components.backup.util")
+
+    def validate_password(archive, password):
+        assert archive == "synthetic-ci-backup:synth-backup" and password is None
+        hass.backups.calls.append("validate_local_archive")
+        return not hass.backups.fail_decrypt
+
+    backup_util.validate_password = validate_password
     helpers = ModuleType("homeassistant.helpers")
     helpers.__path__ = []
     storage = ModuleType("homeassistant.helpers.storage")
@@ -135,8 +151,8 @@ def install_stubs(monkeypatch, hass):
             hass.journal = deepcopy(payload)
 
     storage.Store = Store
-    for module in (homeassistant, components, energy, energy_data, backup,
-                   helpers, storage):
+    for module in (homeassistant, ha_const, components, energy, energy_data, backup,
+                   backup_util, helpers, storage):
         monkeypatch.setitem(sys.modules, module.__name__, module)
 
     async def read(_h, key, **kwargs):
@@ -196,7 +212,7 @@ def test_native_backup_journal_bulk_write_flush_and_guarded_rollback(monkeypatch
     run(exercise())
     assert hass.events == ["journal_save", "native_update", "native_flush",
                            "native_update", "native_flush", "journal_save"]
-    assert "decrypt_check" in hass.backups.calls
+    assert "validate_local_archive" in hass.backups.calls
 
 
 def test_unprepared_or_malformed_journal_never_writes(monkeypatch):
@@ -256,10 +272,26 @@ def test_shared_exclusive_lock_and_unsupported_core_fail_closed(monkeypatch):
         lot="SYNTH-LOT",
     )
     assert port._lock is companion._lock
-    import homeassistant
-    monkeypatch.setattr(homeassistant, "__version__", "2027.1")
+    import homeassistant.const as ha_const
+    monkeypatch.setattr(ha_const, "__version__", "2027.1")
     with pytest.raises(EnergyTransactionRefused, match="Core"):
         run(port.create_backup())
+
+
+
+def test_two_audited_core_patches_accept_and_others_fail_closed(monkeypatch):
+    """Match the isolated HA CI pin without allowing unreviewed Core upgrades."""
+    _hass, port = make(monkeypatch)
+    import homeassistant.const as ha_const
+
+    for version in ("2026.11.0", "2026.11.1"):
+        monkeypatch.setattr(ha_const, "__version__", version)
+        assert run(port.read_live()) == BASE
+
+    for version in ("2026.10.4", "2026.11.2", "2026.12.0"):
+        monkeypatch.setattr(ha_const, "__version__", version)
+        with pytest.raises(EnergyTransactionRefused, match="Core"):
+            run(port.read_live())
 
 
 def test_no_websocket_or_background_registration():

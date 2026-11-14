@@ -129,7 +129,7 @@ def preview_lineage(
         raise ValueError("Exactly one variant required per meter")
     if not isinstance(consumption_series, Sequence) or isinstance(consumption_series, (str, bytes)) or len(consumption_series) > 2 * MAX_METERS:
         raise ValueError("Invalid consumption series")
-    candidates: dict[tuple[tuple[str, str, str], str], dict[date, tuple[Decimal, str]]] = {}
+    candidates: dict[tuple[tuple[str, str, str], str], dict[date, tuple[Decimal, str, str | None, str | None, Decimal | None, Decimal | None]]] = {}
     total_rows = 0
     for s in consumption_series:
         if not isinstance(s, Mapping) or s.get("kind") != "consumption":
@@ -146,7 +146,7 @@ def preview_lineage(
         daily = s.get("daily")
         if not isinstance(daily, Mapping):
             raise ValueError("Missing daily source")
-        normalized: dict[date, tuple[Decimal, str]] = {}
+        normalized: dict[date, tuple[Decimal, str, str | None, str | None, Decimal | None, Decimal | None]] = {}
         for raw_day, entry in daily.items():
             d = _date(raw_day)
             if d is None or d in normalized or not isinstance(entry, Mapping):
@@ -155,8 +155,22 @@ def preview_lineage(
             if provenance not in PROVENANCE:
                 raise ValueError("Unverified measured/estimated provenance")
             amount = _quantity(entry.get("amount"))
+            decision = attribution = measured = estimated = revision = None
             if provenance in ("estimated_linear_confirmed", "mixed"):
-                _identity(entry.get("decision_fingerprint"))
+                decision = _identity(entry.get("decision_fingerprint"))
+                attribution = entry.get("decision_attribution", "approval_set_unattributed")
+                if attribution not in (
+                    "day_candidate_unverified", "day_revision_candidate_unverified",
+                    "approval_set_unattributed",
+                ):
+                    raise ValueError("Unrecognized per-day historical approval scope")
+                if attribution == "day_revision_candidate_unverified":
+                    revision = entry.get("revision_fingerprint")
+                    if (not isinstance(revision, str) or len(revision) != 64
+                            or any(ch not in "0123456789abcdef" for ch in revision)):
+                        raise ValueError("Missing exact historical decision revision")
+                elif "revision_fingerprint" in entry:
+                    raise ValueError("Unscoped decision cannot claim a revision")
                 measured = _quantity(entry.get("measured"))
                 estimated = _quantity(entry.get("estimated"))
                 if measured + estimated != amount:
@@ -166,9 +180,9 @@ def preview_lineage(
                 if provenance == "mixed" and (measured <= 0 or estimated <= 0):
                     raise ValueError("Mixed consumption requires both contributions")
             else:
-                if any(k in entry for k in ("decision_fingerprint", "estimated", "measured")):
+                if any(k in entry for k in ("decision_fingerprint", "decision_attribution", "estimated", "measured")):
                     raise ValueError("Measured-only row cannot contain estimated contributions")
-            normalized[d] = (amount, provenance)
+            normalized[d] = (amount, provenance, decision, attribution, measured, estimated, revision)
             total_rows += 1
             if total_rows > MAX_ROWS:
                 raise ValueError("Too many daily rows")
@@ -261,15 +275,23 @@ def preview_lineage(
                 blockers.add("unverified_physical_period_overlap")
             active_intervals.append(key)
 
-        daily: dict[date, list[tuple[tuple[str, str, str], Decimal, str]]] = defaultdict(list)
+        daily: dict[date, list[tuple[tuple[str, str, str], Decimal, str, str | None, str | None, Decimal | None, Decimal | None]]] = defaultdict(list)
         for key in group:
             m = physical[key]
             if m["status"] == "inconnu":
                 blockers.add("physical_service_status_unknown")
             if m["start"] is None or m["end"] is None:
                 blockers.add("service_dates_not_proven")
-            for day, (amount, provenance) in candidates[(key, selections[key])].items():
-                daily[day].append((key, amount, provenance))
+            for day, (amount, provenance, decision, attribution, measured, estimated, revision) in candidates[(key, selections[key])].items():
+                if ((m["first"] is not None and day < m["first"].date())
+                        or (m["last"] is not None and day > m["last"].date())):
+                    blockers.add("consumption_outside_observed_period")
+                if ((m["start"] is not None and day < m["start"])
+                        or (m["end"] is not None and day > m["end"])):
+                    blockers.add("consumption_outside_proven_service_period")
+                if decision is not None and attribution == "approval_set_unattributed":
+                    blockers.add("estimated_day_decision_not_individually_attributed")
+                daily[day].append((key, amount, provenance, decision, attribution, measured, estimated, revision))
         for rows in daily.values():
             if len(rows) > 1 and any(
                 frozenset((a[0], b[0])) not in parallel
@@ -283,6 +305,8 @@ def preview_lineage(
             "unverified_physical_period_overlap",
             "replacement_overlap_requires_explicit_apportionment",
             "duplicate_or_ambiguous_consumption_day",
+            "consumption_outside_proven_service_period",
+            "consumption_outside_observed_period",
         }
         if not blockers.intersection(disallowed):
             for day, rows in sorted(daily.items()):
@@ -292,7 +316,18 @@ def preview_lineage(
                     "date": day.isoformat(),
                     "consumption": str(amount), "cumulative": str(cumulative),
                     "contributors": [
-                        {"serial": item[0][2], "provenance": item[2], "consumption": str(item[1])}
+                        {
+                            "serial": item[0][2], "provenance": item[2],
+                            "consumption": str(item[1]),
+                            **({
+                                "decision_fingerprint": item[3],
+                                "decision_attribution": item[4],
+                                "measured": str(item[5]),
+                                "estimated": str(item[6]),
+                                **({"revision_fingerprint": item[7]}
+                                   if item[7] is not None else {}),
+                            } if item[3] is not None else {}),
+                        }
                         for item in sorted(rows, key=lambda item: item[0])
                     ],
                 })
@@ -317,6 +352,14 @@ def preview_lineage(
             "lineage": edges, "unobserved_intervals": unobserved_intervals,
             "parallel_meter_approval_requires_independent_review": bool(parallel),
             "blockers": sorted(blockers),
+            "local_arithmetic_qualification": (
+                "contradictoire" if blockers.intersection(disallowed)
+                else "verifie" if output_rows else "inconnu"
+            ),
+            "historical_evidence_qualification": (
+                "contradictoire" if blockers.intersection(disallowed)
+                else "partiel" if output_rows else "inconnu"
+            ),
             "rows": output_rows, "total": str(cumulative) if output_rows else "0",
             "inventory_matches_supplied_scope": expected_physical_keys is not None,
             "supplied_scope_does_not_prove_historical_exhaustiveness": True,

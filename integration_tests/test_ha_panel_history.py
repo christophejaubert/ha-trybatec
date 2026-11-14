@@ -149,6 +149,7 @@ async def test_panel_history_rejects_future_or_reversed_or_too_long_ranges(monke
     for start,end in [
         ("2023-01-01","2022-01-01"),("2020-01-01","2040-01-01"),
         ("2000-01-01","2026-11-01"),
+        ("1999-12-31","2000-01-02"),
     ]:
         with pytest.raises(ValueError):
             await panel_history.preview_history_for_panel(

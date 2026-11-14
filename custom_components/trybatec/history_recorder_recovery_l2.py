@@ -72,7 +72,8 @@ def preview_pending_recovery(
     readbacks must be collected by a trusted backend for *every* expected
     90-day window. A bare browser claim of complete=True is insufficient.
     queue_quiescent must be established independently (no writer in flight).
-    Even a safe retry suggestion is NOT an authorization to write.
+    A native queue barrier is only preflight evidence; it is NOT an
+    independent, durable no-late-writer fence and never authorizes retry.
     """
     if not isinstance(ledger, Mapping) or ledger.get("schema") != 1:
         raise ValueError("Invalid version ledger")
@@ -127,17 +128,25 @@ def preview_pending_recovery(
             "expected_rows": len(expected), "observed_rows": count,
             "outcome": outcome,
         })
-    retry = [x["statistic_id"] for x in result
-             if x["outcome"] == "retry_candidate_requires_explicit_confirmation"]
-    blocked = [x["statistic_id"] for x in result if x["outcome"] not in (
+    candidates = [x["statistic_id"] for x in result
+                  if x["outcome"] == "retry_candidate_requires_explicit_confirmation"]
+    conflicts = [x["statistic_id"] for x in result if x["outcome"] not in (
         "retry_candidate_requires_explicit_confirmation", "persisted_verified_no_requeue",
     )]
+    # This is a READ-ONLY candidate classification, not permission to retry.
+    # HA's native SynchronizeTask cannot exclude a later re-enqueued import.
+    preflight = bool(candidates) and not conflicts
+    blocked = [x["statistic_id"] for x in result
+               if x["outcome"] != "persisted_verified_no_requeue"]
     canonical = json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return {
         "status": "no_pending" if not result else "read_only_recovery_preview",
         "decisions": result,
-        "safe_to_offer_retry": bool(retry) and not blocked,
-        "retry_only_these_statistic_ids": retry if not blocked else [],
+        "safe_to_offer_retry": False,
+        "retry_only_these_statistic_ids": [],
+        "retry_preflight_candidate": preflight,
+        "retry_candidates_requiring_independent_proof": candidates if preflight else [],
+        "independent_writer_fence_verified": False,
         "all_persisted": bool(result) and all(
             x["outcome"] == "persisted_verified_no_requeue" for x in result
         ),

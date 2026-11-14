@@ -48,6 +48,51 @@ def _reference_catalog(
     return result
 
 
+def _window_catalog(
+    catalog: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]] | None,
+    scopes: set[tuple[str, str]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Check bounded observed Recorder windows, never infer readback authority."""
+    if catalog is None:
+        return {}
+    if not isinstance(catalog, Mapping) or len(catalog) > MAX_GROUPS:
+        raise ValueError("Invalid observed Recorder window catalog")
+    output = {}
+    count = 0
+    for scope, rows in catalog.items():
+        if (not isinstance(scope, tuple) or scope not in scopes
+                or not isinstance(rows, (tuple, list))):
+            raise ValueError("Foreign Recorder window scope")
+        identities = set()
+        checked = []
+        for item in rows:
+            count += 1
+            if count > MAX_REFERENCES or not isinstance(item, Mapping):
+                raise ValueError("Invalid bounded Recorder window")
+            stat = item.get("statistic_id")
+            start, end = item.get("start"), item.get("end")
+            unit, owner = item.get("unit"), item.get("owner")
+            if (not isinstance(stat, str) or not 0 < len(stat) <= 512
+                    or stat in identities or owner not in ("trybatec", "external", "unknown")
+                    or unit not in ("m³", "kWh")
+                    or not isinstance(start, str) or not isinstance(end, str)):
+                raise ValueError("Invalid Recorder window metadata")
+            try:
+                first = date.fromisoformat(start)
+                last = date.fromisoformat(end)
+            except ValueError as exc:
+                raise ValueError("Invalid Recorder window date") from exc
+            if first.isoformat() != start or last.isoformat() != end or first > last:
+                raise ValueError("Invalid or reversed Recorder window")
+            identities.add(stat)
+            checked.append({
+                "statistic_id": stat, "start": start, "end": end,
+                "unit": unit, "owner": owner,
+            })
+        output[scope] = sorted(checked, key=lambda item: item["statistic_id"])
+    return output
+
+
 def _number(value: Any) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, str):
         raise ValueError("Consumption evidence requires exact decimal strings")
@@ -66,6 +111,9 @@ def prepare_energy_lineage_handoff_37(
     account_scope_verified: bool = False,
     known_statistic_versions: Mapping[tuple[str, str], Sequence[str]] | None = None,
     selected_energy_sources: Mapping[tuple[str, str], Sequence[str]] | None = None,
+    known_statistic_windows: Mapping[
+        tuple[str, str], Sequence[Mapping[str, Any]]
+    ] | None = None,
 ) -> dict[str, Any]:
     """Describe retained physical contributions; never assert #88 admission.
 
@@ -103,6 +151,23 @@ def prepare_energy_lineage_handoff_37(
     scopes = {key[:2] for key in identities}
     versions = _reference_catalog(known_statistic_versions, scopes)
     selected = _reference_catalog(selected_energy_sources, scopes)
+    windows = _window_catalog(known_statistic_windows, scopes)
+    catalog = preview.get("inventory_reconciliation")
+    if catalog is not None and (
+        not isinstance(catalog, Mapping)
+        or catalog.get("historical_account_exhaustiveness_verified") is not False
+        or catalog.get("writes") is not False
+        or catalog.get("status") not in ("contradictoire", "partiel", "inconnu")
+    ):
+        raise ValueError("Invalid or authoritative physical inventory comparison")
+    version_owner = {}
+    energy_owner = {}
+    for rows, ownership in ((versions, version_owner), (selected, energy_owner)):
+        for scope, ids in rows.items():
+            for statistic in ids:
+                ownership.setdefault(statistic, set()).add(scope)
+    reused_versions = {stat for stat, owners in version_owner.items() if len(owners) > 1}
+    reused_energy = {stat for stat, owners in energy_owner.items() if len(owners) > 1}
     rendered = []
     accounted = set()
     total_rows = 0
@@ -140,6 +205,9 @@ def prepare_energy_lineage_handoff_37(
         previous_day = None
         cumulative = Decimal(0)
         contributions = set()
+        estimated_without_daily_ref = False
+        estimated_with_daily_candidate = False
+        estimated_with_revision_candidate = False
         for item in rows:
             if not isinstance(item, Mapping):
                 raise ValueError("Invalid daily row")
@@ -172,7 +240,44 @@ def prepare_energy_lineage_handoff_37(
                 ):
                     raise ValueError("Unknown or duplicate physical contributor/provenance")
                 seen_members.add(key)
-                daily_contributions += _number(contributor.get("consumption"))
+                amount = _number(contributor.get("consumption"))
+                provenance = contributor["provenance"]
+                if provenance == "measured":
+                    if any(name in contributor for name in (
+                        "decision_fingerprint", "decision_attribution", "measured", "estimated"
+                    )):
+                        raise ValueError("Measured contribution cannot carry an estimation decision")
+                else:
+                    decision = contributor.get("decision_fingerprint")
+                    attribution = contributor.get("decision_attribution", "approval_set_unattributed")
+                    if not isinstance(decision, str) or not decision or len(decision) > 128:
+                        raise ValueError("Estimated day lacks a decision reference")
+                    if attribution not in (
+                        "day_candidate_unverified", "day_revision_candidate_unverified",
+                        "approval_set_unattributed",
+                    ):
+                        raise ValueError("Unrecognized estimated-day attribution")
+                    revision = contributor.get("revision_fingerprint")
+                    if attribution == "day_revision_candidate_unverified":
+                        if (not isinstance(revision, str) or len(revision) != 64
+                                or any(ch not in "0123456789abcdef" for ch in revision)):
+                            raise ValueError("Revision-scoped estimate requires exact revision")
+                    elif revision is not None:
+                        raise ValueError("Unscoped estimate cannot assert a revision")
+                    measured = _number(contributor.get("measured"))
+                    estimated = _number(contributor.get("estimated"))
+                    if measured + estimated != amount or estimated <= 0:
+                        raise ValueError("Physical measured/estimated amounts do not reconcile")
+                    if ((provenance == "mixed" and measured <= 0)
+                            or (provenance == "estimated_linear_confirmed" and measured != 0)):
+                        raise ValueError("Invalid physical consumption provenance")
+                    if attribution == "day_candidate_unverified":
+                        estimated_with_daily_candidate = True
+                    elif attribution == "day_revision_candidate_unverified":
+                        estimated_with_revision_candidate = True
+                    else:
+                        estimated_without_daily_ref = True
+                daily_contributions += amount
                 contributions.add(key)
             if daily_contributions != delta:
                 raise ValueError("Physical contributions do not conserve daily consumption")
@@ -191,18 +296,71 @@ def prepare_energy_lineage_handoff_37(
             reference_blockers.append("energy_selected_references_not_collected")
         if len(selected_ids) > 1:
             reference_blockers.append("competing_energy_sources_selected")
+        window_rows = windows.get((lot, fluid), [])
+        by_window_id = {item["statistic_id"]: item for item in window_rows}
+        if (lot, fluid) not in windows:
+            reference_blockers.append("recorder_window_catalog_not_collected")
+        elif any(item not in by_window_id for item in known_versions):
+            reference_blockers.append("statistic_window_metadata_incomplete")
+        if any(item["unit"] != ("kWh" if fluid == "CET" else "m³")
+               for item in window_rows):
+            reference_blockers.append("recorder_window_unit_incompatible")
+        if any(stat not in by_window_id for stat in selected_ids):
+            reference_blockers.append("selected_energy_window_not_observed")
+        pairs = []
+        for i, first in enumerate(window_rows):
+            for second in window_rows[i + 1:]:
+                if (first["start"] <= second["end"]
+                        and second["start"] <= first["end"]):
+                    pairs.append((first["statistic_id"], second["statistic_id"]))
+        if pairs:
+            reference_blockers.append("overlapping_recorder_versions_require_exclusivity_review")
         if known_versions and any(item not in known_versions for item in selected_ids):
             reference_blockers.append("selected_energy_source_outside_observed_versions")
+        if any(item in reused_versions for item in known_versions):
+            reference_blockers.append("statistic_id_reused_across_logical_scopes")
+        if any(item in reused_energy for item in selected_ids):
+            reference_blockers.append("energy_selection_reused_across_logical_scopes")
+        if catalog is None:
+            reference_blockers.append("physical_catalog_comparison_unavailable")
+        elif catalog["status"] == "contradictoire":
+            reference_blockers.append("observed_physical_catalog_contradiction")
+        else:
+            reference_blockers.append("physical_catalog_scope_not_exhaustive")
+        if catalog is None or catalog.get("source_discovery_status") != "complete":
+            reference_blockers.append("account_historical_discovery_not_complete")
+        # A completed requested interval cannot attest to never-observed generations.
+        reference_blockers.append("historical_account_exhaustiveness_not_attested")
         source_inventory = [
             {name: physical[key].get(name) for name in (
                 "lot", "fluid", "serial", "status", "unit", "source_fingerprint",
                 "first_observed_at", "last_observed_at", "service_start",
                 "service_end", "source", "observation_count",
-                "historical_reading_only", "readings_origin", "blockers"
+                "historical_reading_only", "readings_origin", "blockers",
+                "unknown_observation_spans_count", "unknown_observation_spans_truncated",
             )}
             for key in sorted(scoped)
         ]
+        if estimated_without_daily_ref:
+            reference_blockers.append("estimated_day_decision_not_individually_attributed")
+        if estimated_with_daily_candidate:
+            reference_blockers.append("day_decision_requires_independent_36_match")
+        if estimated_with_revision_candidate:
+            # A syntactically exact record is still not independently certified:
+            # the authoritative #36 ledger and persisted Recorder snapshot matter.
+            reference_blockers.append("day_revision_requires_independent_36_match")
         all_blockers = sorted(set(raw_blockers + reference_blockers))
+        qualification = (
+            "contradictoire" if any(reason in all_blockers for reason in (
+                "unverified_physical_period_overlap",
+                "duplicate_or_ambiguous_consumption_day",
+                "consumption_outside_observed_period",
+                "consumption_outside_proven_service_period",
+                "unresolved_physical_source_anomaly",
+                "source_status_conflict",
+            ))
+            else "partiel" if rows else "inconnu"
+        )
         rendered.append({
             "lot": lot, "fluid": fluid,
             "physical_meters_observed": len(scoped),
@@ -215,6 +373,12 @@ def prepare_energy_lineage_handoff_37(
                  "contributors": [dict(c) for c in item["contributors"]]}
                 for item in rows
             ],
+            "historical_qualification": qualification,
+            "local_arithmetic_checked": True,
+            "day_decisions_independently_verified": False,
+            "retired_consumption_candidate_only": any(
+                physical[key].get("status") == "depose" for key in contributions
+            ),
             "total": str(cumulative) if not blocked else None,
             "logical_id": group.get("logical_id") if not blocked else None,
             "physical_scope_fingerprint": _digest(source_inventory),
@@ -222,10 +386,21 @@ def prepare_energy_lineage_handoff_37(
                 "daily": rows, "selected_physical_meters": member_rows
             }),
             "observed_unread_intervals": len(group.get("unobserved_intervals", [])),
+            "source_observation_gap_intervals": sum(
+                physical[key].get("unknown_observation_spans_count") or 0
+                for key in scoped
+            ),
+            "physical_catalog_reconciliation": catalog.get("status") if catalog else "inconnu",
+            "supplier_discovery_status": catalog.get("source_discovery_status") if catalog else "unavailable",
             "statistic_reference_catalog_observed": (lot, fluid) in versions,
             "selected_energy_catalog_observed": (lot, fluid) in selected,
             "observed_competing_statistic_ids": known_versions,
             "observed_selected_energy_statistic_ids": selected_ids,
+            "observed_recorder_statistic_windows": window_rows,
+            "observed_overlapping_statistic_pairs": [
+                [a, b] for a, b in sorted(pairs)
+            ],
+            "recorder_window_catalog_observed": (lot, fluid) in windows,
             "blockers": sorted(set(all_blockers + (
                 ["historical_series_incomplete"] if blocked else []
             ))),
@@ -250,4 +425,85 @@ def prepare_energy_lineage_handoff_37(
         "competing_versions_exhausted": False,
         "energy_activation_authorized": False,
         "writes": False,
+    }
+
+
+def audit_ha_identity_references_37(
+    account_key: str,
+    entry_id: str,
+    meters: Sequence[Mapping[str, Any]],
+    registry_entities: Sequence[Mapping[str, Any]],
+    observed_references: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Read-only #81 compatibility audit; no entity suffix implies a meter.
+
+    Registry rows and consumer references are observations, not an exhaustive
+    audit of external dashboards, Recorder, HomeKit or Energy configurations.
+    Does not alter the existing #81 migration plan or authorize cleanup.
+    """
+    from .meter_identity import preview_stable_identity_transition
+
+    if (not isinstance(observed_references, (tuple, list))
+            or len(observed_references) > MAX_REFERENCES):
+        raise ValueError("Invalid observed consumer references")
+    plan = preview_stable_identity_transition(
+        account_key, entry_id, meters, registry_entities
+    )
+    known_ids = {row["entity_id"] for row in registry_entities}
+    known_unique_ids = {row["unique_id"] for row in registry_entities}
+    examined = set()
+    foreign = []
+    observed = []
+    for item in observed_references:
+        if not isinstance(item, Mapping):
+            raise ValueError("Invalid consumer reference")
+        consumer, kind, reference = (
+            item.get("consumer"), item.get("kind"), item.get("reference")
+        )
+        if (consumer not in ("dashboard", "automation", "energy", "recorder", "external", "other")
+                or kind not in ("entity_id", "statistic_id", "unique_id")
+                or not isinstance(reference, str)
+                or not 0 < len(reference) <= 512):
+            raise ValueError("Malformed observed HA consumer reference")
+        key = (consumer, kind, reference)
+        if key in examined:
+            raise ValueError("Duplicate observed consumer reference")
+        examined.add(key)
+        matched = (
+            reference in known_ids if kind == "entity_id"
+            else reference in known_unique_ids if kind == "unique_id"
+            else None
+        )
+        if matched is False:
+            foreign.append({"consumer": consumer, "kind": kind, "reference": reference})
+        observed.append({
+            "consumer": consumer, "kind": kind,
+            "reference": reference, "entity_registry_match": matched,
+        })
+    contradictions = bool(foreign) or any(
+        item["status"] == "migration_blocked" for item in plan["meters"]
+    )
+    suffixes = sorted(
+        row["entity_id"] for row in registry_entities
+        if isinstance(row.get("entity_id"), str)
+        and row["entity_id"].rsplit("_", 1)[-1].isdigit()
+    )
+    return {
+        "schema": "lineage_37_ha_identity_audit_v1",
+        "status": "contradictoire" if contradictions
+                  else "partiel" if registry_entities or observed
+                  else "inconnu",
+        "identity_plan_81": plan,
+        "technical_suffix_entity_ids_observed": suffixes,
+        "suffixed_entity_id_is_physical_meter_evidence": False,
+        "observed_consumers": observed,
+        "unresolved_consumer_entity_references": foreign,
+        "consumer_inventory_exhaustive": False,
+        "recorder_statistic_references_exhaustive": False,
+        "external_dashboard_automation_references_exhaustive": False,
+        "safe_to_delete_legacy_entity": False,
+        "safe_to_migrate": False,
+        "registry_writes": False,
+        "recorder_writes": False,
+        "energy_writes": False,
     }

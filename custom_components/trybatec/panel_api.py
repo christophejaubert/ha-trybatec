@@ -28,7 +28,7 @@ from .panel_tariffs import validate_meter_tariffs, tariff_fingerprint, ws_panel_
 from .panel_history import ws_panel_history_preview, ws_panel_smoothing_choice
 from .panel_history_jobs import (
     ws_panel_history_job_start, ws_panel_history_job_status,
-    ws_panel_history_job_cancel,
+    ws_panel_history_job_cancel, ws_panel_history_discovery_status,
 )
 from .panel_origin import (
     ws_panel_estimated_origin_preview, ws_panel_estimated_origin_save,
@@ -480,6 +480,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_panel_history_job_start)
     websocket_api.async_register_command(hass, ws_panel_history_job_status)
     websocket_api.async_register_command(hass, ws_panel_history_job_cancel)
+    websocket_api.async_register_command(hass, ws_panel_history_discovery_status)
     websocket_api.async_register_command(hass, ws_panel_smoothing_choice)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_preview)
     websocket_api.async_register_command(hass, ws_panel_estimated_origin_save)

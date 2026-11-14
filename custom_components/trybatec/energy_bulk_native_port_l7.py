@@ -1,4 +1,4 @@
-"""Guarded Home Assistant 2026.11.1 L7 persistence/backup port.
+"""Guarded Home Assistant 2026.11.0/2026.11.1 L7 persistence/backup port.
 
 Not registered as a websocket, service, setup hook, or background job.
 The existing read-only L6 collector still rejects *all* new sources until
@@ -21,14 +21,16 @@ from .energy_bulk_native_observer_l7 import HAReadOnlyEnergyPort
 from .energy_bulk_transaction import EnergyRecoveryRequired, EnergyTransactionRefused
 from .energy_switch import preferences_fingerprint
 
-_CORE_VERSION = "2026.11.1"
+# Reviewed HA 2026.11.0 and 2026.11.1 have matching Energy, backup and storage APIs.
+# Keep all other Core releases fail-closed until separately qualified.
+_SUPPORTED_CORE_VERSIONS = frozenset({"2026.11.0", "2026.11.1"})
 _MAX_JOURNAL_BYTES = 900_000
 _LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
 
 def _core_only() -> None:
-    from homeassistant import __version__
-    if __version__ != _CORE_VERSION:
+    from homeassistant.const import __version__
+    if __version__ not in _SUPPORTED_CORE_VERSIONS:
         raise EnergyTransactionRefused("Native Energy port needs a newly qualified HA Core version")
 
 
@@ -62,6 +64,51 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
         """Mutual exclusion across all this integration's L7 port instances."""
         async with self._lock:
             yield
+
+    async def collect(
+        self, actor: Any, *, account: str, lot: str,
+        selections: list[dict[str, Any]] | None = None,
+    ):
+        """Use real #36/#37/C11 L6 producers for explicitly selected scopes.
+
+        No v1 or frontend-supplied claim can produce candidates; without a
+        selection, retain the conservative legacy read-only classification.
+        The L7 mutation gate is independent and remains hard-disabled.
+        """
+        await self.assert_admin(actor)
+        if account != self._coordinator.entry.unique_id or lot != self._lot:
+            raise EnergyTransactionRefused("Native L6 account/lot mismatch")
+        if selections is None:
+            return await super().collect(actor, account=account, lot=lot)
+        try:
+            from .energy_bulk_native_selected_l6_88 import (
+                async_collect_native_selected_state_88,
+            )
+            return await async_collect_native_selected_state_88(
+                self._hass, self._coordinator, actor=actor,
+                lot=lot, selections=selections,
+            )
+        except ImportError as exc:
+            # Owner #159/#160 and C11 modules are integrated on #164, not
+            # on this PR's old stacked #153 base. Never crash the WS handler
+            # or claim the sources were independently verified when absent.
+            raise EnergyTransactionRefused(
+                "Native scoped Recorder/lineage producer not integrated"
+            ) from exc
+
+    async def collect_native_scope_observations(
+        self, actor: Any, *, selections: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Authoritative bounded read-only Recorder and Energy observation.
+
+        Facts are not v2 authorization certificates; L7 keeps its gates.
+        """
+        from .energy_bulk_native_scopes_88 import async_collect_native_scopes_88
+
+        return await async_collect_native_scopes_88(
+            self._hass, self._coordinator, actor=actor, lot=self._lot,
+            selections=selections,
+        )
 
     async def read_live(self) -> dict[str, Any]:
         _core_only()
@@ -145,9 +192,21 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
                     receipt["agent_id"] not in backup.agents or
                     backup.agents[receipt["agent_id"]].size <= 0):
                 return False
-            await manager.async_can_decrypt_on_download(
-                receipt["backup_id"], agent_id=receipt["agent_id"], password=None
-            )
+            # Core's async_can_decrypt_on_download() expects an encrypted
+            # inner tar and raises SecureTarError for an unprotected native
+            # local archive ("No password provided"). For our intentionally
+            # passwordless local-only backup use HA's archive/password validator
+            # on the exact verified agent path instead. Protected/remote
+            # archives are NOT supported without a new qualified contract.
+            if backup.agents[receipt["agent_id"]].protected is not False:
+                return False
+            agent = manager.local_backup_agents[receipt["agent_id"]]
+            path = agent.get_backup_path(receipt["backup_id"])
+            from homeassistant.components.backup.util import validate_password
+            if await self._hass.async_add_executor_job(
+                validate_password, path, None
+            ) is not True:
+                return False
         except Exception:
             return False
         self._verified_receipt = deepcopy(receipt)

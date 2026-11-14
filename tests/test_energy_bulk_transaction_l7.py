@@ -372,3 +372,110 @@ def test_idempotent_noop_requires_live_and_persisted_equality():
     with pytest.raises(EnergyTransactionRefused, match="idempotent check"):
         apply(port, previous)
     assert port.writes == port.backups == 0
+
+
+def test_l7_stale_selected_alternative_catalog_refused_before_backup():
+    port = FakePort()
+    saved = preview(port)
+    assert saved.status == "prepared_for_explicit_admin_review"
+    # Same chosen statistic and Energy preferences: only the independent
+    # candidate's competing-version catalogue has changed.
+    port.candidates[0]["competing_statistic_ids"].append("trybatec:synth_hidden_v0")
+    updated = preview(port)
+    assert updated.before == saved.before and updated.after == saved.after
+    assert updated.plan_digest != saved.plan_digest
+    with pytest.raises(EnergyTransactionRefused, match="Evidence or selected"):
+        apply(port, saved)
+    assert port.backups == port.writes == 0
+
+
+def test_l7_cancel_before_backup_causes_no_journal_or_energy_write():
+    port = FakePort()
+    saved = preview(port)
+
+    async def cancelled_backup():
+        port.backups += 1
+        raise asyncio.CancelledError()
+
+    port.create_backup = cancelled_backup
+    with pytest.raises(asyncio.CancelledError):
+        apply(port, saved)
+    assert port.backups == 1 and port.writes == 0
+    assert port.audit == [] and port.live == port.disk == initial()
+
+
+def test_l7_cancel_after_native_write_keeps_prepared_journal_for_manual_review():
+    port = FakePort()
+    saved = preview(port)
+    original_write = port.write_energy_sources
+
+    async def cancelled_after_write(sources):
+        await original_write(sources)
+        raise asyncio.CancelledError()
+
+    port.write_energy_sources = cancelled_after_write
+    with pytest.raises(asyncio.CancelledError):
+        apply(port, saved)
+    assert port.backups == 1 and port.writes == 1
+    assert port.audit[-1]["status"] == "prepared"
+    assert port.live != port.disk
+    # No optimistic or blind retry can run over an unresolved journal.
+    with pytest.raises((EnergyTransactionRefused, EnergyRecoveryRequired)):
+        apply(port, saved)
+    assert port.backups == 1 and port.writes == 1
+
+
+def test_l7_selected_source_count_and_other_sources_preserved_after_positive_fixture():
+    port = FakePort(fluids=("EF", "ECS"))
+    original = deepcopy(port.live)
+    saved = preview(port)
+    assert saved.proposed_count == 2
+    result = apply(port, saved)
+    assert result["status"] == "persisted_verified"
+    assert port.live["energy_sources"][:len(original["energy_sources"])] == (
+        original["energy_sources"]
+    )
+    assert len(port.live["energy_sources"]) == len(original["energy_sources"]) + 2
+    for other_section in ("device_consumption", "device_consumption_water", "unrelated"):
+        assert port.live[other_section] == original[other_section]
+    assert port.disk == port.live
+    assert port.audit[-1]["status"] == "verified"
+    # Positive synthetic transaction deliberately does NOT mean real admission.
+    assert result["activation_authorized"] is False
+
+
+def test_scoped_l6_revision_changed_during_native_backup_refuses_before_journal():
+    port = FakePort()
+    previous = preview(port)
+    original_backup = port.create_backup
+
+    async def superseded_during_backup():
+        receipt = await original_backup()
+        port.candidates[0]["competing_statistic_ids"].append(
+            "trybatec:synth_newer_version_discovered"
+        )
+        return receipt
+
+    port.create_backup = superseded_during_backup
+    with pytest.raises(EnergyTransactionRefused, match="L6 selection changed"):
+        apply(port, previous)
+    assert port.backups == 1
+    assert port.writes == 0
+    assert port.audit == []
+
+
+def test_scoped_l6_approval_revoked_during_backup_refuses_before_journal():
+    port = FakePort()
+    previous = preview(port)
+    original_backup = port.create_backup
+
+    async def approval_revoked_during_backup():
+        receipt = await original_backup()
+        port.blocked = True
+        return receipt
+
+    port.create_backup = approval_revoked_during_backup
+    with pytest.raises(EnergyTransactionRefused, match="L6 selection changed"):
+        apply(port, previous)
+    assert port.backups == 1
+    assert port.writes == 0 and port.audit == []

@@ -1,3 +1,33 @@
+# 0.3.5b1 — Préversion intégrée / Integrated experimental prerelease
+
+## FR — Changements, qualification et limites
+
+**Bêta expérimentale non officielle.** Cette version rassemble les corrections du panneau Trybatec (navigation, accessibilité et déclinaisons clair/sombre, textes FR/EN, détails des compteurs, parcours de configuration), la découverte mutualisée de l'historique par compte, les options de tarifs annuels sans JSON obligatoire, les diagnostics, la gestion des identités physiques et les protections d'accès/notification développées depuis `0.3.4b1`.
+
+**Historique et Énergie :** le code de #36 introduit des tentatives Recorder identifiées, versionnées, journalisées et mises en quarantaine en cas de dérive ; #37 reconstitue les consommations de chaque compteur physique sans soustraire les index de générations différentes ; #88 relit les preuves Recorder, la filiation et les références Énergie sur une sélection bornée. Les lacunes fournisseur ne sont jamais présumées égales à zéro.
+
+**Tests :** la chaîne #36 → #37 → L6 → L7 a réussi sur Home Assistant Core `2026.11.0` **isolé**, avec véritable SQLite Recorder, gestionnaire de sauvegarde, écriture additive Énergie, journal durable, relecture disque, refus de modification externe pendant sauvegarde, reprise après interruption et restauration d'archive dans un répertoire temporaire distinct. Les relevés et comptes sont fictifs. La recette métier après installation relève exclusivement du propriétaire et n'est pas un préalable à cette bêta. Les tests ne garantissent pas l'impossibilité de modifications futures par d'autres composants privilégiés.
+
+**Fonction désactivée à la livraison :** **l'ajout groupé EF/ECS/chauffage dans le tableau Énergie n'est pas opérationnel sur l'installation**. Le verrou `NATIVE_ENERGY_BULK_WRITES_ENABLED_88=False` demeure actif et la confirmation WebSocket L7 est refusée. Les tests démontrent le moteur en environnement isolé, **pas une fonction utilisable sur Home Assistant réel**. Aucune migration automatique des identités existantes, import historique Recorder, suppression, restauration ou modification du fournisseur n'est autorisée par l'installation.
+
+**Précautions :** les unités (EF/ECS en m³, CET attendu en kWh), l'identité des compteurs et les références Energy restent protégées. Les contrôles d'interface sont synthétiques. **La recette métier sur l'installation relève du seul propriétaire et ne conditionne pas la livraison de la bêta.** La fusion, la release et l'installation sont distinctement autorisées ; elles n'autorisent pas d'écritures Recorder/Énergie, migration, restauration ni purge.
+
+**Compatibilité :** `2026.11.0` est la version Core effectivement qualifiée pour cette candidate. Les nouvelles candidates devront partir de la dernière version stable officielle Home Assistant disponible au début de leur qualification. [Dossier de qualification](docs/CANDIDATE_0_3_5b1_RELEASE_GATE_FR_EN.md).
+
+## EN — Changes, evidence and limitations
+
+**Unofficial experimental beta.** This candidate brings together Trybatec panel fixes (navigation, accessibility, light/dark themes, FR/EN content, meter details and guided setup), shared account-wide history discovery, native annual tariff options without mandatory JSON, diagnostics, physical identity and access/notification safeguards developed since `0.3.4b1`.
+
+**History and Energy:** #36 adds versioned, uniquely identified, durably journaled Recorder attempts and quarantines detected external drift. #37 calculates consumption within each physical meter generation, never subtracting readings from different meters. #88 audits exact selected Recorder versions, physical lineage and Energy references. Missing supplier readings are not assumed to be zero.
+
+**Isolated qualification:** real Home Assistant Core `2026.11.0` Recorder SQLite, BackupManager and EnergyManager exercised a single positive native #36 → #37 → L6 → L7 test with a durable journal and persisted Energy readback. Negative tests cover an external writer during backup, interruption and recovery, guarded rollback, corrupted backups and archive restoration to a separate disposable directory. All source records and identities are synthetic. Owner-led business acceptance is a separate, **non-blocking** post-installation responsibility. The tests do not claim absolute exclusion of future privileged third-party writers.
+
+**Deliberately unavailable:** **bulk EF/ECS/heating enrollment into the live Energy dashboard is NOT enabled in this beta**. The `NATIVE_ENERGY_BULK_WRITES_ENABLED_88=False` gate and WebSocket confirmation refusal remain active. Isolated transaction test success does **not** make bulk enrollment operational on a user's Home Assistant. Existing identity migration, historical Recorder imports, deletion, restore and supplier modifications are not implicitly authorized.
+
+**Acceptance and compatibility:** the owner has explicitly authorized the distinct merge, release and HA installation operations. Real UI, meter identity and CET kWh/Energy business acceptance remain the owner's responsibility after installation and **are not a delivery gate**. Migration, sensitive writes and restoration still require separate authorization. `2026.11.0` is the approved tested Core baseline for this beta. Future candidate qualification starts from the latest officially released stable Home Assistant version. See [candidate gate](docs/CANDIDATE_0_3_5b1_RELEASE_GATE_FR_EN.md).
+
+---
+
 # 0.3.4b1 — Candidate intégrée / Integrated beta candidate
 
 ## FR — Évolutions et limitations

@@ -56,6 +56,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             from .panel_api import async_register_panel
 
             await async_register_panel(hass)
+            # #88: admin-only read-only preview and a fail-closed confirm route.
+            # No history/Recorder/Energy mutation is performed at registration.
+            from .energy_bulk_websocket_88 import async_register_energy_bulk_admin_88
+
+            async_register_energy_bulk_admin_88(hass)
         else:
             logging.getLogger(__name__).debug(
                 "Trybatec sidebar unavailable: Home Assistant frontend not loaded"

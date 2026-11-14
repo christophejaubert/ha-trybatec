@@ -12,6 +12,8 @@ import json
 from typing import Any, Mapping
 
 SUPPORTED_HA = "2026.11.1"
+# Only these patch versions have been verified byte-identical for the used HA APIs.
+SUPPORTED_HA_VERSIONS = frozenset({"2026.11.0", SUPPORTED_HA})
 FLUIDS = {"EF": ("m³", "volume", "water"),
           "ECS": ("m³", "volume", "water"),
           "CET": ("kWh", "energy", "energy")}
@@ -224,7 +226,7 @@ def assess_energy_evidence(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
     version = ha.get("version") if isinstance(ha, dict) else None
     result["schema_version"] = version
-    if version == SUPPORTED_HA and ha.get("energy_schema_checked") is True:
+    if version in SUPPORTED_HA_VERSIONS and ha.get("energy_schema_checked") is True:
         scopes["ha_schema"] = _inventory("native_schema_checked", items=1, complete=True)
     else:
         scopes["ha_schema"] = _inventory("unverified", reason="ha_schema_version_or_validation_unverified")

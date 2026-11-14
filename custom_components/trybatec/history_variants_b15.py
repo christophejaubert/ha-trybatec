@@ -7,6 +7,8 @@ linear residual) without ever manufacturing new source index readings.
 from __future__ import annotations
 
 from collections import defaultdict
+from hashlib import sha256
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping
@@ -95,6 +97,7 @@ def variants_preview(
         raw = _measured_daily(meter.get("rows", []), factor)
         smoothed = dict(raw)
         chosen_keys = []
+        day_decision_refs: dict[date, list[dict[str, Any]]] = {}
         approved_origin = origins.get(meter_key(lot, fluid, serial))
         if approved_origin is not None:
             choice = validate_choice(approved_origin)
@@ -137,6 +140,13 @@ def variants_preview(
                     smoothed.get(day, Decimal(0)) +
                     Decimal(str(allocation["quantity"])) * Decimal(str(factor))
                 )
+                day_decision_refs.setdefault(day, []).append({
+                    "reference": "approved_origin:" + choice["approval_fingerprint"],
+                    "decision_fingerprint": choice["approval_fingerprint"],
+                    "reason": choice["reason"],
+                    "updated_at": choice["updated_at"],
+                    "kind": "estimated_origin",
+                })
             chosen_keys.append("approved_origin:" + choice["approval_fingerprint"])
         for gap in gaps["intervals"]:
             if (gap["lot"], gap["fluid"], gap["meter_serial"]) != key:
@@ -149,8 +159,20 @@ def variants_preview(
                 continue
             if gap["status"] != "linear_available_after_explicit_confirmation":
                 raise ValueError("Unsafe gap selected for smoothing")
-            if decision.get("reason") not in ("manual_periodic", "telemetry_failure", "other"):
-                raise ValueError("Missing declared reason for interpolation")
+            reason = decision.get("reason")
+            if reason not in ("manual_periodic", "telemetry_failure", "other", "undetermined_confirmed"):
+                raise ValueError("Missing explicitly confirmed interval reason")
+            if reason == "undetermined_confirmed":
+                if decision.get("confirmed_unknown_origin") is not True:
+                    raise ValueError("Unknown origin was not explicitly confirmed")
+            elif "confirmed_unknown_origin" in decision:
+                raise ValueError("Known origin cannot claim unknown-cause confirmation")
+            decision_token = sha256(json.dumps({
+                "interval_key": gap["interval_key"],
+                "mode": method, "reason": reason,
+                "confirmed_unknown_origin": reason == "undetermined_confirmed",
+                "updated_at": decision.get("updated_at"),
+            }, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
             if gap["daily_preview"] is None:
                 raise ValueError("Linear allocation exceeds safe preview limits")
             for point in gap["daily_preview"]:
@@ -158,6 +180,13 @@ def variants_preview(
                 if at in smoothed:
                     raise ValueError("Measured or previously allocated day would be double counted")
                 smoothed[at] = Decimal(str(point["quantity"])) * Decimal(str(factor))
+                day_decision_refs.setdefault(at, []).append({
+                    "reference": gap["interval_key"],
+                    "decision_fingerprint": decision_token,
+                    "reason": reason,
+                    "updated_at": decision.get("updated_at"),
+                    "kind": "sparse_residual",
+                })
             chosen_keys.append(gap["interval_key"])
         raw_daily = dict(sorted(raw.items()))
         smooth_daily = dict(sorted(smoothed.items()))
@@ -168,6 +197,9 @@ def variants_preview(
             "normalized_unit": normalized_unit(fluid),
             "status": "preview_only",
             "selected_gap_fingerprints": chosen_keys,
+            **({"day_decision_refs": {
+                day.isoformat(): refs for day, refs in sorted(day_decision_refs.items())
+            }} if day_decision_refs else {}),
             "raw": {day: float(value) for day, value in raw_daily.items()},
             "smoothed": {day: float(value) for day, value in smooth_daily.items()},
             "raw_total": float(sum(raw.values(), Decimal(0))),

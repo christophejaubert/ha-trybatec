@@ -227,6 +227,23 @@ jobs:
           synthetic_repo="$(mktemp -d)"
           trap 'rm -rf "$synthetic_repo"' EXIT
           git -C "$synthetic_repo" init -q
+          # FR/EN: test negative first; a broken CLI must not pass as a successful leak detection.
+          printf '%s\n' 'Harmless public synthetic fixture' > "$synthetic_repo/fixture.txt"
+          : > "$synthetic_repo/.gitleaksignore"
+          git -C "$synthetic_repo" add fixture.txt .gitleaksignore
+          git -C "$synthetic_repo" \
+            -c user.name='CI Synthetic Fixture' -c user.email='ci@example.invalid' \
+            commit -q -m 'Clean synthetic fixture'
+          clean_scan_code=0
+          gitleaks detect --source "$synthetic_repo" \
+            --gitleaks-ignore-path "$synthetic_repo/.gitleaksignore" \
+            --redact --exit-code=2 --log-level=error >/dev/null 2>&1 || clean_scan_code=$?
+          if [[ "$clean_scan_code" -ne 0 ]]; then
+            echo "Gitleaks must accept an isolated clean Git history; detector unavailable or misconfigured." >&2
+            exit 1
+          fi
+          # FR/EN: insert a fictitious credential into an earlier commit, then remove it
+          # from the final tree. The complete history MUST still be rejected.
           python3 - "$synthetic_repo" <<'PY'
           import secrets
           import string
@@ -241,12 +258,18 @@ jobs:
           git -C "$synthetic_repo" add fixture.txt
           git -C "$synthetic_repo" \
             -c user.name='CI Synthetic Fixture' -c user.email='ci@example.invalid' \
-            commit -q -m 'Synthetic Git leak must be rejected'
+            commit -q -m 'Historical synthetic leak must be rejected'
+          printf '%s\n' 'Harmless public synthetic fixture' > "$synthetic_repo/fixture.txt"
+          git -C "$synthetic_repo" add fixture.txt
+          git -C "$synthetic_repo" \
+            -c user.name='CI Synthetic Fixture' -c user.email='ci@example.invalid' \
+            commit -q -m 'Remove fake credential from final tree'
           synthetic_scan_code=0
-          gitleaks detect --source "$synthetic_repo" --gitleaks-ignore-path "$synthetic_repo" \
+          gitleaks detect --source "$synthetic_repo" \
+            --gitleaks-ignore-path "$synthetic_repo/.gitleaksignore" \
             --redact --exit-code=2 --log-level=error >/dev/null 2>&1 || synthetic_scan_code=$?
           if [[ "$synthetic_scan_code" -ne 2 ]]; then
-            echo "Gitleaks must reject synthetic credentials; full scan remains fail-closed." >&2
+            echo "Gitleaks must reject an intermediate historical credential, even when absent from HEAD." >&2
             exit 1
           fi
 
