@@ -198,7 +198,7 @@ class HAGuardedEnergyPort(HAReadOnlyEnergyPort):
             # passwordless local-only backup use HA's archive/password validator
             # on the exact verified agent path instead. Protected/remote
             # archives are NOT supported without a new qualified contract.
-            if backup.protected is not False:
+            if backup.agents[receipt["agent_id"]].protected is not False:
                 return False
             agent = manager.local_backup_agents[receipt["agent_id"]]
             path = agent.get_backup_path(receipt["backup_id"])
