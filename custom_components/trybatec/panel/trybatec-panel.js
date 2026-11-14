@@ -879,8 +879,8 @@ const style = [
   ".shell{grid-template-columns:1fr;gap:14px}.nav{position:static;display:flex;flex-direction:row;overflow-x:auto;border:0;padding:4px 0;white-space:nowrap}",
   ".nav button{padding:10px 12px}.nav button span{white-space:nowrap}.intro{display:block}.columns,.grid-two,.detail-grid,.form-grid{grid-template-columns:1fr}",
   ".card{padding:15px}.cards{grid-template-columns:repeat(2,1fr)}.stat strong{font-size:23px}}",
-  ":host{--trybatec-action-bg:#25364A;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#25364A;--trybatec-neutral-bg:#F8FAFC;--trybatec-neutral-fg:#1D2939;--trybatec-neutral-border:#64748B;--trybatec-status-success:#286C32;--trybatec-status-warning:#865100;--trybatec-status-neutral:#475569;--trybatec-status-na:#59687A}",
-  ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#DAE5F0;--trybatec-action-text:#172334;--trybatec-action-border:#DAE5F0;--trybatec-neutral-bg:#213244;--trybatec-neutral-fg:#F1F5F9;--trybatec-neutral-border:#9FB2C7;--trybatec-status-success:#8ADD8F;--trybatec-status-warning:#FFD166;--trybatec-status-neutral:#CBD5E1;--trybatec-status-na:#AAB7C4}",
+  ":host{--trybatec-action-bg:#25364A;--trybatec-action-text:#FFFFFF;--trybatec-action-border:#25364A;--trybatec-neutral-bg:#F8FAFC;--trybatec-neutral-fg:#1D2939;--trybatec-neutral-border:#64748B;--trybatec-status-success:#286C32;--trybatec-status-warning:#865100;--trybatec-status-neutral:#475569;--trybatec-status-na:#59687A;--trybatec-user-action-base:#3478D4;--trybatec-user-action-fg:#2355A6;--trybatec-user-action-bg:#EAF2FF}",
+  ":host([data-trybatec-theme=\"dark\"]){--trybatec-action-bg:#DAE5F0;--trybatec-action-text:#172334;--trybatec-action-border:#DAE5F0;--trybatec-neutral-bg:#213244;--trybatec-neutral-fg:#F1F5F9;--trybatec-neutral-border:#9FB2C7;--trybatec-status-success:#8ADD8F;--trybatec-status-warning:#FFD166;--trybatec-status-neutral:#CBD5E1;--trybatec-status-na:#AAB7C4;--trybatec-user-action-fg:#A9C8FF;--trybatec-user-action-bg:#172B49}",
   ".nav-wrap{position:relative;min-width:0}.nav-forward{display:none}.menu-toggle{display:none}",
   ".primary{background:var(--trybatec-action-bg);color:var(--trybatec-action-text);border-color:var(--trybatec-action-border)}",
   ".secondary{background:var(--trybatec-neutral-bg);color:var(--trybatec-neutral-fg);border-color:var(--trybatec-neutral-border)}",
@@ -901,11 +901,15 @@ const style = [
   "button:disabled{cursor:not-allowed;opacity:.40;filter:grayscale(.45);box-shadow:none}",
   ".readiness-row.ok ha-icon{color:var(--trybatec-status-success)}.readiness-row.pending ha-icon{color:var(--trybatec-status-neutral)}",
   ".readiness-row.issue ha-icon{color:var(--trybatec-status-warning)}.readiness-row.na ha-icon{color:var(--trybatec-status-na)}",
+  ".readiness-row.user-action-needed>ha-icon,.energy-action-needed>ha-icon{color:var(--trybatec-user-action-fg)}",
+  ".readiness-row .user-action-label{font-weight:650;color:var(--trybatec-user-action-fg)}",
   ".readiness-optional{border-top:1px solid var(--divider-color,#ddd);margin-top:12px;padding-top:12px}",
   ".readiness-optional h4{font-size:14px;margin:4px 0 10px}.readiness-optional .readiness-row{border:0;padding:8px 0}",
   ".status-indicator{display:inline-flex;align-items:center;gap:7px;vertical-align:middle;font-weight:650}",
   ".status-indicator ha-icon{--mdc-icon-size:18px;flex-shrink:0}",
   ".status-indicator.passed ha-icon{color:var(--trybatec-status-success)}",
+  ".status-indicator.required{color:var(--trybatec-user-action-fg)}",
+  ".status-indicator.required ha-icon{color:var(--trybatec-user-action-fg)}",
   ".status-indicator.issue ha-icon{color:var(--trybatec-status-warning)}",
   ".status-indicator.unverified ha-icon{color:var(--trybatec-status-neutral)}",
   ".status-indicator.na ha-icon{color:var(--trybatec-status-na)}",
@@ -1832,7 +1836,7 @@ class TrybatecPanel extends HTMLElement {
     if (m.status==="en_service" && m.unit_verified!==true &&
         option && Array.isArray(option.allowed_units) && option.allowed_units.length &&
         !["conflict","unverified"].includes(option.source_unit))
-      return {kind:"issue",label:this._t("Action possible : vérifier l’unité",
+      return {kind:"required",label:this._t("Action possible : vérifier l’unité",
         "Action available: verify unit")};
     if (m.unit_verified!==true || m.status==="inconnu" ||
         (m.status==="en_service" && (m.last_index===null || m.last_index===undefined)))
@@ -1840,7 +1844,7 @@ class TrybatecPanel extends HTMLElement {
         "Contrôle non vérifié (aucune anomalie confirmée)",
         "Unverified check (no confirmed fault)")};
     if (m.status==="depose" && m.historical_last_index_raw!==undefined)
-      return {kind:"unverified",label:this._t(
+      return {kind:"required",label:this._t(
         "Index historique source à qualifier","Historical source index to qualify")};
     if (!m.first_observed_at || !m.last_source_observed_at)
       return {kind:"known",label:this._t(
@@ -1860,6 +1864,7 @@ class TrybatecPanel extends HTMLElement {
     if (action==="detail") {
       const state=this._meterActionState?.(m);
       const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
+        required:"mdi:arrow-right-circle-outline",
         unverified:"mdi:help-circle-outline",known:"mdi:information-outline"};
       const stateLabel=state?'<span class="status-indicator '+safe(state.kind)+
         '" role="status"><ha-icon aria-hidden="true" icon="'+safe(icon[state.kind]||icon.unverified)+
@@ -1891,15 +1896,20 @@ class TrybatecPanel extends HTMLElement {
     const conflict=(a.meter_options||[]).some(o=>
       o.source_unit==="conflict" &&
       active.some(m=>m.physical_key===o.physical_key));
-    const check=(kind,title,description,tab,action)=>{
-      const className=kind==="passed"?"ok":kind==="issue"?"issue":kind==="na"?"na":"pending";
+    const check=(kind,title,description,tab,action,actionPrompt="")=>{
+      const needsAction=Boolean(kind==="unverified" && action && actionPrompt);
+      const className=(kind==="passed"?"ok":kind==="issue"?"issue":kind==="na"?"na":"pending")+
+        (needsAction?" user-action-needed":"");
       const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
         unverified:"mdi:help-circle-outline",na:"mdi:minus-circle-outline"}[kind];
       const label={passed:t("Conforme","Passed"),issue:t("Anomalie détectée","Issue detected"),
         unverified:t("Non vérifié","Not verified"),na:t("Non applicable","Not applicable")}[kind];
-      return '<div class="readiness-row '+className+'"><ha-icon icon="'+icon+
+      return '<div class="readiness-row '+className+'"><ha-icon icon="'+
+        (needsAction?"mdi:arrow-right-circle-outline":icon)+
         '" aria-hidden="true"></ha-icon><div><strong>'+safe(title)+'</strong>'+
-        '<p class="muted">'+safe(label)+'</p><p>'+safe(description)+'</p>'+
+        '<p class="muted">'+safe(label)+'</p>'+ 
+        (needsAction?'<p class="user-action-label">'+safe(actionPrompt)+'</p>':"")+
+        '<p>'+safe(description)+'</p>'+
         (action?'<div class="actions"><button type="button" class="secondary" data-tab="'+
           safe(tab)+'">'+safe(action)+'</button></div>':"")+'</div></div>';
     };
@@ -1956,10 +1966,14 @@ class TrybatecPanel extends HTMLElement {
         "Verified checks are separate from optional workflows and advanced diagnostics."))+'</p>'+
       '<div class="readiness-list">'+
       check(sourceStatus,t("Synchronisation des compteurs","Meter synchronization"),
-        sourceText,"meters",activeReady?"":t("Vérifier les compteurs","Review meters"))+
+        sourceText,"meters",activeReady?"":t("Vérifier les compteurs","Review meters"),
+        sourceStatus==="unverified" && a.data_loaded===true && active.length>0?
+          t("Action à effectuer","Action required"):"")+
       check(retiredStatus,t("Historique des compteurs déposés","Retired-meter history"),
         retiredText,"meters",retiredStatus==="na"||retiredStatus==="passed"?"":t(
-          "Rechercher les relevés historiques","Search historical readings"))+
+          "Rechercher les relevés historiques","Search historical readings"),
+        retiredStatus==="unverified" && a.data_loaded===true && retired.length>0?
+          t("Action pour qualifier l’historique","Action to qualify history"):"")+
       '</div><div class="readiness-optional"><h4>'+safe(t(
         "Parcours disponibles selon vos besoins","Workflows available when needed"))+'</h4>'+
       feature(t("Versions historiques Recorder","Recorder history versions"),
@@ -3512,8 +3526,8 @@ class TrybatecPanel extends HTMLElement {
         "Automatic bulk enrollment is not yet available in this version. This view does not demonstrate additional missing prerequisites."),
     };
     const reasonRows=guidance.reasons.map(reason=>
-      '<div class="line"><ha-icon icon="'+(reason.level==="required"?
-        'mdi:information-outline':'mdi:help-circle-outline')+
+      '<div class="line'+(reason.level==="required"?" energy-action-needed":"")+'"><ha-icon icon="'+(reason.level==="required"?
+        'mdi:arrow-right-circle-outline':'mdi:help-circle-outline')+
       '" aria-hidden="true"></ha-icon> <strong>'+safe(reason.level==="required"?
         t("À faire","Action required"):t("Non vérifié","Not verified"))+
       ' :</strong> '+safe(t(reason.fr,reason.en))+
