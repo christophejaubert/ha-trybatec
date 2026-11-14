@@ -71,6 +71,7 @@ class IsolatedNativeScopedPort(HAGuardedEnergyPort):
         self.collect_count = 0
         self.inject_external_during_backup = False
         self.cancel_after_persisted_write = False
+        self.fail_after_native_update = False
 
     async def collect(self, actor, *, account, lot, selections=None):
         await self.assert_admin(actor)
@@ -111,6 +112,13 @@ class IsolatedNativeScopedPort(HAGuardedEnergyPort):
             self.cancel_after_persisted_write = False
             raise asyncio.CancelledError()
         return state
+
+
+    async def write_energy_sources(self, sources):
+        await super().write_energy_sources(sources)
+        if self.fail_after_native_update and sources:
+            self.fail_after_native_update = False
+            raise OSError("CI simulated post-update failure before flush")
 
 
 async def _setup(hass):
@@ -246,3 +254,20 @@ async def test_native_l7_external_writer_during_real_backup_prevents_commit(hass
         "stat_consumption": "sensor.ci_unrelated_post_backup",
     }]
     assert await port.read_live() == await port.read_persisted()
+
+
+@pytest.mark.asyncio
+async def test_native_l7_real_rollback_after_update_failure(hass):
+    """Revert only Trybatec's actual native update; preserve unrelated data."""
+    actor, port, _coordinator, original = await _setup(hass)
+    port.fail_after_native_update = True
+    with pytest.raises(EnergyTransactionRefused, match="rollback verified"):
+        await _preview_and_apply(actor, port)
+    assert await port.read_live() == original
+    assert await port.read_persisted() == original
+    journal = await port.read_last_journal()
+    assert journal["status"] == "rolled_back_verified"
+    assert journal["backup"]["backup_id"]
+    recovery = await async_inspect_l7_recovery_88(port, actor)
+    assert recovery["status"] == "terminal_journal_consistent"
+    assert recovery["last_terminal_result"] == "rolled_back_verified"
