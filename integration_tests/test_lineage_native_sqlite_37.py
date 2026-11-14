@@ -45,8 +45,9 @@ def hass_config_dir(hass_tmp_config_dir):
     return hass_tmp_config_dir
 
 
-async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l6(hass):
-    """Actual HA SQLite readback is real; a future-writer fence is NOT."""
+@pytest.mark.parametrize("owned", [False, True])
+async def test_native_bounded_chain_and_legacy_refusal(hass, hass_admin_user, owned):
+    """Real SQL/Store chain admits owned evidence and quarantines late drift."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="FICTIONAL physical lineage SQL case",
@@ -118,9 +119,9 @@ async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l
         entry.unique_id, preview, lot=lot, fluid=fluid,
         start=selection["start"], end=selection["end"], serials=[serial],
     )
-    native = await native36.async_read_native_scoped_selection_v2_36(
-        hass, entry.entry_id, selection,
-    )
+    reader = (native36.async_read_owned_scoped_selection_36 if owned
+              else native36.async_read_native_scoped_selection_v2_36)
+    native = await reader(hass, entry.entry_id, selection)
     assert native["journal_disk_verified"] is True
     assert native["scoped_double_readback_observed"] is True
     assert native["independent_future_writer_exclusion_verified"] is False
@@ -128,7 +129,7 @@ async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l
         "lines": [{
             "lot": lot, "fluide": fluid, "compteur": serial,
             "indexes": [{
-                "date": timestamp.isoformat(), "value": value,
+                "date": timestamp.isoformat(), "value": float(value),
             } for timestamp, value in readings],
         }],
     }]
@@ -138,9 +139,13 @@ async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l
         original_supplier_payloads=supplier,
         preview_37=preview,
         native_recorder_36=native,
-        verify_user_selection=None,
-        verify_36_day=None,
-        verify_36_absence=None,
+        verify_user_selection=(lambda decision: (
+            decision["account"] == entry.unique_id
+            and decision["statistic_id"] == statistic_id
+            and decision["physical_snapshot_digest"] == selection["physical_snapshot_digest"]
+        )) if owned else None,
+        verify_36_day=(lambda _: False) if owned else None,
+        verify_36_absence=(lambda _: False) if owned else None,
     )
     assert evidence["schema"] == "lineage_37_scoped_selection_v2"
     assert len(evidence["generations"]) == 1
@@ -152,6 +157,93 @@ async def test_genuine_native_36_sql_readback_reconciles_raw_pairs_but_refuses_l
         for d in evidence["daily"]
     )
     assert evidence["native_36_scoped_observation"]["native_sql_readback_observed"]
+    if owned:
+        assert evidence["blockers"] == []
+        assert evidence["selected_scope_reconciled"]
+        from custom_components.trybatec.energy_bulk_scoped_l6_88 import assess_scoped_selection_l6_88
+        audit = {"live": {"energy_sources": [], "device_consumption": [], "device_consumption_water": []}, "persisted": {"energy_sources": [], "device_consumption": [], "device_consumption_water": []},
+                 "native_ha_readback": True, "classified_references": [],
+                 "catalog_complete_for_selected_scope": True,
+                 "alternative_ids": [statistic_id],
+                 "external_writer_revalidation_required": True}
+        admission = assess_scoped_selection_l6_88(selection, native, evidence, audit)
+        assert admission["blockers"] == [], repr(admission["blockers"])
+        assert admission["status"] == "eligible_for_scoped_review"
+        assert not admission["activation_authorized"]
+        from copy import deepcopy
+        for field in ("once_only_enqueue", "stable_attempt_id_never_reused",
+                      "journal_disk_verified", "current_sql_readback_verified"):
+            damaged = deepcopy(native)
+            damaged["writer_contract"][field] = False
+            assert assess_scoped_selection_l6_88(selection, damaged, evidence, audit)["status"] == "blocked"
+        damaged = deepcopy(native)
+        damaged["writer_contract"]["external_writes_prevented"] = True
+        assert assess_scoped_selection_l6_88(selection, damaged, evidence, audit)["status"] == "blocked"
+        # Full native collector: actual HA auth, Energy Store, Recorder SQL,
+        # physical history builder and all three server proof producers.
+        from types import SimpleNamespace
+        from datetime import date
+        from homeassistant.components.energy.data import EnergyManager
+        from custom_components.trybatec.const import CONF_DEAL_ID
+        from custom_components.trybatec.panel_history_coverage import store_source
+        from custom_components.trybatec.energy_bulk_native_selected_l6_88 import async_collect_native_selected_state_88
+        hass.config_entries.async_update_entry(entry, data={CONF_DEAL_ID: "FICTIONAL-DEAL"})
+        coordinator = SimpleNamespace(entry=entry, data={
+            "lots": [lot], "meters": {"fictional": {
+                "lot": lot, "fluid": fluid, "serial": serial,
+                "verified_unit": "m³", "deposed": False,
+                "service_status_known": True,
+            }},
+        })
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+        manager = EnergyManager(hass)
+        await manager.async_initialize()
+        manager.data = audit["live"]
+        await manager._store.async_save(manager.data)
+        hass.data["energy_manager"] = manager
+        store_source(coordinator, start=date(2026, 2, 1), end=date(2026, 2, 3),
+                     payloads=supplier, meters=[], requests=1)
+        from custom_components.trybatec.energy_bulk_native_recorder_readback_88 import async_read_verified_native_attempt_88
+        await async_read_verified_native_attempt_88(hass, entry.entry_id, statistic_id)
+        from custom_components.trybatec.energy_bulk_native_selected_l6_88 import _native_history_review_88
+        _, rebuilt = await _native_history_review_88(hass, coordinator, lot, date(2026, 2, 2), date(2026, 2, 3))
+        assert rebuilt["lineage_preview"]["groups"][0]["blockers"] == ["service_dates_not_proven"]
+        state = await async_collect_native_selected_state_88(
+            hass, coordinator, actor=hass_admin_user, lot=lot,
+            selections=[{key: selection[key] for key in (
+                "fluid", "start", "end", "statistic_id", "generation_ids",
+            )}],
+        )
+        assert len(state.candidates) == 1, repr(state.evidence["scoped_selections_v2"][0]["lineage_37"]["blockers"])
+        # A privileged late writer can modify SQL; detect, quarantine and
+        # refuse without repairing its values or changing Energy preferences.
+        from copy import deepcopy
+        from homeassistant.components.recorder.statistics import async_add_external_statistics
+        from pytest_homeassistant.components.recorder.common import async_wait_recording_done
+        from custom_components.trybatec.energy_bulk_transaction import EnergyTransactionRefused
+        changed = deepcopy(_plan["series"][0]["rows"])
+        changed[-1]["sum"] += 7
+        changed[-1]["state"] = changed[-1]["sum"]
+        async_add_external_statistics(hass, {
+            "statistic_id": statistic_id, "source": DOMAIN,
+            "name": "FICTIONAL late writer", "unit_of_measurement": "m³",
+            "unit_class": "volume", "has_sum": True,
+            "mean_type": native36.StatisticMeanType.NONE,
+        }, changed)
+        await async_wait_recording_done(hass)
+        with pytest.raises(EnergyTransactionRefused, match="SQL Recorder re-read"):
+            await async_collect_native_selected_state_88(
+                hass, coordinator, actor=hass_admin_user, lot=lot,
+                selections=[{key: selection[key] for key in (
+                    "fluid", "start", "end", "statistic_id", "generation_ids",
+                )}],
+            )
+        journal = await native36._read_disk(hass, entry.entry_id)
+        assert native36._validate_journal(journal, entry.entry_id)[statistic_id] == "compromised"
+        assert manager.data == audit["live"]
+        rows = await native36._read_recorder_rows(hass, statistic_id, journal["attempts"][0]["snapshot"])
+        assert rows[-1]["sum"] == changed[-1]["sum"]
+        return
     assert "native_36_future_writer_exclusion_unverified" in evidence["blockers"]
     assert "native_36_daily_physical_readback_unavailable" in evidence["blockers"]
     assert not evidence["selected_scope_reconciled"]

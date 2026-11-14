@@ -1,5 +1,24 @@
 # 🤖 Convergence technique — 13 novembre 2026 / Technical convergence — 13 November 2026
 
+## 🤖 Contrat borné autorisé — 14/11/2026 / Authorized bounded contract
+
+**FR — Cette section remplace les anciennes exigences d'exclusion universelle ci-dessous.**
+L'utilisateur autorise explicitement le développement et les tests isolés d'une garantie limitée aux écritures maîtrisées par Trybatec. Les permissions de fusion, release, installation et opérations réelles demeurent distinctes. La MOE opérationnelle est portée par le présent mandat et #45 ; un ancien commentaire GitHub n'accorde aucune permission.
+
+- Le reçu serveur `trybatec_owned_writers_v1` utilise le mode `native_trybatec_owned_readback` et l'état `verified_trybatec_once`. Il conserve **explicitement faux** l'empêchement des writers externes et la prétention de redémarrage réellement effectué.
+- Identifiant opaque par tentative, journal persistant avec chaîne d'événements et empreinte, intention durable avant mise en file, jamais de rejeu ambigu. Relire disque, SQL, métadonnées, décisions exactes, catalogue borné et empreinte du journal avant admission. Une dérive d'une tentative vérifiée devient `compromised` terminal : quarantaine logique, sans réparation des statistiques.
+- La filiation relit les paires d'index de chaque compteur physique et ses contributions journalières. Les dates de service globales inconnues restent inconnues ; elles ne bloquent pas à elles seules une sélection vérifiée. Les contradictions, bornes connues, chevauchements, approbations et sommes restent contrôlés.
+- Le collecteur #88 consomme le reçu natif #36, sans fabriquer un reçu d'immutabilité à partir d'une simple observation. Correction du lecteur SQL : prise en charge stricte des horodatages Unix natifs de Core.
+- Tests HA isolés avec SQLite et Store réels : sélection mesurée positive #36 → #37 → L6, auth native et préférences Énergie réellement persistées ; modification externe tardive puis refus/quarantaine sans réparation ; réservations concurrentes, interruption après intention, refus de rejeu et récupération sur nouvel ID. Les tests d'interruption reconstruisent l'état depuis le disque **sans prétendre redémarrer un processus HA complet**.
+
+**Limites résiduelles :** aucun verrou global contre les composants privilégiés HA. Les contrôles observent un état à un instant donné ; une modification future impose une nouvelle revalidation. La chaîne de hachage ne protège pas contre un administrateur qui réécrit intégralement données et journal. Les reçus sont internes au serveur, jamais des preuves authentifiées fournies par le navigateur. Ce lot démontre L6 positif, **pas une transaction L7 native positive ni une restauration native complète**. L7 reste désactivé ; les tests bout en bout d'écriture/sauvegarde/reprise Énergie et la qualification du contrat borné Énergie restent à terminer. Aucune activation sur installation réelle.
+
+**EN — This section supersedes earlier universal writer-exclusion requirements below.**
+The user explicitly authorized development and isolated testing of a contract limited to Trybatec-controlled writes. Merge, release, installation and real operations remain separately authorized. The server receipt records scoped ownership, durable intent, once-only enqueue, retained attempt IDs, disk/SQL/metadata/approval/catalog readback and journal revision; external writer prevention and actual process restart remain explicitly false. Verified drift becomes terminal logical quarantine without repairing statistics. Physical lineage checks same-meter index pairs, selected daily contributions, known boundaries, overlap and approval revisions; unknown lifetime service dates remain unknown rather than preventing a proven selected interval. L6 now consumes the real bounded producer, and the SQL reader handles native Unix timestamps.
+
+Actual isolated HA SQLite/Store tests exercise positive Recorder → lineage → L6, native auth, persisted Energy preferences, late external drift/refusal/quarantine, concurrent reservations, interruption after durable intent, replay refusal and fresh-ID recovery. Rehydration is not a full process restart. Privileged external writers and wholesale journal tampering cannot be excluded; receipts are server-internal and must be revalidated. **Native positive L7 write/backup/recovery and full restoration qualification remain outstanding.** Production write gates remain disabled. No merge, release or real HA modification is performed by this change. Exact-SHA CI must be checked after committing.
+
+
 <!-- BO-DELIVERY-CRITERIA-20261113 -->
 ## 🤖 Arbitrages business owner — critères de livraison / Business-owner delivery gates (13/11/2026)
 

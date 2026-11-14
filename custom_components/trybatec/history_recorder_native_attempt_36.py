@@ -988,6 +988,71 @@ async def async_native_attempt_proof_36(
         }
 
 
+async def async_read_owned_scoped_selection_36(
+    hass: Any, entry_id: str, selection: dict[str, Any],
+) -> dict[str, Any]:
+    """Revalidate owned writes and report bounded guarantees honestly.
+
+    Dormant server API. May durably quarantine a detected integrity drift,
+    never repairs Recorder or Energy. No external-writer exclusion is claimed.
+    The old observational API remains unchanged for compatibility.
+    """
+    from .recorder_owned_contract_36 import OWNED_CONTRACT, OWNED_MODE, OWNED_STATE
+
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if (not isinstance(selection, dict) or entry is None
+            or selection.get("account") != entry.unique_id):
+        raise ValueError("Owned selection requires the authenticated account")
+    stat = selection.get("statistic_id")
+    if not isinstance(stat, str) or not stat.startswith("trybatec:logical_"):
+        raise ValueError("Only owned Trybatec attempt IDs can be inspected")
+    observed = await async_native_attempt_proof_36(hass, entry_id, stat)
+    if observed.get("status") != "observed_persisted_exactly":
+        raise ValueError("Owned Recorder attempt is unresolved or compromised")
+    proof = await async_read_native_scoped_selection_v2_36(hass, entry_id, selection)
+    async with _lock(hass):
+        journal = await _read_disk(hass, entry_id)
+        states = _validate_journal(journal, entry_id)
+        record = _find(journal, stat)
+        _account_binding(hass, entry_id, record)
+        if (states[stat] != "verified"
+                or record["snapshot_hash"] != selection["rows_hash"]
+                or proof.get("native_journal_hash") != _event_hash(journal)):
+            raise ValueError("Owned attempt changed during contract collection")
+        relevant = [r for r in journal["attempts"] if r["logical_id"] == record["logical_id"]]
+        if any(states[r["statistic_id"]] not in ("verified", "quarantined", "compromised")
+               for r in relevant):
+            raise ValueError("Owned competing attempt remains unresolved")
+        # Legacy observations are not promoted into the new owned contract.
+        if any(v["state"] == "legacy_unverified_observation" for v in proof["versions"]):
+            raise ValueError("Legacy versions require explicit reconciliation")
+        proof.update({
+            "mode": OWNED_MODE, "selected_version_state": OWNED_STATE,
+            "selected_statistic_id_owned_by_one_scope": True,
+            "version_catalog_complete_for_selected_scope": True,
+            "durable_disk_and_sql_readback_verified": True,
+            "daily": deepcopy(record["daily"]),
+            "versions": [{"statistic_id": r["statistic_id"],
+                          "state": OWNED_STATE if r["statistic_id"] == stat else "quarantined"}
+                         for r in relevant],
+            "writer_contract": {
+                "schema": OWNED_CONTRACT, "scope": "trybatec_owned_writers_only",
+                "external_writes_prevented": False,
+                "external_drift_policy": "refuse_and_quarantine_no_repair",
+                "durable_intent_before_enqueue": True, "once_only_enqueue": True,
+                "stable_attempt_id_never_reused": True, "journal_disk_verified": True,
+                "current_sql_readback_verified": True, "owned_catalog_verified": True,
+                "journal_hash": _event_hash(journal),
+            },
+        })
+        for day in proof["daily"]:
+            for field in ("measured", "estimated", "total"):
+                day[field] = str(Decimal(str(day[field])).quantize(Decimal("0.000001")))
+        proof["metadata"].update({"has_sum": True, "has_data": True,
+                                  "device_class": "energy" if record["scope"]["fluid"] == "CET" else "water"})
+        return proof
+
+
 async def async_read_native_scoped_selection_v2_36(
     hass: Any, entry_id: str, selection: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1191,6 +1256,7 @@ async def async_read_native_scoped_selection_v2_36(
             "versions": versions,
             "journal_disk_verified": True,
             "scoped_double_readback_observed": True,
+            "native_journal_hash": _event_hash(journal),
             "native_decision_store_crosscheck_verified": True,
             "selected_daily_conservation_verified": True,
             "single_verified_native_generation_observed": True,

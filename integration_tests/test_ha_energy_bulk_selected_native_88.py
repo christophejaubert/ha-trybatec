@@ -203,9 +203,10 @@ def arrange(monkeypatch, *, reconciled=True, third_party_water=False):
         assert scope["statistic_id"] == SID
         assert proof["rows_hash"] == "a" * 64
         hass.events.append("independent-36-v2-synthetic")
+        return selected._recorder_envelope_88(scope, proof)
 
     monkeypatch.setattr(
-        selected, "_assert_native_scoped_v2_contract_88", synthetic_future_36,
+        selected, "_read_owned_scoped_contract_88", synthetic_future_36,
     )
     monkeypatch.setattr(
         port7.HAGuardedEnergyPort, "collect_native_scope_observations",

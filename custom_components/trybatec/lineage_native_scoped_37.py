@@ -448,8 +448,19 @@ def prepare_native_scoped_lineage_37(
         reasons.add("selected_physical_unit_incompatible")
     if group.get("status") == "blocked_incomplete_physical_series":
         reasons.add("selected_physical_variant_incomplete")
+    from .recorder_owned_contract_36 import (
+        OWNED_MODE, OWNED_STATE, owned_recorder_contract_verified,
+    )
+    native = native_recorder_36 if isinstance(native_recorder_36, Mapping) else {}
+    owned = owned_recorder_contract_verified(native)
     group_blockers = group.get("blockers")
-    if not isinstance(group_blockers, list) or group_blockers:
+    # Unknown whole-life service dates do not invalidate observed daily pairs
+    # within this explicit selection. Retain the uncertainty in generations;
+    # all raw pairs, known bounds, overlaps and approvals are checked below.
+    scoped_blockers = (set(group_blockers) - {"service_dates_not_proven"}
+                       if owned and isinstance(group_blockers, list)
+                       else group_blockers)
+    if not isinstance(group_blockers, list) or scoped_blockers:
         reasons.add("selected_physical_bridge_has_unresolved_blockers")
     unit = _UNITS[fluid]
     generations = []
@@ -541,9 +552,9 @@ def prepare_native_scoped_lineage_37(
     )):
         reasons.add("trusted_native_decision_verifiers_unavailable")
 
-    native = native_recorder_36 if isinstance(native_recorder_36, Mapping) else {}
+    expected_state = OWNED_STATE if owned else "verified_immutable"
     if (native.get("schema") != "history_36_scoped_selection_v2"
-            or native.get("mode") != "native_immutable_readback"
+            or native.get("mode") != (OWNED_MODE if owned else "native_immutable_readback")
             or native.get("account") != account or native.get("lot") != lot
             or native.get("fluid") != fluid
             or native.get("statistic_id") != stat
@@ -554,14 +565,19 @@ def prepare_native_scoped_lineage_37(
     for key in ("selected_series_persisted", "post_restart_readback_verified",
                 "selected_statistic_id_owned_by_one_scope",
                 "version_catalog_complete_for_selected_scope"):
-        if native.get(key) is not True:
+        if key == "post_restart_readback_verified" and owned:
+            # A fresh disk/SQL read is required on every call, including after
+            # restart. Do not claim a restart happened when it did not.
+            if native.get("durable_disk_and_sql_readback_verified") is not True:
+                reasons.add("native_36_owned_readback_unverified")
+        elif native.get(key) is not True:
             reasons.add("native_36_" + key + "_unverified")
     if (native.get("pending_for_selected_id") is not False
             or native.get("quarantined_selected_id") is not False
-            or native.get("selected_version_state") != "verified_immutable"):
+            or native.get("selected_version_state") != expected_state):
         reasons.add("selected_recorder_revision_not_immutable")
     # Disk/SQL observations do not exclude a late Home Assistant writer.
-    if native.get("independent_future_writer_exclusion_verified") is not True:
+    if not owned and native.get("independent_future_writer_exclusion_verified") is not True:
         reasons.add("native_36_future_writer_exclusion_unverified")
 
     daily = group.get("rows")
@@ -857,8 +873,8 @@ def prepare_native_scoped_lineage_37(
             reasons.add("selected_statistic_version_reused_or_duplicated")
         else:
             observed_version_ids.add(sid)
-        if (sid == stat and version.get("state") != "verified_immutable"
-                or sid != stat and version.get("state") == "verified_immutable"):
+        if (sid == stat and version.get("state") != expected_state
+                or sid != stat and version.get("state") == expected_state):
             reasons.add("physical_selected_version_not_exclusive")
         if sid != stat and version.get("state") not in (
             "archived_immutable", "quarantined",
@@ -885,7 +901,7 @@ def prepare_native_scoped_lineage_37(
             "independent_future_writer_exclusion_verified": (
                 native.get("independent_future_writer_exclusion_verified") is True
             ),
-            "eligible_for_l6": False,
+            "eligible_for_l6": owned and not reasons,
             "writes": False,
         }
     result = {

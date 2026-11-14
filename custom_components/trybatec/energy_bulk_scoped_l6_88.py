@@ -120,8 +120,12 @@ def assess_scoped_selection_l6_88(
             _scope_matches(source, selection, schema, issues)
         except (ValueError, TypeError, OverflowError):
             issues.add(schema + "_invalid")
-    if (recorder.get("mode") != "native_immutable_readback"
-            or recorder.get("selected_version_state") != "verified_immutable"
+    from .recorder_owned_contract_36 import OWNED_MODE, OWNED_STATE, owned_recorder_contract_verified
+
+    owned = owned_recorder_contract_verified(recorder)
+    expected_state = OWNED_STATE if owned else "verified_immutable"
+    if (recorder.get("mode") != (OWNED_MODE if owned else "native_immutable_readback")
+            or recorder.get("selected_version_state") != expected_state
             or recorder.get("selected_series_persisted") is not True
             or not (
                 recorder.get("post_restart_readback_verified") is True
@@ -164,7 +168,7 @@ def assess_scoped_selection_l6_88(
             sid, state = v.get("statistic_id"), v.get("state")
             if (not isinstance(sid, str) or not sid.startswith("trybatec:")
                     or len(sid) > 256 or sid in candidate_ids
-                    or state not in ("verified_immutable", "quarantined", "archived_immutable")):
+                    or state not in (expected_state, "quarantined", "archived_immutable")):
                 issues.add("version_reused_duplicated_or_unclassified")
                 continue
             candidate_ids.add(sid)
@@ -173,7 +177,7 @@ def assess_scoped_selection_l6_88(
             if state == "quarantined":
                 quarantine_count += 1
         if (len(selected_versions) != 1
-                or selected_versions[0].get("state") != "verified_immutable"):
+                or selected_versions[0].get("state") != expected_state):
             issues.add("selected_version_is_not_unique_and_verified")
     alt_ids = audit.get("alternative_ids")
     if (audit.get("catalog_complete_for_selected_scope") is not True

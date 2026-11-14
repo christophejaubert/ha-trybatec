@@ -4,7 +4,8 @@ Every input except the *choice of scope* comes from HA server-owned stores,
 Recorder SQL and qualified C11 provider evidence. No browser boolean can
 assert provenance, persistence, approvals, alternative coverage or Energy
 disjointness. Incomplete source evidence raises a refusal, never zero-fills.
-This module does not register, mutate, create backups or enable L7.
+This module does not register, write Recorder/Energy, create backups or enable L7.
+A detected drift on a previously verified attempt is durably quarantined by #36.
 """
 from __future__ import annotations
 
@@ -175,6 +176,20 @@ async def _assert_native_scoped_v2_contract_88(
         raise EnergyTransactionRefused(
             "Native #36 cannot exclude later Recorder writers for selected ID"
         )
+
+
+async def _read_owned_scoped_contract_88(hass, entry_id, selection, witness):
+    """Consume #36's actual bounded contract, never project a SQL observation."""
+    from .history_recorder_native_attempt_36 import async_read_owned_scoped_selection_36
+    from .recorder_owned_contract_36 import owned_recorder_contract_verified
+
+    native = await async_read_owned_scoped_selection_36(hass, entry_id, selection)
+    if (not owned_recorder_contract_verified(native)
+            or native.get("selection_digest") != _digest(selection)
+            or native.get("metadata", {}).get("persisted_readback_hash") != witness["rows_hash"]
+            or native.get("unit") != witness["unit"]):
+        raise EnergyTransactionRefused("Owned Recorder contract disagrees with independent SQL readback")
+    return native
 
 
 def _recorder_envelope_88(
@@ -415,6 +430,12 @@ async def async_collect_native_selected_state_88(
         proof = observed["fluids"][selection["fluid"]]["selection_intent"]
         if (not isinstance(proof, dict)
                 or proof.get("native_recorder_sql_readback_verified") is not True):
+            if isinstance(proof, dict) and proof.get("native_attempt_already_verified") is True:
+                # Persist a terminal integrity event, never repair external rows.
+                from .history_recorder_native_attempt_36 import async_native_attempt_proof_36
+                await async_native_attempt_proof_36(
+                    hass, coordinator.entry.entry_id, selection["statistic_id"],
+                )
             raise EnergyTransactionRefused(
                 "Selected version has not passed native SQL Recorder re-read"
             )
@@ -460,10 +481,9 @@ async def async_collect_native_selected_state_88(
             **witness, "versions": checked_versions,
             "version_catalog_sql_verified": True,
         }
-        await _assert_native_scoped_v2_contract_88(
+        native36 = await _read_owned_scoped_contract_88(
             hass, coordinator.entry.entry_id, scope, witness,
         )
-        native36 = _recorder_envelope_88(scope, witness)
 
         # The user selected a scope in an authenticated admin websocket.
         # An actual Energy mutation still requires a separate explicit

@@ -45,6 +45,13 @@ async def _native_rows_88(hass: Any, stat: str, expected: list[list]) -> list[di
                 if value.tzinfo is None or value.utcoffset() is None:
                     raise ValueError("Recorder returned a timezone-naive bucket")
                 record = {**record, "start": value.isoformat()}
+            elif type(value) in (int, float):
+                # Core SQL returns Unix seconds; service responses may use ISO.
+                try:
+                    stamp = datetime.fromtimestamp(value, tz=timezone.utc)
+                except (ValueError, OverflowError, OSError) as exc:
+                    raise ValueError("Recorder bucket timestamp is invalid") from exc
+                record = {**record, "start": stamp.isoformat()}
             elif not isinstance(value, str):
                 raise ValueError("Recorder bucket has no timestamp")
             rows.append(record)

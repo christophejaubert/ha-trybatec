@@ -6,6 +6,12 @@
 >
 > Code/doc publiques uniquement ; aucune donnée réelle d'installation, de logement, d'historique ou de compte fournisseur.
 
+## 🤖 Mise à jour bornée / Bounded update — 14/11/2026
+
+**FR :** le contrat autorisé porte désormais sur les seules écritures Trybatec. Le chemin natif mesuré Recorder → filiation → admission L6 est testé avec SQLite/Store HA réels et données fictives, sans remplacer les producteurs de preuves. Le journal traite concurrence, interruption et dérive tardive sans réparation destructive. Voir [garanties et limites actuelles](CONVERGENCE_CURRENT_FR_EN.md). La transaction L7 positive, sauvegarde/restauration et reprise natives restent à qualifier ; aucune activation réelle ni publication. Les références antérieures ci-dessous décrivent les étapes historiques et ne rétablissent pas une exigence d'exclusion universelle des writers externes.
+
+**EN:** the authorized contract now covers Trybatec-controlled writes only. Actual isolated HA SQLite/Store and synthetic inputs exercise measured Recorder → physical lineage → positive L6 with real proof producers, plus concurrency, interruption and late-drift quarantine without destructive repair. [Current guarantees and limits](CONVERGENCE_CURRENT_FR_EN.md). Native positive L7, backup/restore and recovery remain unqualified; no real activation or release. Earlier references below are historical, not a renewed universal external-writer exclusion requirement.
+
 ## FR — Périmètre de la candidate (projet de notes de release)
 
 - **Développé / intégré dans #164 :** panneau C1–C11 et mutualisation de découverte historique par compte ; options de tarifs et cohérence visuelle FR/EN ; identité des compteurs et filiation physique ; journal Recorder, contrôle de conservation par jour, SQLite HA isolé ; collecteur natif de sélections admin L6, relecture SQL, validation de propositions Énergie, WebSocket et moteur L7 isolé. Ces fonctionnalités ne sont pas toutes **utilisables en production** : distinguer code de fonction activée.

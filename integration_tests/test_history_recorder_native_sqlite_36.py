@@ -285,3 +285,67 @@ async def test_native_sqlite_missing_journal_blocks_reinitialization(
             initialize_journal=True,
         )
     assert not journal_path.exists()
+
+
+async def test_owned_concurrent_reservation_and_interrupted_handoff_real_sqlite(
+    hass, native_sql_fixture, monkeypatch,
+):
+    """Durable intent survives cancelled handoff; recovery uses a fresh ID."""
+    import asyncio
+
+    entry = native_sql_fixture
+    plan = _synthetic_plan(entry.unique_id)
+    logical = plan["series"][0]["logical_id"]
+
+    async def reserve():
+        return await native.async_reserve_native_attempt_36(
+            hass, entry.entry_id, plan, logical,
+            expected_plan_fingerprint=plan["fingerprint"],
+            confirm=True, confirm_revision=True, initialize_journal=True,
+        )
+
+    results = await asyncio.gather(reserve(), reserve(), return_exceptions=True)
+    accepted = [r for r in results if isinstance(r, dict)]
+    assert len(accepted) == 1
+    assert sum(isinstance(r, ValueError) for r in results) == 1
+    abandoned = accepted[0]["statistic_id"]
+
+    async def enqueue(stat):
+        return await native.async_enqueue_native_attempt_36(
+            hass, entry.entry_id, plan, stat,
+            expected_plan_fingerprint=plan["fingerprint"],
+            confirm=True, backup_confirmed=True,
+        )
+
+    def interrupted(*args, **kwargs):
+        raise asyncio.CancelledError("FICTIONAL interruption after durable intent")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(native, "async_add_external_statistics", interrupted)
+        with pytest.raises(asyncio.CancelledError):
+            await enqueue(abandoned)
+    # Drop process-local lock only; disk journal remains authoritative.
+    # This models state rehydration, not a full HA process restart.
+    native._LOCKS.pop(hass, None)
+    journal = await native._read_disk(hass, entry.entry_id)
+    assert native._validate_journal(journal, entry.entry_id)[abandoned] == "enqueue_intent"
+    with pytest.raises(ValueError, match="no requeue"):
+        await enqueue(abandoned)
+    with pytest.raises(ValueError, match="Prior attempt unresolved"):
+        await reserve()
+    await native.async_quarantine_native_attempt_36(
+        hass, entry.entry_id, abandoned, reason="interrupted",
+    )
+    replacement = (await reserve())["statistic_id"]
+    assert replacement != abandoned
+    await enqueue(replacement)
+    await async_wait_recording_done(hass)
+    result = await native.async_native_attempt_proof_36(hass, entry.entry_id, replacement)
+    assert result["status"] == "observed_persisted_exactly"
+    with pytest.raises(ValueError, match="no requeue"):
+        await enqueue(replacement)
+    journal = await native._read_disk(hass, entry.entry_id)
+    assert native._validate_journal(journal, entry.entry_id)[abandoned] == "quarantined"
+    assert await native._read_recorder_rows(
+        hass, abandoned, journal["attempts"][0]["snapshot"],
+    ) == []
