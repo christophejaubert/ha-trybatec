@@ -91,7 +91,11 @@ assert.match(style,/--trybatec-user-action-fg:#2355A6/);
 // Retired does not require current index; raw unqualified history is actionable.
 assert.equal(p._meterActionState.call(f,retired).kind,"known");
 retired.historical_last_index_raw=40;
-assert.equal(p._meterActionState.call(f,retired).kind,"required");
+assert.equal(p._meterActionState.call(f,retired).kind,"unverified");
+assert.equal(p._meterActionState.call(f,retired).actionRequired,true);
+const retiredRow=p._meterRow.call(f,retired,1,"detail");
+assert.match(retiredRow,/status-indicator required/);
+assert.match(retiredRow,/mdi:arrow-right-circle-outline/);
 // A source-unit conflict is NOT presented as a normal blue action.
 account.meter_options[0].source_unit="conflict";
 assert.notEqual(p._meterActionState.call(f,current).kind,"required");
