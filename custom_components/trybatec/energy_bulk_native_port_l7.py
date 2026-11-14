@@ -1,4 +1,4 @@
-"""Guarded Home Assistant 2026.11.1 L7 persistence/backup port.
+"""Guarded Home Assistant 2026.11.0/2026.11.1 L7 persistence/backup port.
 
 Not registered as a websocket, service, setup hook, or background job.
 The existing read-only L6 collector still rejects *all* new sources until
@@ -21,14 +21,16 @@ from .energy_bulk_native_observer_l7 import HAReadOnlyEnergyPort
 from .energy_bulk_transaction import EnergyRecoveryRequired, EnergyTransactionRefused
 from .energy_switch import preferences_fingerprint
 
-_CORE_VERSION = "2026.11.1"
+# Reviewed HA 2026.11.0 and 2026.11.1 have matching Energy, backup and storage APIs.
+# Keep all other Core releases fail-closed until separately qualified.
+_SUPPORTED_CORE_VERSIONS = frozenset({"2026.11.0", "2026.11.1"})
 _MAX_JOURNAL_BYTES = 900_000
 _LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
 
 def _core_only() -> None:
     from homeassistant import __version__
-    if __version__ != _CORE_VERSION:
+    if __version__ not in _SUPPORTED_CORE_VERSIONS:
         raise EnergyTransactionRefused("Native Energy port needs a newly qualified HA Core version")
 
 
