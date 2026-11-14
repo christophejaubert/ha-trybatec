@@ -913,7 +913,10 @@ const style = [
   ".meter-detail-field .field-context{margin-top:7px;color:var(--secondary-text-color);font-size:12px;line-height:1.4}",
   ".meter-detail-field .context-button{display:inline-flex;align-items:center;gap:6px;margin-top:9px;padding:7px 10px;font-size:12px;max-width:100%}",
   ".meter-detail-field .context-button ha-icon{--mdc-icon-size:17px}",
-  ".meter-history-context{margin:0 0 15px;padding:12px;border:1px solid var(--trybatec-section-border);border-radius:10px}",
+  ".meter-history-context{margin:0 0 16px;padding:12px;border:1px solid var(--trybatec-section-border);border-radius:10px}",
+  ".history-discovery{margin-bottom:16px}",
+  ".meter-return-button{display:inline-flex;align-items:center;gap:7px}",
+  ".meter-return-button ha-icon{--mdc-icon-size:19px;flex-shrink:0}",
   ".fluid-token{display:inline-flex;align-items:center;gap:5px;color:var(--fluid-fg,var(--primary-text-color));font-weight:650;white-space:normal}",
   ".fluid-token ha-icon{--mdc-icon-size:19px;flex-shrink:0}",
   ".meter-history-context.fluid-surface{border-top:4px solid var(--fluid-fg,var(--trybatec-section-border));background:var(--fluid-bg,var(--card-background-color))}",
@@ -1343,7 +1346,8 @@ class TrybatecPanel extends HTMLElement {
         (place==="tariffs"?"data-tariff-years-retry":"data-historical-scan")+'>'+
         safe(t("Rechercher les relevés de tous les compteurs",
           "Search historical readings for all meters"))+'</button>';
-    return '<div class="notice" role="region" aria-label="'+
+    return '<div class="notice'+(place==="history"?" history-discovery":"")+
+      '" role="region" aria-label="'+
       safe(t("Découverte historique du compte","Account history discovery"))+'">'+
       '<p role="status"><strong>'+safe(t("Découverte historique : ","History discovery: ")+
         labels[status])+'</strong></p>'+
@@ -3019,7 +3023,8 @@ class TrybatecPanel extends HTMLElement {
         '<p class="muted">'+safe(this._t(
           "L’analyse est lancée séparément et couvre le compte ; seuls les résultats de ce compteur sont affichés ici.",
           "The analysis must be started separately and covers the account; only this meter's results are displayed here."))+
-        '</p><div class="actions"><button type="button" class="secondary" data-tab="meters">'+
+        '</p><div class="actions"><button type="button" class="secondary meter-return-button" data-tab="meters">'+
+        '<ha-icon icon="mdi:arrow-left-circle-outline" aria-hidden="true"></ha-icon>'+
         safe(this._t("Retour au compteur","Back to meter"))+'</button>'+
         '<button type="button" class="secondary" data-history-context-clear>'+
         safe(this._t("Afficher tous les compteurs","Show all meters"))+'</button></div></section>':"")+
