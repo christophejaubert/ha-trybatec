@@ -17,6 +17,19 @@ from custom_components.trybatec.energy_bulk_native_port_l7 import HAGuardedEnerg
 from custom_components.trybatec.energy_bulk_transaction import EnergyTransactionRefused
 
 
+
+@pytest.fixture
+def hass_storage():
+    """Use native temporary HA .storage disk writes rather than patched memory."""
+    return {}
+
+
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir):
+    """Never touch a production Home Assistant configuration directory."""
+    return hass_tmp_config_dir
+
+
 @pytest.mark.asyncio
 async def test_ha_2026_11_0_native_port_reads_real_energy_disk_without_mutation(hass):
     """Use the CI-pinned real HA EnergyManager and its actual .storage Store."""
