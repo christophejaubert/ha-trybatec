@@ -23,7 +23,7 @@ def _backup(**changes):
         failed_agent_ids=[],
         failed_folders=[],
         failed_addons=[],
-        agents={"hassio.local": SimpleNamespace(size=100_000, protected=True)},
+        agents={"example.local": SimpleNamespace(size=100_000, protected=True)},
     )
     record.update(changes)
     return SimpleNamespace(**record)
@@ -54,7 +54,7 @@ def test_real_manager_backup_metadata_is_read_only_and_complete():
     assert record["backup_id"] == "synthetic-backup"
     assert record["homeassistant_included"] is True
     assert record["database_included"] is True
-    assert record["agents"]["hassio.local"]["size"] == 100_000
+    assert record["agents"]["example.local"]["size"] == 100_000
     assert record["date"]
 
 
@@ -71,8 +71,8 @@ def test_real_manager_backup_metadata_is_read_only_and_complete():
     {"failed_addons": ["music"]},
     {"failed_addons": None},
     {"agents": {}},
-    {"agents": {"hassio.local": SimpleNamespace(size=0, protected=True)}},
-    {"agents": {"hassio.local": SimpleNamespace(size=-2, protected=True)}},
+    {"agents": {"example.local": SimpleNamespace(size=0, protected=True)}},
+    {"agents": {"example.local": SimpleNamespace(size=-2, protected=True)}},
     {"backup_id": "other-backup"},
 ])
 def test_stale_incomplete_or_wrong_backup_is_rejected(override):
@@ -82,7 +82,7 @@ def test_stale_incomplete_or_wrong_backup_is_rejected(override):
 
 def test_ha_backup_listing_errors_fail_closed():
     with pytest.raises(ValueError, match="agent errors"):
-        _check(errors={"hassio.local": RuntimeError("disconnected")})
+        _check(errors={"example.local": RuntimeError("disconnected")})
 
 
 def test_missing_backup_is_rejected():
