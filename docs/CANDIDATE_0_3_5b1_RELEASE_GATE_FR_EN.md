@@ -6,6 +6,13 @@
 >
 > Code/doc publiques uniquement ; aucune donnée réelle d'installation, de logement, d'historique ou de compte fournisseur.
 
+
+## 🤖 Nouvelle preuve L7 isolée / New isolated L7 evidence — 14/11/2026
+
+**FR :** après la première mise à jour bornée ci-dessous, #158 a qualifié avec **vrai** HA Core 2026.11.0 : archive native localisée, lecture/décryptabilité appropriée aux archives non chiffrées, restauration hors ligne dans une cible CI distincte, transaction additive L7 avec journal et réécriture Energy réelles, rollback après échec injecté, crash après persistance et relecture du journal, refus d'une archive corrompue et préservation des modifications tierces. [CI #158 SHA exact](https://github.com/christophejaubert/ha-trybatec/actions/runs/43578096175), 231 tests d'intégration réussis et 2 ignorés. #164 a intégré ces modules/tests ; la CI sur son SHA final reste obligatoire. Les preuves de sélection L6 **dans le test transactionnel** sont fictives, même si le collecteur natif L6 fait l'objet d'autres essais SQLite positifs. La confirmation WebSocket/écriture réelle L7 reste **désactivée**. Aucune restauration ou écriture sur l'installation utilisateur.
+
+**EN:** The earlier bounded-contract note below predates new native L7 isolation evidence. Real HA Core 2026.11.0 backup/archive, separate-target startup restoration, additive Energy transaction, persistent journal, rollback, cancellation, external writer conflict and corrupted archive refusal are exercised with synthetic L6 **inputs**. #158 [exact SHA CI](https://github.com/christophejaubert/ha-trybatec/actions/runs/43578096175) passed 231 isolated HA integration tests (2 skipped). #164 integrated the owner changes. This is NOT native full selected Recorder-to-L7 E2E qualification nor a production restart or authorization. Production write route remains hard-disabled. Recheck #164 exact final SHA CI.
+
 ## 🤖 Mise à jour bornée / Bounded update — 14/11/2026
 
 **FR :** le contrat autorisé porte désormais sur les seules écritures Trybatec. Le chemin natif mesuré Recorder → filiation → admission L6 est testé avec SQLite/Store HA réels et données fictives, sans remplacer les producteurs de preuves. Le journal traite concurrence, interruption et dérive tardive sans réparation destructive. Voir [garanties et limites actuelles](CONVERGENCE_CURRENT_FR_EN.md). La transaction L7 positive, sauvegarde/restauration et reprise natives restent à qualifier ; aucune activation réelle ni publication. Les références antérieures ci-dessous décrivent les étapes historiques et ne rétablissent pas une exigence d'exclusion universelle des writers externes.
