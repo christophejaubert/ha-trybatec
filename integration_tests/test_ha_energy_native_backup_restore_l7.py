@@ -95,9 +95,14 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     assert not backed.failed_folders
     assert receipt["agent_id"] in backed.agents
     assert backed.agents[receipt["agent_id"]].size > 0
-    await manager.async_can_decrypt_on_download(
-        receipt["backup_id"], agent_id=receipt["agent_id"], password=None,
-    )
+    assert backed.protected is False
+    from homeassistant.components.backup.util import validate_password
+    native_archive_path = manager.local_backup_agents[
+        receipt["agent_id"]
+    ].get_backup_path(receipt["backup_id"])
+    assert await hass.async_add_executor_job(
+        validate_password, native_archive_path, None,
+    ) is True
     assert await port.verify_backup(receipt) is True
 
     backup_path = manager.local_backup_agents[receipt["agent_id"]].get_backup_path(
