@@ -41,6 +41,9 @@ class FakeHass:
     async def _get_user(self, user_id):
         return SimpleNamespace(id=user_id, is_admin=user_id == "synthetic-admin")
 
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
 
 class FakeEnergy:
     def __init__(self, hass):
@@ -61,6 +64,7 @@ class FakeEnergy:
 class FakeBackupItem:
     backup_id: str
     extra_metadata: dict
+    protected: bool = False
     homeassistant_included: bool = True
     database_included: bool = True
     failed_addons: tuple = ()
@@ -71,7 +75,9 @@ class FakeBackupItem:
 
 class FakeBackup:
     def __init__(self):
-        self.local_backup_agents = {"local": object()}
+        self.local_backup_agents = {"local": SimpleNamespace(
+            get_backup_path=lambda ident: "synthetic-ci-backup:" + ident,
+        )}
         self.items = {}
         self.fail_create = False
         self.fail_decrypt = False
@@ -122,6 +128,15 @@ def install_stubs(monkeypatch, hass):
     energy_data.ENERGY_SOURCE_SCHEMA = check
     backup = ModuleType("homeassistant.components.backup")
     backup.async_get_manager = lambda _: hass.backups
+    backup.__path__ = []
+    backup_util = ModuleType("homeassistant.components.backup.util")
+
+    def validate_password(archive, password):
+        assert archive == "synthetic-ci-backup:synth-backup" and password is None
+        hass.backups.calls.append("validate_local_archive")
+        return not hass.backups.fail_decrypt
+
+    backup_util.validate_password = validate_password
     helpers = ModuleType("homeassistant.helpers")
     helpers.__path__ = []
     storage = ModuleType("homeassistant.helpers.storage")
@@ -137,7 +152,7 @@ def install_stubs(monkeypatch, hass):
 
     storage.Store = Store
     for module in (homeassistant, ha_const, components, energy, energy_data, backup,
-                   helpers, storage):
+                   backup_util, helpers, storage):
         monkeypatch.setitem(sys.modules, module.__name__, module)
 
     async def read(_h, key, **kwargs):
@@ -197,7 +212,7 @@ def test_native_backup_journal_bulk_write_flush_and_guarded_rollback(monkeypatch
     run(exercise())
     assert hass.events == ["journal_save", "native_update", "native_flush",
                            "native_update", "native_flush", "journal_save"]
-    assert "decrypt_check" in hass.backups.calls
+    assert "validate_local_archive" in hass.backups.calls
 
 
 def test_unprepared_or_malformed_journal_never_writes(monkeypatch):
