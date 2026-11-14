@@ -248,14 +248,20 @@ def _native_source_proposals_88(preview: Any, plan: Any) -> dict[str, Any]:
         rows = []
         for action, source in zip(actions, proposed[len(previous):]):
             fluid = action["fluid"]
-            if (fluid not in ("EF", "ECS")
-                    or source != {"type": "water", "stat_energy_from":
+            mapping = {"EF": ("water", "m³"), "ECS": ("water", "m³"),
+                       "CET": ("gas", "kWh")}
+            source_type, unit = mapping.get(fluid, (None, None))
+            if (source_type is None
+                    or source != {"type": source_type, "stat_energy_from":
                                  action["statistic_id"]}):
-                # CET stays kWh; do not misclassify heating as gas.
                 raise ValueError("Unsupported native Energy source semantics")
             rows.append({
                 "fluid": fluid, "statistic_id": action["statistic_id"],
-                "unit": "m³", "energy_source_type": "water",
+                # gas is the HA storage category, not the physical medium.
+                "unit": unit, "energy_source_type": source_type,
+                **({"physical_medium": "heating",
+                    "display_acceptance": "post_installation_pending"}
+                   if fluid == "CET" else {}),
             })
         return {**result, "status": "native_schema_validated_read_only",
                 "sources": rows}

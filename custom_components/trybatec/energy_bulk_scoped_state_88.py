@@ -108,7 +108,10 @@ def build_native_scoped_energy_state_88(
             # after reconciling independent v2 proofs. The flags remain
             # planner compatibility fields, not independent attestations.
             **dict.fromkeys(_FIELDS, True),
-            "thermal_category_approved": False,
+            # Technical mapping already used by the planner: CET kWh -> gas.
+            # This is not a claim of production display acceptance and does
+            # not authorize writes or relax Recorder/exclusivity checks.
+            "thermal_category_approved": fluid == "CET",
         })
         fluids[fluid] = {"status": "admissible", "reasons": []}
     if any(value["status"] == "blocked" for value in fluids.values()):

@@ -106,9 +106,9 @@ def assess_scoped_selection_l6_88(
         issues.add("selected_generation_ids_invalid")
         generations = []
     unit = _EXPECTED_UNITS.get(fluid)
-    if fluid == "CET":
-        # Core gas kWh is NOT a native thermal-energy category.
-        issues.add("native_heating_category_not_qualified")
+    # CET remains thermal energy in kWh. The technical Energy category is
+    # checked by the native proposal parser; live display acceptance belongs
+    # after installation, not in the scoped Recorder/lineage admission gate.
     if any(not isinstance(v, Mapping) for v in (recorder_36, lineage_37, energy_audit)):
         issues.add("independent_native_producers_missing")
     recorder = recorder_36 if isinstance(recorder_36, Mapping) else {}

@@ -240,7 +240,7 @@ def test_scoped_refusals_are_not_mutation_permits(change, reason):
     assert out["writes"] is False
 
 
-def test_cet_kwh_stays_blocked_until_real_thermal_category_is_proved():
+def synthetic_heating():
     choice, rec, lineage, audit = synthetic()
     choice["fluid"] = rec["fluid"] = lineage["fluid"] = "CET"
     rec["unit"] = lineage["unit"] = "kWh"
@@ -250,9 +250,48 @@ def test_cet_kwh_stays_blocked_until_real_thermal_category_is_proved():
         gen["unit"] = "kWh"
     digest = _digest(choice)
     rec["selection_digest"] = lineage["selection_digest"] = digest
+    return choice, rec, lineage, audit
+
+
+def test_cet_kwh_can_be_prepared_without_claiming_live_display_acceptance():
+    from custom_components.trybatec.energy_bulk_scoped_state_88 import (
+        build_native_scoped_energy_state_88,
+    )
+    from custom_components.trybatec.energy_bulk_transaction import _prepare_state
+
+    choice, rec, lineage, audit = synthetic_heating()
     result = validate((choice, rec, lineage, audit))
+    assert result["status"] == "eligible_for_scoped_review"
+    state = build_native_scoped_energy_state_88(
+        deepcopy(audit["live"]), [{
+            "selection": choice, "history_36": rec,
+            "lineage_37": lineage, "energy_audit": audit,
+        }], account=choice["account"], lot=choice["lot"],
+        schema_version="2026.11.1",
+    )
+    preview, plan = _prepare_state(state, account=choice["account"], lot=choice["lot"])
+    assert preview.status == "prepared_for_explicit_admin_review"
+    assert state.candidates[0]["unit"] == "kWh"
+    assert plan["proposed"]["energy_sources"][-1] == {
+        "type": "gas", "stat_energy_from": SID,
+    }
+    assert not preview.writes and not preview.activation_authorized
+
+
+@pytest.mark.parametrize("broken", ["unit", "recorder", "lineage", "approval"])
+def test_heating_keeps_independent_safety_requirements(broken):
+    bundle = synthetic_heating()
+    if broken == "unit":
+        bundle[1]["metadata"]["unit"] = "m³"
+    elif broken == "recorder":
+        bundle[1]["selected_series_persisted"] = False
+    elif broken == "lineage":
+        bundle[2]["selected_scope_reconciled"] = False
+    else:
+        bundle[1]["approved_days"][0]["approved"] = False
+    result = validate(bundle)
     assert result["status"] == "blocked"
-    assert "native_heating_category_not_qualified" in result["blockers"]
+    assert not result["writes"] and not result["activation_authorized"]
 
 
 def test_linear_smoothing_with_matching_user_validation_is_allowed_but_not_vendor_measured():
