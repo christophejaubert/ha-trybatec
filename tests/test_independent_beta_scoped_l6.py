@@ -220,9 +220,10 @@ def test_l6_independent_counterfactual_must_be_blocked(failure):
     assert refused["writes"] is False and refused["activation_authorized"] is False
 
 
-def test_l6_cet_kwh_has_no_native_gas_shortcut_even_with_other_proofs():
+def test_l6_cet_review_does_not_claim_post_installation_acceptance():
     # Change the fluid, all unit references, and the selection digest
-    # consistently. Admission must still require actual thermal-HA evidence.
+    # consistently. Live CET display acceptance is post-installation; scoped
+    # review must still never grant native mutation authorization.
     state = bundle()
     sel, rec, phy, energy = state
     for obj in (sel, rec, phy):
@@ -235,7 +236,7 @@ def test_l6_cet_kwh_has_no_native_gas_shortcut_even_with_other_proofs():
         member["unit"] = "kWh"
     binding = _digest(sel)
     rec["selection_digest"] = phy["selection_digest"] = binding
-    blocked = assess(state)
-    assert blocked["status"] == "blocked"
-    assert "native_heating_category_not_qualified" in blocked["blockers"]
-    assert blocked["activation_authorized"] is False
+    result = assess(state)
+    assert result["status"] == "eligible_for_scoped_review"
+    assert result["activation_authorized"] is False
+    assert result["writes"] is False

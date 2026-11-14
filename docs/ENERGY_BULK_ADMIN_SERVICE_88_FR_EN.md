@@ -1,5 +1,31 @@
 # 🤖 #88 — Contrat de service administratif Énergie / Native admin service contract
 
+## FR — Correction du périmètre CET, 14 novembre 2026
+
+La sélection scoped v2 ne refuse plus CET au seul motif que HA nomme sa catégorie
+technique `gas`. Le plan conserve le fluide CET, les kWh et la classe `energy` ;
+la proposition native vérifie le schéma HA, expose `physical_medium=heating` et
+`display_acceptance=post_installation_pending`. Aucune conversion en volume de gaz.
+La recette du rendu réel reste après installation, conformément à la décision
+utilisateur. Cette section remplace les anciennes conditions de validation
+sémantique préalable pour le parcours scoped v2, pas les contrôles Recorder,
+filiation, doublons, sauvegarde/restauration ou concurrence. L7 reste désactivé.
+
+Tests : plan L6/L7 CET avec contrats synthétiques ; parseur Energy HA 2026.11.0
+réel pour la proposition ; refus des unités, preuves ou destinations incohérentes.
+Ces tests ne constituent ni une transaction native positive ni une recette réelle.
+
+## EN — CET scope correction, 14 November 2026
+
+Scoped v2 no longer refuses CET solely because HA names its technical category
+`gas`. The plan retains CET, kWh and device class `energy`; the native proposal
+checks HA's schema and reports physical medium `heating` with display acceptance
+pending after installation. No gas-volume conversion. This supersedes earlier
+pre-installation semantic acceptance requirements for scoped v2, but not Recorder,
+lineage, duplication, backup/restore or concurrent-writer checks. L7 stays disabled.
+Tests use synthetic L6/L7 proof contracts and the real HA 2026.11.0 Energy parser;
+they are not positive native transaction or live acceptance evidence.
+
 **Base / Base:** `0.3.4b1` + convergence #153, sans fusion.  
 **Code / Code:** `custom_components/trybatec/energy_bulk_admin_service_88.py`.  
 **Essais / Tests:** `tests/test_energy_bulk_admin_service_88.py`, `tests/test_energy_bulk_transaction_l7.py`, `tests/test_energy_bulk_native_port_l7.py`.  

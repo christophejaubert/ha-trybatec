@@ -435,12 +435,13 @@ def test_real_core_energy_schema_produces_read_only_water_source():
     }
 
 
-def test_heating_kwh_is_not_mislabeled_as_gas_by_native_proposal():
-    """CET must retain its kWh meaning until a genuine HA category is proven."""
+@pytest.mark.parametrize("category", ["gas", "water", "grid"])
+def test_heating_keeps_physical_meaning_with_native_storage_category(category):
+    """Real HA parser checks storage schema, not production UI acceptance."""
     plan = {
         "previous": {"energy_sources": []},
         "proposed": {"energy_sources": [
-            {"type": "gas", "stat_energy_from": SID},
+            {"type": category, "stat_energy_from": SID},
         ]},
         "actions": [{
             "fluid": "CET", "statistic_id": SID,
@@ -450,6 +451,14 @@ def test_heating_kwh_is_not_mislabeled_as_gas_by_native_proposal():
     parsed = admin._native_source_proposals_88(
         SimpleNamespace(status="prepared_for_explicit_admin_review"), plan,
     )
-    assert parsed["status"] == "native_schema_not_verified"
-    assert parsed["sources"] == []
-    assert parsed["writes"] is False
+    if category == "gas":
+        assert parsed["status"] == "native_schema_validated_read_only"
+        assert parsed["sources"] == [{
+            "fluid": "CET", "statistic_id": SID, "unit": "kWh",
+            "energy_source_type": "gas", "physical_medium": "heating",
+            "display_acceptance": "post_installation_pending",
+        }]
+    else:
+        assert parsed["status"] == "native_schema_not_verified"
+        assert parsed["sources"] == []
+    assert not parsed["writes"] and not parsed["activation_authorized"]
