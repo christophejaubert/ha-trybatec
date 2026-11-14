@@ -150,3 +150,23 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     assert energy_doc["minor_version"] == 3
     assert energy_doc["data"] == before_energy
     assert marker.read_text(encoding="utf-8") == "changed after backup"
+
+
+@pytest.mark.asyncio
+async def test_native_corrupt_archive_never_qualifies_backup(hass):
+    """Real local backup changed after creation must fail before any journal/write."""
+    assert await async_setup_component(hass, "backup", {})
+    await hass.async_block_till_done()
+    port = HAGuardedEnergyPort(
+        hass, SimpleNamespace(entry=SimpleNamespace(
+            entry_id="ci-corrupt-backup", unique_id="ci-corrupt-account",
+        )), lot="CI-LOT",
+    )
+    receipt = await port.create_backup()
+    agent = async_get_manager(hass).local_backup_agents[receipt["agent_id"]]
+    path = agent.get_backup_path(receipt["backup_id"])
+    assert path.is_file()
+    path.write_bytes(b"CI-only deliberately invalid backup archive")
+    assert await port.verify_backup(receipt) is False
+    assert port._verified_receipt is None
+    assert await port.read_last_journal() is None
