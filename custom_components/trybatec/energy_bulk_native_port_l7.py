@@ -29,7 +29,7 @@ _LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
 
 def _core_only() -> None:
-    from homeassistant import __version__
+    from homeassistant.const import __version__
     if __version__ not in _SUPPORTED_CORE_VERSIONS:
         raise EnergyTransactionRefused("Native Energy port needs a newly qualified HA Core version")
 
