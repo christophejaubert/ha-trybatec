@@ -107,7 +107,8 @@ class FakeBackup:
 def install_stubs(monkeypatch, hass):
     homeassistant = ModuleType("homeassistant")
     homeassistant.__path__ = []
-    homeassistant.__version__ = "2026.11.1"
+    ha_const = ModuleType("homeassistant.const")
+    ha_const.__version__ = "2026.11.1"
     components = ModuleType("homeassistant.components")
     components.__path__ = []
     energy = ModuleType("homeassistant.components.energy")
@@ -135,7 +136,7 @@ def install_stubs(monkeypatch, hass):
             hass.journal = deepcopy(payload)
 
     storage.Store = Store
-    for module in (homeassistant, components, energy, energy_data, backup,
+    for module in (homeassistant, ha_const, components, energy, energy_data, backup,
                    helpers, storage):
         monkeypatch.setitem(sys.modules, module.__name__, module)
 
@@ -256,8 +257,8 @@ def test_shared_exclusive_lock_and_unsupported_core_fail_closed(monkeypatch):
         lot="SYNTH-LOT",
     )
     assert port._lock is companion._lock
-    import homeassistant
-    monkeypatch.setattr(homeassistant, "__version__", "2027.1")
+    import homeassistant.const as ha_const
+    monkeypatch.setattr(ha_const, "__version__", "2027.1")
     with pytest.raises(EnergyTransactionRefused, match="Core"):
         run(port.create_backup())
 
@@ -266,14 +267,14 @@ def test_shared_exclusive_lock_and_unsupported_core_fail_closed(monkeypatch):
 def test_two_audited_core_patches_accept_and_others_fail_closed(monkeypatch):
     """Match the isolated HA CI pin without allowing unreviewed Core upgrades."""
     _hass, port = make(monkeypatch)
-    import homeassistant
+    import homeassistant.const as ha_const
 
     for version in ("2026.11.0", "2026.11.1"):
-        monkeypatch.setattr(homeassistant, "__version__", version)
+        monkeypatch.setattr(ha_const, "__version__", version)
         assert run(port.read_live()) == BASE
 
     for version in ("2026.10.4", "2026.11.2", "2026.12.0"):
-        monkeypatch.setattr(homeassistant, "__version__", version)
+        monkeypatch.setattr(ha_const, "__version__", version)
         with pytest.raises(EnergyTransactionRefused, match="Core"):
             run(port.read_live())
 
