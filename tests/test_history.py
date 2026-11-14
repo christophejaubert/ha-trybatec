@@ -168,8 +168,11 @@ def test_annual_observed_usage_is_ending_reading_attribution():
     ])]}
     h = build_history([p], date(2025, 12, 30), date(2026, 1, 2))
     annual = summarize_preview(h)["ECS"]["yearly_consumption_by_end_reading"]
-    assert annual["2025"] == 2.0
-    assert annual["2026"] == 3.0
+    # The intermediate observation is 2026-01-01 00:00 Europe/Paris:
+    # its ending-reading year is 2026 even though its Recorder bucket is 2025.
+    assert annual == {"2026": 5.0}
+    assert h["ECS"]["annual_within_year"] == {"2026": 3.0}
+    assert h["ECS"]["annual_daily_cadence"] == {"2025": 2.0, "2026": 3.0}
     assert h["ECS"]["cross_year_intervals"] == 1
 
 

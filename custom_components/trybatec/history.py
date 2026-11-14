@@ -321,9 +321,13 @@ def build_history(
                 })
             if prev_at.astimezone(LOCAL_ZONE).year != at.astimezone(LOCAL_ZONE).year:
                 parent["cross_year_intervals"] += 1
-            year = str(_bucket(at).astimezone(LOCAL_ZONE).year)
+            # F27: annual_by_end means the calendar year of the actual final
+            # source reading, not the previous completed Recorder hour.
+            # The separate daily-cadence series retains bucket-year accounting.
+            ending_reading_year = str(at.astimezone(LOCAL_ZONE).year)
+            hourly_bucket_year = str(_bucket(at).astimezone(LOCAL_ZONE).year)
             series["total"] += delta
-            series["annual_by_end"][year] += delta
+            series["annual_by_end"][ending_reading_year] += delta
             if prev_at.astimezone(LOCAL_ZONE).year == at.astimezone(LOCAL_ZONE).year:
                 series["annual_within_year"][str(at.astimezone(LOCAL_ZONE).year)] += delta
             chosen_accounting = meter.get("accounting_choices", {}).get(at)
@@ -356,7 +360,7 @@ def build_history(
                         "start": _bucket(prev_at), "state": 0.0, "sum": 0.0,
                     })
                 series["importable"] += delta
-                series["annual_daily"][year] += delta
+                series["annual_daily"][hourly_bucket_year] += delta
                 series["rows"].append({
                     "start": _bucket(at),
                     "state": round(series["importable"], 6),
