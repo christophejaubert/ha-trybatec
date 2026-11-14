@@ -157,3 +157,19 @@ Buttons: use **contrasting neutral active styling** for read, examine, preview a
 Create separate semantic tokens for success, warning, danger, neutral, actions and disabled states; **exact new hex values remain to be selected and tested** against actual light/dark Home Assistant surfaces. Brand and fluid tokens must not be automatically recycled as status tokens. Do not rely on color alone; expose icons, text and accessible semantics. Keep data provenance and unverified/history status distinct.
 
 **Historical-document clarification:** the previous broad green-action recommendation in `docs/specifications/trybatec-ui-0.3.2b1.md` is superseded for future work by these rules; this does not retroactively change a release. Validate themes, grayscale, contrast, keyboard/screen readers, FR/EN, mobile/desktop and interaction states; distinguish implemented code, passing CI and real Home Assistant acceptance.
+
+## Actions utilisateur nécessaires — bleu distinct (14/11/2026)
+
+**Décision approuvée / Approved:** action réellement nécessaire dans le parcours courant = **bleu**, flèche cerclée, libellé explicite. Les statuts des contrôles et la palette des fluides restent indépendants. Les vérifications facultatives, les informations seulement non vérifiées et les anomalies ne prennent pas cette couleur par défaut. Le bouton d'action reste neutre actif, sauf risque spécifique justifiant un autre traitement.
+
+| Token | Thème clair / Light | Thème sombre / Dark | Usage |
+|---|---|---|---|
+| `--trybatec-user-action-base` | `#3478D4` | `#3478D4` | Référence approuvée / Approved reference blue |
+| `--trybatec-user-action-fg` | `#2355A6` | `#A9C8FF` | Picto + texte / Icon and label |
+| `--trybatec-user-action-bg` | `#EAF2FF` | `#172B49` | Fond éventuel / Optional light surface |
+
+**Rapports de contraste sRGB calculés / Computed sRGB contrast ratios:** premier plan / fond d'action : **6,38:1** (clair / light), **8,38:1** (sombre / dark) ; premier plan / fond blanc : **7,19:1**. Ces chiffres concernent ces seules paires, et ne remplacent pas la recette du rendu Home Assistant réel.
+
+**FR:** utiliser `mdi:arrow-right-circle-outline` lorsque la nécessité et la disponibilité de l'intervention sont établies. Conserver « Non vérifié » comme résultat de contrôle indépendant ; jamais de faux « anomalie détectée ». Bleu EF `#0A84D8` réservé à l'identité du fluide, et marque Trybatec `#4E9E4A` réservée à la marque. Les boutons de consultation/recherche restent neutres actifs.
+
+**EN:** use `mdi:arrow-right-circle-outline` only for a required, available user action in context. Preserve “Not verified” as an independent check state, never impersonate a proven warning. The cold-water `#0A84D8` and Trybatec brand `#4E9E4A` remain separate roles. Browsing and search buttons stay visibly enabled and neutral.
