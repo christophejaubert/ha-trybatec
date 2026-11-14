@@ -14,6 +14,7 @@ from homeassistant.const import __version__ as ha_core_version
 from homeassistant.components.energy.data import async_get_manager
 
 from custom_components.trybatec.energy_bulk_native_port_l7 import HAGuardedEnergyPort
+from custom_components.trybatec.energy_bulk_evidence_ha import _native_schema
 from custom_components.trybatec.energy_bulk_transaction import EnergyTransactionRefused
 
 
@@ -49,6 +50,11 @@ async def test_ha_2026_11_0_native_port_reads_real_energy_disk_without_mutation(
     assert await port.read_live() == original
     assert await port.read_persisted() == original
     assert await port.read_last_journal() is None
+
+    # The actual pinned HA validation module, not a permissive test stub.
+    real_schema = _native_schema(hass)
+    assert real_schema["version"] == "2026.11.0"
+    assert real_schema["energy_schema_checked"] is True
 
     # No implicit authorization, even though real HA memory and disk agree.
     with pytest.raises(EnergyTransactionRefused, match="prepared durable"):
