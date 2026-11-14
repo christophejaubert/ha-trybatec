@@ -95,7 +95,7 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     assert not backed.failed_folders
     assert receipt["agent_id"] in backed.agents
     assert backed.agents[receipt["agent_id"]].size > 0
-    assert backed.protected is False
+    assert backed.agents[receipt["agent_id"]].protected is False
     from homeassistant.components.backup.util import validate_password
     native_archive_path = manager.local_backup_agents[
         receipt["agent_id"]
