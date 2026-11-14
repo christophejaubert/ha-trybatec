@@ -81,6 +81,23 @@ async def test_native_ha_backup_archive_restores_energy_and_database_to_disposab
     )
     before_energy = await port.read_persisted()
     receipt = await port.create_backup()
+    # Independently test the native catalog/agent preconditions, so that a
+    # failure of the port's strict verifier remains diagnosable and fail-closed.
+    assert receipt["agent_id"] in manager.local_backup_agents
+    backed, native_errors = await manager.async_get_backup(receipt["backup_id"])
+    assert not native_errors
+    assert backed is not None
+    assert backed.extra_metadata.get("trybatec_energy_operation") == receipt["nonce"]
+    assert backed.homeassistant_included is True
+    assert backed.database_included is True
+    assert not backed.failed_addons
+    assert not backed.failed_agent_ids
+    assert not backed.failed_folders
+    assert receipt["agent_id"] in backed.agents
+    assert backed.agents[receipt["agent_id"]].size > 0
+    await manager.async_can_decrypt_on_download(
+        receipt["backup_id"], agent_id=receipt["agent_id"], password=None,
+    )
     assert await port.verify_backup(receipt) is True
 
     backup_path = manager.local_backup_agents[receipt["agent_id"]].get_backup_path(
