@@ -56,7 +56,7 @@ const code=fs.readFileSync(process.argv[1],"utf8");
 const sandbox={HTMLElement:class {},customElements:{get:()=>false,define:()=>{}},
     window:{matchMedia:()=>({matches:true})}};
 vm.runInNewContext(code+
-  "\\nglobalThis.__ui={p:TrybatecPanel.prototype,style:style};",
+  "\nglobalThis.__ui={p:TrybatecPanel.prototype,style:style};",
   sandbox,{timeout:4000});
 const {p,style}=sandbox.__ui;
 const current={physical_key:"a".repeat(24),status:"en_service",
@@ -116,6 +116,7 @@ overview=p._readinessView.call(f,account);
 assert.doesNotMatch(overview,/user-action-needed/);
 assert.match(overview,/Conforme/);
 // Separate guidance differentiates required operations from unverified history.
+current.unit_verified=false; // eligible and explicitly required Energy setup action
 const guidance=p._energySetupHelp.call(f);
 assert.match(guidance,/energy-action-needed/);
 assert.match(guidance,/mdi:arrow-right-circle-outline/);
