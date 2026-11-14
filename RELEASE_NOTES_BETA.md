@@ -20,6 +20,8 @@
 
 **Distribution and rollback:** preserve version/configuration information before upgrading; the previous published version can be reinstalled if regression occurs, after checking configuration and statistics compatibility. No automatic purge or recovery operation. Merge, release and HA installation each require distinct owner authorization. #168/#172/#177 and official catalog submission are outside this candidate.
 
+---
+
 # 0.3.5b1 — Préversion intégrée / Integrated experimental prerelease
 
 ## FR — Changements, qualification et limites
