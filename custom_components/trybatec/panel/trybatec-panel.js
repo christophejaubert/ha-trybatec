@@ -1844,7 +1844,7 @@ class TrybatecPanel extends HTMLElement {
         "Contrôle non vérifié (aucune anomalie confirmée)",
         "Unverified check (no confirmed fault)")};
     if (m.status==="depose" && m.historical_last_index_raw!==undefined)
-      return {kind:"required",label:this._t(
+      return {kind:"unverified",actionRequired:true,label:this._t(
         "Index historique source à qualifier","Historical source index to qualify")};
     if (!m.first_observed_at || !m.last_source_observed_at)
       return {kind:"known",label:this._t(
@@ -1866,8 +1866,10 @@ class TrybatecPanel extends HTMLElement {
       const icon={passed:"mdi:check-circle-outline",issue:"mdi:alert-outline",
         required:"mdi:arrow-right-circle-outline",
         unverified:"mdi:help-circle-outline",known:"mdi:information-outline"};
-      const stateLabel=state?'<span class="status-indicator '+safe(state.kind)+
-        '" role="status"><ha-icon aria-hidden="true" icon="'+safe(icon[state.kind]||icon.unverified)+
+      const actionRequired=state?.actionRequired===true || state?.kind==="required";
+      const stateLabel=state?'<span class="status-indicator '+safe(actionRequired?"required":state.kind)+
+        '" role="status"><ha-icon aria-hidden="true" icon="'+safe(actionRequired?
+          icon.required:(icon[state.kind]||icon.unverified))+
         '"></ha-icon><span>'+safe(state.label)+'</span></span>':"";
       const selected=i===this._meter;
       return '<div class="meter-row"><button type="button" class="'+safe(fluidClass)+(selected?" selected":"")+
