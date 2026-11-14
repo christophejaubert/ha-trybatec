@@ -96,7 +96,7 @@ class FakeBackup:
         assert kwargs["agent_ids"] == ["local"]
         item = FakeBackupItem("synth-backup", deepcopy(kwargs["extra_metadata"]),
                               database_included=not self.partial,
-                              agents={"local": SimpleNamespace(size=512)})
+                              agents={"local": SimpleNamespace(size=512, protected=False)})
         self.items[item.backup_id] = item
 
     async def async_get_backup(self, identifier):
