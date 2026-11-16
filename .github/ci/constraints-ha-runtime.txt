@@ -123,4 +123,4 @@ uv==0.13.6
 voluptuous==0.16.0
 webrtc-models==0.3.0
 yarl==1.25.1
-zeroconf==0.152.0
+zeroconf==0.154.0
