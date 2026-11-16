@@ -3,7 +3,7 @@
 # Source: PR #107 workflow 43222729822, job 131198154500, Python 3.14 Linux x86_64.
 # Distributions directes et transitives. Pour autre ABI/plateforme, audit distinct requis.
 --require-hashes
-acme==5.7.0 --hash=sha256:a736f88e975f0ebe8c6fcabd3db164d1071b4f9e1a56d1319a9f6997e0a64a0a
+acme==5.9.0 --hash=sha256:a646011d6c7c843d89c91a901a2bf450752621f6431f19851bec1222c94446bd --hash=sha256:bbfd9cf42797b5378a05833c0fd917de9418b69e03cbdb39abb7e85e5532fe75
 aiodns==4.0.4 --hash=sha256:c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2
 aiogithubapi==26.0.0 --hash=sha256:156b5f9217d23cb0eb65e233b19c10f499f1ba3bcf1d7d65e3a463c034e3813a
 aiohappyeyeballs==2.7.1 --hash=sha256:9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472

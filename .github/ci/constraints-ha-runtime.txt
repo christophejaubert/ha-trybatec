@@ -3,7 +3,7 @@
 # Source: successful CI fixture resolver run 43221642456 / job 131194468772.
 # Pinned versions only; SHA256 distribution hashes are tracked separately by issue #105.
 # No data/production HA changes. Linux x86_64 / Python 3.14.10.
-acme==5.7.0
+acme==5.9.0
 aiodns==4.0.4
 aiogithubapi==26.0.0
 aiohappyeyeballs==2.7.1
