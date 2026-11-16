@@ -69,7 +69,7 @@ mashumaro==3.23
 multidict==7.2.1
 orjson==3.13.0
 packaging==26.3
-paho-mqtt==2.1.0
+paho-mqtt==2.2.0
 pillow==13.0.0
 pluggy==1.7.0
 probatio==0.13.0
