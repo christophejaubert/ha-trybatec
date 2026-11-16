@@ -1,7 +1,7 @@
 # CI ha-persistence dependency versions observed in verified run 43186060507
 # Pinned versions, not SHA256 distribution hashes; Linux x86_64 snapshot.
 # Refresh only with review and full passing CI.
-acme==5.7.0
+acme==5.9.0
 aiodns==4.0.4
 aiogithubapi==26.0.0
 aiohappyeyeballs==2.7.1
